@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
+import es.in2.issuer.backend.shared.domain.model.dto.ValidityWindow;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -47,21 +48,33 @@ public class GenericCredentialBuilder {
      * from the credential type file, as before the entry carried them (D9).
      *
      * <p>The credential is valid from now for the default number of days. The payload's
-     * {@code validFrom} / {@code validUntil} are always ignored, whatever {@code requester_can_set_dates}
-     * says: the EUD-254 contract states that today they are ignored. {@code requester_can_set_dates} and
-     * {@code max_days} are stored and returned by the catalog but not applied until EUD-254 point 6.
+     * {@code validFrom} / {@code validUntil} are never read here: the issuance splits them from the payload
+     * and, when the entry lets the requester set the dates, passes the window it accepted (EUD-254 FR-06).
+     */
+    public Mono<CredentialBuildResult> buildCredential(
+            CredentialProfile profile,
+            JsonNode payload,
+            CatalogEntry entry) {
+        return buildCredential(profile, payload, entry, null);
+    }
+
+    /**
+     * {@link #buildCredential(CredentialProfile, JsonNode, CatalogEntry)} valid for the {@code window} the
+     * issuance accepted, or for the default validity when it is {@code null}.
      */
     @SuppressWarnings("removal")
     public Mono<CredentialBuildResult> buildCredential(
             CredentialProfile profile,
             JsonNode payload,
-            CatalogEntry entry) {
+            CatalogEntry entry,
+            ValidityWindow window) {
 
         boolean entryConfigured = entry != null && entry.isFilled();
         Instant now = Instant.now();
         int validityDays = entryConfigured ? entry.validity().defaultDays() : profile.validityDays();
-        String validFrom = now.toString();
-        String validUntil = now.plus(validityDays, ChronoUnit.DAYS).toString();
+        String validFrom = window != null ? window.validFrom().toString() : now.toString();
+        String validUntil = window != null ? window.validUntil().toString()
+                : now.plus(validityDays, ChronoUnit.DAYS).toString();
 
         String credentialJson;
         if (DC_SD_JWT.equals(profile.format()) && profile.sdJwt() != null) {

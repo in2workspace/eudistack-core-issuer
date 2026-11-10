@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorM
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -89,6 +90,21 @@ public class IssuanceExceptionHandler {
                 "Invalid grant type",
                 HttpStatus.BAD_REQUEST,
                 "grant_type must be one of: authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code"
+        );
+    }
+
+    @ExceptionHandler(InvalidValidityException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidValidity(
+            InvalidValidityException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_VALIDITY.getCode(),
+                "Invalid validity",
+                HttpStatus.BAD_REQUEST,
+                "The requested validity is not allowed for this attestation type"
         );
     }
 

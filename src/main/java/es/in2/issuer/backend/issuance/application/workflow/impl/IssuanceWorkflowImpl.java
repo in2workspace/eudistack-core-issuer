@@ -27,6 +27,9 @@ import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryTrace;
 import es.in2.issuer.backend.issuance.domain.model.HolderKey;
 import es.in2.issuer.backend.issuance.domain.model.OfferGrantType;
+import es.in2.issuer.backend.issuance.domain.model.RequestedValidity;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.dto.ValidityWindow;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBindingExemption;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
@@ -102,15 +105,15 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return requireResolvedTenant()
                 .then(Mono.defer(() -> validateRequest(request)))
-                .then(Mono.fromSupplier(() -> normalized(request)))
-                .flatMap(normalizedRequest -> payloadSchemaValidator.validate(configId, normalizedRequest.payload())
+                .then(Mono.fromSupplier(() -> prepared(request)))
+                .flatMap(prepared -> payloadSchemaValidator.validate(configId, prepared.request().payload())
                         .then(Mono.defer(() -> powerAuthorizationService.authorizeIssuance(processId, configId,
                                 credentialProfileRegistry.getByConfigurationId(configId).credentialType(),
-                                normalizedRequest.organization(), normalizedRequest.payload())))
+                                prepared.request().organization(), prepared.request().payload())))
                         // FR-07: the process belongs to the organization the decision set, never to the content.
                         .flatMap(authorization -> performIssuanceFlow(processId,
-                                normalizedRequest.withOrganization(authorization.organizationIdentifier()),
-                                bearerToken, publicIssuerBaseUrl, delivery)))
+                                prepared.request().withOrganization(authorization.organizationIdentifier()),
+                                bearerToken, publicIssuerBaseUrl, delivery, prepared.validity())))
                 .transformDeferredContextual((flow, ctx) -> {
                     String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
                     return flow
@@ -199,16 +202,26 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return Mono.fromCallable(() -> keepOnlyOid4vciDeliveryModes(delivery))
                 .flatMap(safeDelivery -> validateRequest(request)
-                        .then(Mono.fromSupplier(() -> normalized(request)))
-                        .flatMap(normalizedRequest -> payloadSchemaValidator.validate(normalizedRequest.credentialConfigurationId(), normalizedRequest.payload())
-                                .then(Mono.defer(() -> performIssuanceFlow(processId, normalizedRequest, token, publicIssuerBaseUrl, safeDelivery)))));
+                        .then(Mono.fromSupplier(() -> prepared(request)))
+                        .flatMap(prepared -> payloadSchemaValidator.validate(prepared.request().credentialConfigurationId(), prepared.request().payload())
+                                .then(Mono.defer(() -> performIssuanceFlow(processId, prepared.request(), token,
+                                        publicIssuerBaseUrl, safeDelivery, prepared.validity())))));
     }
 
-    private IssuanceRequest normalized(IssuanceRequest request) {
+    /** A request whose payload is normalized and split from the validity dates it asks for (EUD-254 §5). */
+    private record PreparedRequest(IssuanceRequest request, RequestedValidity validity) {
+    }
+
+    /** What building the credential takes besides the request: the tenant's catalog entry and the accepted window. */
+    private record CredentialTerms(CatalogEntry entry, ValidityWindow window) {
+    }
+
+    private PreparedRequest prepared(IssuanceRequest request) {
         JsonNode normalizedPayload = Objects.requireNonNull(
                 issuancePayloadNormalizer.normalize(request.credentialConfigurationId(), request.payload()),
                 "The issuance payload normalizer must not return null");
-        return request.withPayload(normalizedPayload);
+        RequestedValidity.Split split = RequestedValidity.split(normalizedPayload);
+        return new PreparedRequest(request.withPayload(split.payload()), split.validity());
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request) {
@@ -225,32 +238,42 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      *                    may have to sign a new status list inside this same request (EUD-168).
      */
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String bearerToken,
-                                                        String publicIssuerBaseUrl, String delivery) {
+                                                        String publicIssuerBaseUrl, String delivery,
+                                                        RequestedValidity requestedValidity) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
 
+        // EUD-254 §3: delivery mode, grant, validity and holder key, in this order, before anything is created.
         return resolveAndValidateDeliveryModes(configId, delivery)
-                .flatMap(modes -> {
-                    // EUD-254 §3: the grant is checked after the delivery mode and before the holder
-                    // key, whatever the mode -- the direct mode builds no offer and ignores a valid one.
-                    OfferGrantType.fromRequest(request.grantType());
-                    // Scoped exception (AD-8): the machine LEARCredential types keep a cnf even though
-                    // their schema declares no binding, sourced from the request holder_key. Not gated on
-                    // the direct mode -- with proof_types_supported gone no key proof arrives through the
-                    // wallet flow either, so the request is the only source of a holder key there is.
-                    //
-                    // Gated on !profile.requiresHolderBinding() as well as the id prefix (F4/S4): the
-                    // prefix match alone would also fire for a future profile of the same family that
-                    // recovers proof_types_supported, which would make holder_key required again for a
-                    // type the schema now binds through a real key proof -- exactly the invariant AD-9
-                    // exists to protect.
-                    // HolderKey.fromJson requires the jwk member (code-review F1a/D3): kid/x5c carry
-                    // no key material this path -- no wallet, no OID4VCI proof -- could ever verify.
-                    Map<String, Object> cnf = HolderBindingExemption.isExempt(configId) && !profile.requiresHolderBinding()
-                            ? HolderKey.fromJson(request.holderKey()).cnf() : null;
-                    return executeIssuanceForModes(processId, request, bearerToken,
-                            publicIssuerBaseUrl, delivery, modes, cnf);
-                });
+                // Whatever the mode: the direct mode builds no offer and ignores a valid grant.
+                .doOnNext(modes -> OfferGrantType.fromRequest(request.grantType()))
+                .flatMap(modes -> credentialTerms(configId, requestedValidity)
+                        .flatMap(terms -> executeIssuanceForModes(processId, request, bearerToken,
+                                publicIssuerBaseUrl, delivery, modes, holderCnf(configId, profile, request), terms)));
+    }
+
+    /** The tenant's catalog entry, and the validity window requested and accepted against it (EUD-254 FR-06). */
+    private Mono<CredentialTerms> credentialTerms(String configId, RequestedValidity requestedValidity) {
+        return catalogEntry(configId).map(entry -> new CredentialTerms(entry.orElse(null),
+                requestedValidity.resolve(entry.orElse(null), Instant.now())));
+    }
+
+    /**
+     * Scoped exception (AD-8): the machine LEARCredential types keep a cnf even though their schema
+     * declares no binding, sourced from the request holder_key. Not gated on the direct mode -- with
+     * proof_types_supported gone no key proof arrives through the wallet flow either, so the request is
+     * the only source of a holder key there is.
+     *
+     * <p>Gated on !profile.requiresHolderBinding() as well as the id prefix (F4/S4): the prefix match alone
+     * would also fire for a future profile of the same family that recovers proof_types_supported, which
+     * would make holder_key required again for a type the schema now binds through a real key proof --
+     * exactly the invariant AD-9 exists to protect. HolderKey.fromJson requires the jwk member
+     * (code-review F1a/D3): kid/x5c carry no key material this path -- no wallet, no OID4VCI proof -- could
+     * ever verify.
+     */
+    private static Map<String, Object> holderCnf(String configId, CredentialProfile profile, IssuanceRequest request) {
+        return HolderBindingExemption.isExempt(configId) && !profile.requiresHolderBinding()
+                ? HolderKey.fromJson(request.holderKey()).cnf() : null;
     }
 
     /**
@@ -305,14 +328,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<IssuanceResponse> executeIssuanceForModes(String processId, IssuanceRequest request, String bearerToken,
                                                             String publicIssuerBaseUrl, String delivery, Set<DeliveryMode> modes,
-                                                            Map<String, Object> cnf) {
+                                                            Map<String, Object> cnf, CredentialTerms terms) {
 
         boolean hasDirect  = modes.stream().anyMatch(DeliveryMode::isDirect);
         boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
         String oid4vciDelivery = extractOid4vciDelivery(modes);
 
         Mono<DirectDeliveryOutcome> directOutcome = hasDirect
-                ? performDirectIssuance(processId, request, bearerToken, publicIssuerBaseUrl, delivery, cnf)
+                ? performDirectIssuance(processId, request, bearerToken, publicIssuerBaseUrl, delivery, cnf, terms)
                 .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
                         DeliveryResult.delivered(DeliveryMode.DIRECT.value), null, r.issuanceId()))
                 .doOnSuccess(outcome -> {
@@ -328,7 +351,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 : Mono.just(DirectDeliveryOutcome.empty());
 
         Mono<WalletDeliveryOutcome> walletOutcome = hasOid4vci
-                ? performOid4VciIssuanceResilient(processId, request, publicIssuerBaseUrl, oid4vciDelivery, cnf)
+                ? performOid4VciIssuanceResilient(processId, request, publicIssuerBaseUrl, oid4vciDelivery, cnf, terms)
                 : Mono.just(WalletDeliveryOutcome.empty());
 
         return Mono.zip(directOutcome, walletOutcome)
@@ -376,9 +399,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<WalletDeliveryOutcome> performOid4VciIssuanceResilient(
             String processId, IssuanceRequest request,
-            String publicIssuerBaseUrl, String oid4vciDelivery, Map<String, Object> cnf) {
+            String publicIssuerBaseUrl, String oid4vciDelivery, Map<String, Object> cnf, CredentialTerms terms) {
 
-        return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, oid4vciDelivery, cnf)
+        return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, oid4vciDelivery, cnf, terms)
                 .map(r -> WalletDeliveryOutcome.success(
                         r.credentialOfferUri(), oid4vciDelivery, r.emailError(), r.issuanceId()))
                 .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
@@ -493,26 +516,26 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      */
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,
                                                           String publicIssuerBaseUrl, String originalDelivery,
-                                                          Map<String, Object> cnf) {
+                                                          Map<String, Object> cnf, CredentialTerms terms) {
         UUID issuanceId = UUID.randomUUID();
 
         // bindIssuer and the signature use the same signing configuration. If it changes in
         // between, the scope runs issueDirectly again with the same issuanceId: a failure before the save
         // releases the status list entry, and the credential built the first time never left the Issuer.
         return SigningConfigScope.run(() ->
-                issueDirectly(processId, request, token, publicIssuerBaseUrl, originalDelivery, cnf, issuanceId));
+                issueDirectly(processId, request, token, publicIssuerBaseUrl, originalDelivery, cnf, terms, issuanceId));
     }
 
     private Mono<IssuanceResponse> issueDirectly(String processId, IssuanceRequest request, String token,
                                                  String publicIssuerBaseUrl, String originalDelivery,
-                                                 Map<String, Object> cnf, UUID issuanceId) {
+                                                 Map<String, Object> cnf, CredentialTerms terms, UUID issuanceId) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String credentialFormat = profile.format() != null ? profile.format() : JWT_VC_JSON;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
 
-        return buildCredential(profile, request)
+        return buildCredential(profile, request, terms)
                 .flatMap(buildResult ->
                         genericCredentialBuilder.bindIssuer(profile, buildResult.credentialDataSet(),
                                         issuanceId.toString(), request.email())
@@ -590,12 +613,12 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<Oid4VciLegResult> performOid4VciIssuance(String processId, IssuanceRequest request,
                                                            String publicIssuerBaseUrl, String oid4vciDelivery,
-                                                           Map<String, Object> cnf) {
+                                                           Map<String, Object> cnf, CredentialTerms terms) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String grantType = OfferGrantType.fromRequest(request.grantType()).value();
 
-        return buildCredential(profile, request)
+        return buildCredential(profile, request, terms)
                 .flatMap(buildResult -> {
                     UUID issuanceId = UUID.randomUUID();
                     // The cnf travels on the row, not in this request: the wallet legs sign in a
@@ -625,16 +648,20 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     /**
-     * Builds the credential with the validity and subject of the tenant's catalog entry. A row not
-     * filled yet falls back to the type file (D9); an entry that is not enabled would have been
-     * rejected by the PDP already, so there is nothing else to fall back from.
+     * The tenant's catalog entry of the type. A row not filled yet falls back to the type file (D9); an
+     * entry that is not enabled would have been rejected by the PDP already, so there is nothing else to
+     * fall back from.
      */
-    private Mono<CredentialBuildResult> buildCredential(CredentialProfile profile, IssuanceRequest request) {
-        return tenantCredentialProfileService.findEnabledEntry(request.credentialConfigurationId())
+    private Mono<Optional<CatalogEntry>> catalogEntry(String configId) {
+        return tenantCredentialProfileService.findEnabledEntry(configId)
                 .map(Optional::of)
-                .defaultIfEmpty(Optional.empty())
-                .flatMap(entry -> genericCredentialBuilder.buildCredential(
-                        profile, request.payload(), entry.orElse(null)));
+                .defaultIfEmpty(Optional.empty());
+    }
+
+    /** Builds the credential with the subject of the catalog entry and the validity the issuance accepted. */
+    private Mono<CredentialBuildResult> buildCredential(CredentialProfile profile, IssuanceRequest request,
+                                                        CredentialTerms terms) {
+        return genericCredentialBuilder.buildCredential(profile, request.payload(), terms.entry(), terms.window());
     }
 
     private Issuance buildIssuanceEntity(
