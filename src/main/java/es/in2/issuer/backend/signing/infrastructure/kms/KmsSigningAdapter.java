@@ -1,0 +1,140 @@
+package es.in2.issuer.backend.signing.infrastructure.kms;
+
+import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
+import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+import software.amazon.awssdk.core.SdkBytes;
+import software.amazon.awssdk.services.kms.KmsAsyncClient;
+import software.amazon.awssdk.services.kms.model.MessageType;
+import software.amazon.awssdk.services.kms.model.SignRequest;
+import software.amazon.awssdk.services.kms.model.SignResponse;
+import software.amazon.awssdk.services.kms.model.SigningAlgorithmSpec;
+
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+
+/**
+ * {@link KmsSigningPort} over the AWS KMS async client. SDK retries are disabled in the client;
+ * retries, the per-attempt timeout and the deadline of each operation are applied here with Reactor
+ * ({@link KmsRetryPolicy}, {@link KmsSigningTiming}).
+ *
+ * <p>The client is obtained on the first signature, on a scheduler that may block: building it resolves the
+ * region, and without one the SDK may query the instance metadata endpoint. The build is bounded by the
+ * per-attempt timeout. A client that cannot be built in time fails the signature with
+ * {@code PROVIDER_UNAVAILABLE}, without retries, and the next signature tries again: it is not a problem of
+ * the tenant's key, so it neither reloads the tenant's configuration nor sends a revocation to the DLQ.
+ *
+ * <p>The client factory must return a shared instance (the {@code @Lazy} singleton of {@link KmsSigningConfig}):
+ * two first signatures may both call it, and the adapter never closes what it returns.
+ */
+@Slf4j
+public class KmsSigningAdapter implements KmsSigningPort {
+
+    private static final String OP_SIGN = "Sign";
+
+    private final Supplier<KmsAsyncClient> clientFactory;
+    private final KmsSigningTiming timing;
+    private final AtomicReference<KmsAsyncClient> client = new AtomicReference<>();
+
+    public KmsSigningAdapter(Supplier<KmsAsyncClient> clientFactory) {
+        this(clientFactory, KmsSigningTiming.DEFAULT);
+    }
+
+    KmsSigningAdapter(Supplier<KmsAsyncClient> clientFactory, KmsSigningTiming timing) {
+        this.clientFactory = clientFactory;
+        this.timing = timing;
+    }
+
+    @Override
+    public Mono<byte[]> sign(String keyRef, byte[] sha256Digest) {
+        // A client that cannot be built is logged once, by clientUnavailable, and does not go through failure().
+        return client()
+                .flatMap(kms -> sign(kms, keyRef, sha256Digest)
+                        .onErrorMap(ex -> failure(OP_SIGN, keyRef, ex)));
+    }
+
+    private Mono<KmsAsyncClient> client() {
+        KmsAsyncClient built = client.get();
+        if (built != null) {
+            return Mono.just(built);
+        }
+        return Mono.fromCallable(this::buildClient)
+                .subscribeOn(Schedulers.boundedElastic())
+                .timeout(timing.callTimeout())
+                .onErrorMap(KmsSigningAdapter::clientUnavailable);
+    }
+
+    /** The factory returns the shared client, so two first signatures that both call it keep the same one. */
+    private KmsAsyncClient buildClient() {
+        KmsAsyncClient built = clientFactory.get();
+        client.set(built);
+        return built;
+    }
+
+    private Mono<byte[]> sign(KmsAsyncClient kms, String keyRef, byte[] sha256Digest) {
+        // fromFuture takes a supplier so every retry resubscription issues a fresh KMS call.
+        return Mono.fromFuture(() -> kms.sign(SignRequest.builder()
+                        .keyId(keyRef)
+                        .message(SdkBytes.fromByteArray(sha256Digest))
+                        .messageType(MessageType.DIGEST)
+                        .signingAlgorithm(SigningAlgorithmSpec.ECDSA_SHA_256)
+                        .build()))
+                .timeout(timing.callTimeout())
+                .map(this::validSignature)
+                .retryWhen(KmsRetryPolicy.retrySpec(timing, OP_SIGN, keyRef))
+                .timeout(timing.deadline(), Mono.error(() -> deadlineExceeded(OP_SIGN)));
+    }
+
+    /**
+     * The client could not be built in time, typically because no region is configured. KMS was not reached,
+     * so the failure is {@code PROVIDER_UNAVAILABLE}: the key of the tenant is not at fault. The root cause is
+     * logged by type only: its message may carry the endpoint or other configuration.
+     */
+    private static KmsSigningException clientUnavailable(Throwable error) {
+        Throwable root = error;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String cause = root.getClass().getSimpleName();
+        log.error("KMS client could not be created: {}", cause);
+        return new KmsSigningException(SigningFailureReason.PROVIDER_UNAVAILABLE,
+                "KMS client could not be created: " + cause);
+    }
+
+    private byte[] validSignature(SignResponse response) {
+        if (response.signature() == null || response.signature().asByteArrayUnsafe().length == 0) {
+            throw new KmsSigningException(SigningFailureReason.INVALID_RESPONSE,
+                    "KMS Sign returned an empty signature");
+        }
+        if (response.signingAlgorithm() != SigningAlgorithmSpec.ECDSA_SHA_256) {
+            throw new KmsSigningException(SigningFailureReason.INVALID_RESPONSE,
+                    "KMS Sign returned an unexpected signing algorithm: " + response.signingAlgorithmAsString());
+        }
+        return response.signature().asByteArray();
+    }
+
+    /** Failure of an operation cut by the deadline; the deadline sits outside the retries, so it is never retried. */
+    private KmsSigningException deadlineExceeded(String operation) {
+        return new KmsSigningException(SigningFailureReason.PROVIDER_UNAVAILABLE,
+                "KMS " + operation + " did not complete within " + timing.deadline());
+    }
+
+    private KmsSigningException failure(String operation, String keyRef, Throwable error) {
+        KmsSigningException ex = KmsRetryPolicy.toSigningException(error, operation);
+        log.error("KMS {} failed. keyRef={} reason={} error={}", operation, KmsKeyRefs.forLog(keyRef),
+                ex.getReason(), awsError(error));
+        return ex;
+    }
+
+    /**
+     * The AWS error code of a failure KMS answered, so that KEY_UNUSABLE tells a disabled or missing key
+     * apart from a denied access. Never the message: it carries the key ARN. Failures raised here (empty
+     * response, deadline, retries exhausted) have none; the retry warnings already log the code of each try.
+     */
+    private static String awsError(Throwable error) {
+        return error instanceof KmsSigningException ? "n/a" : KmsRetryPolicy.describe(error);
+    }
+}
