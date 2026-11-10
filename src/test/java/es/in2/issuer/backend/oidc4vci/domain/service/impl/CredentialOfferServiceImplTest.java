@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.ActiveCredentialOffer;
 import es.in2.issuer.backend.oidc4vci.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
@@ -9,9 +10,9 @@ import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
@@ -43,6 +44,8 @@ class CredentialOfferServiceImplTest {
     @Mock
     private TransientStore<String> issuerStateCacheStore;
     @Mock
+    private TransientStore<ActiveCredentialOffer> activeCredentialOfferCacheStore;
+    @Mock
     private CredentialOfferCacheRepository credentialOfferCacheRepository;
     @Mock
     private EmailService emailService;
@@ -51,8 +54,22 @@ class CredentialOfferServiceImplTest {
     @Mock
     private TenantConfigService tenantConfigService;
 
-    @InjectMocks
     private CredentialOfferServiceImpl credentialOfferService;
+
+    @BeforeEach
+    void setUp() {
+        // Built by hand: @InjectMocks resolves constructor parameters by erased type, so it cannot
+        // tell the two TransientStore mocks apart.
+        credentialOfferService = new CredentialOfferServiceImpl(preAuthorizedCodeService, issuerStateCacheStore,
+                activeCredentialOfferCacheStore, credentialOfferCacheRepository, emailService, issuanceService,
+                tenantConfigService);
+        // Settling an offer is incidental to most tests here: by default there is no previous offer
+        // and retiring one succeeds. The tests on retirement below verify these calls.
+        lenient().when(activeCredentialOfferCacheStore.replace(anyString(), any())).thenReturn(Mono.empty());
+        lenient().when(credentialOfferCacheRepository.invalidateCredentialOffer(anyString())).thenReturn(Mono.empty());
+        lenient().when(preAuthorizedCodeService.revokePreAuthorizedCode(anyString())).thenReturn(Mono.empty());
+        lenient().when(issuerStateCacheStore.delete(anyString())).thenReturn(Mono.empty());
+    }
 
     // ── ui: the standard OID4VCI form, unconverted (EUD-305) ─────────────────
 
@@ -217,6 +234,113 @@ class CredentialOfferServiceImplTest {
                 argThat(uri -> uri.startsWith("openid-credential-offer://?credential_offer_uri=")),
                 any(), eq("Sandbox Org"), isNull());
         verify(emailService, never()).sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    // ── one usable offer per issuance (EUD-295) ──────────────────────────────
+
+    @Test
+    void createAndDeliverCredentialOffer_whenDelivered_retiresThePreviousOfferAndItsPreAuthorizedCode() {
+        stubPreAuthorizedCodeGrant();
+        stubOfferCache();
+        when(activeCredentialOfferCacheStore.replace(eq("test-issuance-id"), any()))
+                .thenReturn(Mono.just(new ActiveCredentialOffer("old-nonce", "old-code", null)));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        "test-issuance-id", "learcredential.employee.w3c.4",
+                        "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "ui",
+                        "refresh-token", ISSUER_BASE_URL))
+                .assertNext(result -> assertThat(result.credentialOfferUri()).isEqualTo(STANDARD_OFFER_URI))
+                .verifyComplete();
+
+        verify(activeCredentialOfferCacheStore).replace("test-issuance-id",
+                new ActiveCredentialOffer(NONCE, "pre-auth-code-123", null));
+        verify(credentialOfferCacheRepository).invalidateCredentialOffer("old-nonce");
+        verify(preAuthorizedCodeService).revokePreAuthorizedCode("old-code");
+        verify(credentialOfferCacheRepository, never()).invalidateCredentialOffer(NONCE);
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_whenDelivered_retiresThePreviousIssuerState() {
+        when(issuerStateCacheStore.add(anyString(), eq("test-issuance-id"))).thenReturn(Mono.just("cached"));
+        stubOfferCache();
+        when(activeCredentialOfferCacheStore.replace(eq("test-issuance-id"), any()))
+                .thenReturn(Mono.just(new ActiveCredentialOffer("old-nonce", null, "old-state")));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        "test-issuance-id", "learcredential.employee.w3c.4", "authorization_code",
+                        "test@example.com", "ui", "refresh-token", ISSUER_BASE_URL))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(credentialOfferCacheRepository).invalidateCredentialOffer("old-nonce");
+        verify(issuerStateCacheStore).delete("old-state");
+        verify(preAuthorizedCodeService, never()).revokePreAuthorizedCode(anyString());
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_whenNothingDelivered_discardsTheNewOfferAndKeepsThePrevious() {
+        stubPreAuthorizedCodeGrant();
+        stubOfferCache();
+        stubEmailInfo("test-issuance-id");
+        stubFrontendUrl();
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(Mono.error(new RuntimeException("smtp down")));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        "test-issuance-id", "learcredential.employee.w3c.4",
+                        "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email",
+                        "refresh-token", ISSUER_BASE_URL))
+                .assertNext(result -> assertThat(result.emailError()).isNotNull())
+                .verifyComplete();
+
+        verify(credentialOfferCacheRepository).invalidateCredentialOffer(NONCE);
+        verify(preAuthorizedCodeService).revokePreAuthorizedCode("pre-auth-code-123");
+        verify(activeCredentialOfferCacheStore, never()).replace(anyString(), any());
+    }
+
+    /** FR-11: with email,ui the URI went out even though the email bounced, so the offer is live. */
+    @Test
+    void createAndDeliverCredentialOffer_whenEmailFailsButUriReturned_keepsTheNewOfferAsCurrent() {
+        stubPreAuthorizedCodeGrant();
+        stubOfferCache();
+        stubEmailInfo("test-issuance-id");
+        stubFrontendUrl();
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(Mono.error(new RuntimeException("smtp down")));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        "test-issuance-id", "learcredential.employee.w3c.4",
+                        "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email,ui",
+                        "refresh-token", ISSUER_BASE_URL))
+                .assertNext(result -> assertThat(result.credentialOfferUri()).isEqualTo(STANDARD_OFFER_URI))
+                .verifyComplete();
+
+        verify(activeCredentialOfferCacheStore).replace("test-issuance-id",
+                new ActiveCredentialOffer(NONCE, "pre-auth-code-123", null));
+        verify(credentialOfferCacheRepository, never()).invalidateCredentialOffer(NONCE);
+    }
+
+    /** N1: the client went away while the email was being sent; the untracked new offer is voided. */
+    @Test
+    void createAndDeliverCredentialOffer_whenCancelledBeforeSettling_discardsTheNewOffer() {
+        stubPreAuthorizedCodeGrant();
+        stubOfferCache();
+        stubEmailInfo("test-issuance-id");
+        stubFrontendUrl();
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(Mono.never());
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        "test-issuance-id", "learcredential.employee.w3c.4",
+                        "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email",
+                        "refresh-token", ISSUER_BASE_URL))
+                .thenAwait()
+                .thenCancel()
+                .verify();
+
+        verify(credentialOfferCacheRepository).invalidateCredentialOffer(NONCE);
+        verify(preAuthorizedCodeService).revokePreAuthorizedCode("pre-auth-code-123");
+        verify(activeCredentialOfferCacheStore, never()).replace(anyString(), any());
     }
 
     private void stubPreAuthorizedCodeGrant() {

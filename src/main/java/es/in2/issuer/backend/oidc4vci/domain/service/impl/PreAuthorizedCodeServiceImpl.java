@@ -38,6 +38,11 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
                                 processId));
     }
 
+    @Override
+    public Mono<Void> revokePreAuthorizedCode(String preAuthorizedCode) {
+        return issuanceIdAndTxCodeByPreAuthorizedCodeCacheStore.delete(preAuthorizedCode);
+    }
+
     private @NotNull Mono<Tuple2<String, String>> generateCodes() {
         return Mono.zip(issuePreAuthorizedCode(), generateTxCode());
     }

@@ -1,10 +1,12 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
+import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.ChannelResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceHttpResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -138,5 +140,29 @@ class IssuanceHttpEnvelopeMapperTest {
         IssuanceResponse response = IssuanceResponse.builder().build();
 
         assertThat(mapper.toHttpResponse(response).responses()).isEmpty();
+    }
+
+    @Test
+    void toRenewalResponse_ui_hasOneEntryWithTheOfferUri() {
+        var response = new IssuanceHttpEnvelopeMapper().toRenewalResponse(
+                new CredentialOfferRenewal(
+                        DeliveryMode.UI, "offer-uri"));
+
+        assertThat(response.responses()).hasSize(1);
+        assertThat(response.responses().getFirst().channel()).isEqualTo("ui");
+        assertThat(response.responses().getFirst().body().credentialOfferUri())
+                .isEqualTo("offer-uri");
+    }
+
+    @Test
+    void toRenewalResponse_email_hasOneEntryWithoutBody() {
+        var response = new IssuanceHttpEnvelopeMapper().toRenewalResponse(
+                new CredentialOfferRenewal(
+                        DeliveryMode.EMAIL, null));
+
+        assertThat(response.responses()).hasSize(1);
+        assertThat(response.responses().getFirst().channel()).isEqualTo("email");
+        assertThat(response.responses().getFirst().status()).isEqualTo(200);
+        assertThat(response.responses().getFirst().body()).isNull();
     }
 }

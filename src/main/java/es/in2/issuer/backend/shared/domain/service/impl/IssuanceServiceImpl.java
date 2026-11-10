@@ -399,6 +399,11 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     @Override
+    public Mono<Issuance> getIssuanceByIdAndOrganization(UUID issuanceId, String organizationIdentifier) {
+        return issuancePort.findByIssuanceIdAndOrganizationIdentifier(issuanceId, organizationIdentifier);
+    }
+
+    @Override
     public Mono<Issuance> getIssuanceByCredentialOfferRefreshToken(String credentialOfferRefreshToken) {
         return issuancePort.findByCredentialOfferRefreshToken(credentialOfferRefreshToken);
     }

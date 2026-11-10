@@ -8,7 +8,12 @@ import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.issuance.application.workflow.CredentialOfferRenewalWorkflow;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.issuance.domain.exception.OfferNotRenewableException;
+import es.in2.issuer.backend.issuance.domain.exception.RenewalDeliveryFailedException;
+import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
@@ -112,6 +117,9 @@ class IssuanceControllerTest {
 
     @MockitoBean
     private UrlResolver urlResolver;
+
+    @MockitoBean
+    private CredentialOfferRenewalWorkflow credentialOfferRenewalWorkflow;
 
     /**
      * EUD-167 D-6/D-5 (AD-1 B) supersedes EUD-168 AD-11's 500: a hybrid issuance whose direct mode
@@ -903,5 +911,93 @@ class IssuanceControllerTest {
                 .expectStatus().value(status -> org.assertj.core.api.Assertions.assertThat(status).isNotEqualTo(200));
 
         org.mockito.Mockito.verifyNoInteractions(issuanceService);
+    }
+
+    // ── POST /api/v1/issuances/{id}/credential-offer (EUD-295) ──────────────────────────────
+
+    private static final String RENEWAL_ID = "0b6f1d2e-8c4a-4b1f-9e2d-7a5c3f8e1b90";
+    private static final String RENEWAL_PATH = ISSUANCES_PATH + "/" + RENEWAL_ID + "/credential-offer";
+
+    @Test
+    void renewCredentialOffer_ui_returns200WithTheNewOfferUri() {
+        String uri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fnew";
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(credentialOfferRenewalWorkflow.renewCredentialOffer(RENEWAL_ID, PUBLIC_ISSUER_BASE_URL))
+                .thenReturn(Mono.just(new CredentialOfferRenewal(DeliveryMode.UI, uri)));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(RENEWAL_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .jsonPath("$.responses.length()").isEqualTo(1)
+                .jsonPath("$.responses[0].channel").isEqualTo("ui")
+                .jsonPath("$.responses[0].status").isEqualTo(200)
+                .jsonPath("$.responses[0].body.credential_offer_uri").isEqualTo(uri);
+    }
+
+    @Test
+    void renewCredentialOffer_email_returns200WithoutBody() {
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(credentialOfferRenewalWorkflow.renewCredentialOffer(RENEWAL_ID, PUBLIC_ISSUER_BASE_URL))
+                .thenReturn(Mono.just(new CredentialOfferRenewal(DeliveryMode.EMAIL, null)));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(RENEWAL_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .json("{\"responses\":[{\"channel\":\"email\",\"status\":200}]}", true);
+    }
+
+    @Test
+    void renewCredentialOffer_notRenewable_returns409ProblemJson() {
+        delegateProblemsToTheRealFactory();
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(credentialOfferRenewalWorkflow.renewCredentialOffer(anyString(), anyString()))
+                .thenReturn(Mono.error(new OfferNotRenewableException("REVOKED")));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(RENEWAL_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.CONFLICT)
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("offer_not_renewable")
+                .jsonPath("$.status").isEqualTo(409);
+    }
+
+    @Test
+    void renewCredentialOffer_deliveryFailed_returns503ProblemJsonWithRetryAfter() {
+        delegateProblemsToTheRealFactory();
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(credentialOfferRenewalWorkflow.renewCredentialOffer(anyString(), anyString()))
+                .thenReturn(Mono.error(new RenewalDeliveryFailedException("smtp")));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(RENEWAL_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SERVICE_UNAVAILABLE)
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectHeader().exists("Retry-After")
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("wallet_delivery_timeout");
+    }
+
+    /** ErrorResponseFactory is a mock in this slice; the renewal problems need its real headers. */
+    private void delegateProblemsToTheRealFactory() {
+        ErrorResponseFactory real = new ErrorResponseFactory();
+        when(errorResponseFactory.problem(any(), any(), anyString(), anyString(), any(), anyString(), any()))
+                .thenAnswer(inv -> real.problem(inv.getArgument(0), inv.getArgument(1), inv.getArgument(2),
+                        inv.getArgument(3), inv.getArgument(4), inv.getArgument(5), inv.getArgument(6)));
     }
 }

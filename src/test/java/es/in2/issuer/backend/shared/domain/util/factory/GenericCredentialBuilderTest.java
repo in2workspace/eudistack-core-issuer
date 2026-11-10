@@ -489,6 +489,95 @@ class GenericCredentialBuilderTest {
                 .build();
     }
 
+    // --- extractPayload: the inverse of buildCredential (EUD-295) ---
+
+    @Test
+    void GenericCredentialBuilder_extractPayload_w3cMandateReturnsThePayloadItWasBuiltFrom() {
+        assertRoundTrip(employeeProfile(), learPayload());
+    }
+
+    @Test
+    void GenericCredentialBuilder_extractPayload_sdJwtMandateReturnsThePayloadItWasBuiltFrom() {
+        assertRoundTrip(sdJwtProfile(null), learPayload());
+    }
+
+    @Test
+    void GenericCredentialBuilder_extractPayload_sdJwtDirectReturnsTheTopLevelClaims() {
+        CredentialProfile profile = sdJwtProfile("direct");
+        String dataSet = genericCredentialBuilder.buildCredential(profile, learPayload(), null).block().credentialDataSet();
+
+        assertThat(genericCredentialBuilder.extractPayload(profile, dataSet))
+                .hasValueSatisfying(payload -> assertThat(payload.get("power")).isEqualTo(learPayload().get("power")));
+    }
+
+    @Test
+    void GenericCredentialBuilder_extractPayload_w3cDirectReturnsTheCredentialSubject() {
+        CredentialProfile profile = directW3cProfile();
+        JsonNode payload = objectMapper.createObjectNode().put("firstName", "Ana").put("lastName", "Ruiz");
+        String dataSet = genericCredentialBuilder.buildCredential(profile, payload, null).block().credentialDataSet();
+
+        assertThat(genericCredentialBuilder.extractPayload(profile, dataSet))
+                .hasValueSatisfying(subject -> assertThat(subject.get("firstName").asText()).isEqualTo("Ana"));
+    }
+
+    @Test
+    void GenericCredentialBuilder_extractPayload_dataSetBuiltForAnotherStrategyIsEmpty() {
+        String directDataSet = genericCredentialBuilder.buildCredential(directW3cProfile(),
+                objectMapper.createObjectNode().put("firstName", "Ana"), null).block().credentialDataSet();
+
+        assertThat(genericCredentialBuilder.extractPayload(employeeProfile(), directDataSet)).isEmpty();
+    }
+
+    /** W1 of the EUD-295 review: a mandate read as direct would hide its powers, so it is not decidable. */
+    @Test
+    void GenericCredentialBuilder_extractPayload_mandateDataSetReadAsDirectIsEmpty() {
+        String w3cMandate = genericCredentialBuilder.buildCredential(employeeProfile(), learPayload(), null)
+                .block().credentialDataSet();
+        String sdJwtMandate = genericCredentialBuilder.buildCredential(sdJwtProfile("mandate"), learPayload(), null)
+                .block().credentialDataSet();
+
+        assertThat(genericCredentialBuilder.extractPayload(directW3cProfile(), w3cMandate)).isEmpty();
+        assertThat(genericCredentialBuilder.extractPayload(sdJwtProfile("direct"), sdJwtMandate)).isEmpty();
+    }
+
+    @Test
+    void GenericCredentialBuilder_extractPayload_unreadableDataSetIsEmpty() {
+        assertThat(genericCredentialBuilder.extractPayload(employeeProfile(), "not json")).isEmpty();
+        assertThat(genericCredentialBuilder.extractPayload(employeeProfile(), "[]")).isEmpty();
+        assertThat(genericCredentialBuilder.extractPayload(employeeProfile(), null)).isEmpty();
+    }
+
+    private void assertRoundTrip(CredentialProfile profile, JsonNode payload) {
+        String dataSet = genericCredentialBuilder.buildCredential(profile, payload, null).block().credentialDataSet();
+
+        assertThat(genericCredentialBuilder.extractPayload(profile, dataSet)).contains(payload);
+    }
+
+    private JsonNode learPayload() {
+        com.fasterxml.jackson.databind.node.ObjectNode payload = objectMapper.createObjectNode();
+        payload.putObject("mandatee").put("firstName", "John").put("lastName", "Doe");
+        payload.putObject("mandator").put("organizationIdentifier", "VATES-B12345678");
+        payload.putArray("power").addObject()
+                .put("type", "organization").put("domain", "sandbox").put("function", "Onboarding")
+                .putArray("action").add("Execute");
+        return payload;
+    }
+
+    private CredentialProfile sdJwtProfile(String strategy) {
+        return CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.sd.1")
+                .format("dc+sd-jwt")
+                .sdJwt(CredentialProfile.SdJwtConfig.builder().vct("urn:test:employee").build())
+                .validityDays(365)
+                .issuerType(CredentialProfile.IssuerType.DETAILED)
+                .credentialSubjectStrategy(strategy)
+                .subjectExtraction(CredentialProfile.SubjectExtraction.builder()
+                        .strategy("field")
+                        .fields(List.of("mandatee.firstName"))
+                        .build())
+                .build();
+    }
+
     private CredentialProfile directW3cProfile() {
         return CredentialProfile.builder()
                 .credentialConfigurationId("learcredential.employee.w3c.4")

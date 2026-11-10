@@ -2,6 +2,7 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
+import es.in2.issuer.backend.issuance.application.workflow.CredentialOfferRenewalWorkflow;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
@@ -50,6 +51,7 @@ public class IssuanceController {
     private final RevocationWorkflow revocationWorkflow;
     private final UrlResolver urlResolver;
     private final IssuanceHttpEnvelopeMapper httpEnvelopeMapper;
+    private final CredentialOfferRenewalWorkflow credentialOfferRenewalWorkflow;
 
     @PostMapping(
             consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -122,6 +124,18 @@ public class IssuanceController {
                     HttpStatus.BAD_REQUEST,
                     "Unsupported target status: " + request.status()));
         };
+    }
+
+    /** {@code renewCredentialOffer} (EUD-295). Its errors are application/problem+json (IssuanceExceptionHandler). */
+    @PostMapping(value = "/{id}/credential-offer", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Mono<ResponseEntity<IssuanceHttpResponse>> renewCredentialOffer(
+            @PathVariable("id") String id,
+            ServerWebExchange exchange) {
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
+        return credentialOfferRenewalWorkflow.renewCredentialOffer(id, publicIssuerBaseUrl)
+                .map(renewal -> ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(httpEnvelopeMapper.toRenewalResponse(renewal)));
     }
 
     /**

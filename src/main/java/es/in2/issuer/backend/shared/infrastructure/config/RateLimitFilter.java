@@ -6,8 +6,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -15,18 +19,27 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * SEC-06: Simple per-IP rate limiter for mutating endpoints.
  * Uses a sliding window (1 minute) with a configurable max requests per IP.
- * Rejects excess requests with HTTP 429 Too Many Requests.
+ * Rejects excess requests with HTTP 429 Too Many Requests, as an {@code application/problem+json}
+ * {@code rate_limited} with {@code Retry-After} on every route (EUD-295: the issuance API contract
+ * fixes that body, and the 429 is only produced here). The key (IP) and the limit belong to EUD-269.
  */
 @Slf4j
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class RateLimitFilter implements WebFilter {
+
+    static final int RETRY_AFTER_SECONDS = 60;
+    private static final byte[] RATE_LIMITED_PROBLEM = ("{\"type\":\"" + GlobalErrorTypes.RATE_LIMITED.getCode()
+            + "\",\"title\":\"Too many requests\",\"status\":429,"
+            + "\"detail\":\"The volume limit was exceeded. Retry after the time in Retry-After.\"}")
+            .getBytes(StandardCharsets.UTF_8);
 
     private final int maxRequestsPerMinute;
     private final Cache<String, AtomicInteger> requestCounts;
@@ -55,9 +68,14 @@ public class RateLimitFilter implements WebFilter {
             log.warn("Rate limit exceeded for IP {}: {}/{} requests/min on {} {}",
                     clientIp, current, maxRequestsPerMinute,
                     method, exchange.getRequest().getPath().value());
-            exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
-            exchange.getResponse().getHeaders().set("Retry-After", "60");
-            return exchange.getResponse().setComplete();
+            ServerHttpResponse response = exchange.getResponse();
+            response.setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+            response.getHeaders().set(HttpHeaders.RETRY_AFTER, String.valueOf(RETRY_AFTER_SECONDS));
+            response.getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
+            // Written before Spring Security's header writer runs, so the 429 sets its own (§8.1).
+            response.getHeaders().set("X-Content-Type-Options", "nosniff");
+            response.getHeaders().setCacheControl("no-store");
+            return response.writeWith(Mono.just(response.bufferFactory().wrap(RATE_LIMITED_PROBLEM)));
         }
 
         return chain.filter(exchange);

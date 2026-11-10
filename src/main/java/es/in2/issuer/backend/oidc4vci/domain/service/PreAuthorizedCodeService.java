@@ -5,4 +5,7 @@ import reactor.core.publisher.Mono;
 
 public interface PreAuthorizedCodeService {
     Mono<PreAuthorizedCodeResponse> issuePreAuthorizedCode(String processId, Mono<String> issuanceIdMono);
+
+    /** Withdraws a pre-authorized code so it can no longer be exchanged at the token endpoint. */
+    Mono<Void> revokePreAuthorizedCode(String preAuthorizedCode);
 }
