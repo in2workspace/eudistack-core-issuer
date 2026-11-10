@@ -5,27 +5,20 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.SignDocService;
-import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.spi.SigningRequestValidator;
-import es.in2.issuer.backend.signing.infrastructure.model.CscSignType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+/** CSC {@code signDoc} path of the QTSP modality, called by {@link CscQtspSigningProvider}. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class CscSignDocSigningProvider implements SigningProvider {
+public class CscSignDocSigningProvider {
 
     private final SignDocService signDocService;
 
-    @Override
-    public CscSignType supportedProvider() {
-        return CscSignType.CSC_SIGN_DOC;
-    }
-
-    @Override
     public Mono<SigningResult> sign(SigningRequest request) {
         return Mono.defer(() -> {
             // Computed defensively (null-safe) so that a null request/context still fails

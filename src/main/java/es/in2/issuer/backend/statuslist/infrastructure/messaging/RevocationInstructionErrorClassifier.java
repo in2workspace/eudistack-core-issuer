@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.statuslist.infrastructure.messaging;
 
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationInstructionException;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListIndexNotFoundException;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListNotFoundException;
@@ -8,6 +10,9 @@ import es.in2.issuer.backend.statuslist.domain.exception.StatusListPublicBaseUrl
 import es.in2.issuer.backend.statuslist.domain.exception.TenantBindingMismatchException;
 import es.in2.issuer.backend.statuslist.domain.exception.UnknownTenantException;
 import org.springframework.stereotype.Component;
+
+import java.util.EnumSet;
+import java.util.Set;
 
 /**
  * Single point of the retryable-vs-permanent policy for the revocation-instruction
@@ -24,6 +29,17 @@ import org.springframework.stereotype.Component;
 @Component
 public class RevocationInstructionErrorClassifier {
 
+    /**
+     * Signing failures that another attempt cannot fix (EUD-251 design §9.4): only
+     * {@code PROVIDER_UNAVAILABLE} and an unclassified {@code OTHER} stay retryable.
+     */
+    private static final Set<SigningFailureReason> PERMANENT_SIGNING_FAILURES = EnumSet.of(
+            SigningFailureReason.NO_CONFIGURATION,
+            SigningFailureReason.KEY_UNUSABLE,
+            SigningFailureReason.UNSUPPORTED_ALGORITHM,
+            SigningFailureReason.CERTIFICATE_INVALID,
+            SigningFailureReason.INVALID_RESPONSE);
+
     public boolean isRetryable(Throwable error) {
         return !isPermanent(error);
     }
@@ -35,7 +51,8 @@ public class RevocationInstructionErrorClassifier {
                 || error instanceof IssuanceNotFoundException // ES-02: credential does not exist
                 || error instanceof StatusListIndexNotFoundException // no allocation for the issuance
                 || error instanceof StatusListNotFoundException // list vanished from under an allocation
-                || error instanceof StatusListPublicBaseUrlNotResolvableException; // AD-2 fail-closed
+                || error instanceof StatusListPublicBaseUrlNotResolvableException // AD-2 fail-closed
+                || PERMANENT_SIGNING_FAILURES.contains(SigningFailureReasons.of(error)); // reason anywhere in the cause chain
     }
 
     // Not part of the decision (default is already retryable) — documented here so the
