@@ -5,7 +5,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullSource;
 
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +30,6 @@ class IssuanceTest {
     void Issuance_offerDeliveryMode_isEmptyWithoutAnOfferMode(String delivery) {
         Issuance issuance = Issuance.builder().delivery(delivery).build();
 
-        assertThat(issuance.offerDeliveryMode()).isEqualTo(Optional.empty());
+        assertThat(issuance.offerDeliveryMode()).isEmpty();
     }
 }
