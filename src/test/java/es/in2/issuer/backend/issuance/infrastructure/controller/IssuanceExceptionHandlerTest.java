@@ -3,6 +3,7 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -113,6 +114,27 @@ class IssuanceExceptionHandlerTest {
 
         StepVerifier.create(handler.handleInvalidGrantType(ex, request))
                 .assertNext(gem -> assertGem(gem, "invalid_grant_type", title, st, ex.getMessage()))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // ------------------- InvalidValidityException (EUD-268) -------------------
+
+    @Test
+    void handleInvalidValidity_isA400WithTheContractCode() {
+        var ex = new InvalidValidityException("The validity must be at most 365 days");
+
+        String type   = GlobalErrorTypes.INVALID_VALIDITY.getCode();
+        String title  = "Invalid validity";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "The requested validity is not allowed for this attestation type";
+
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidValidity(ex, request))
+                .assertNext(gem -> assertGem(gem, "invalid_validity", title, st, ex.getMessage()))
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
