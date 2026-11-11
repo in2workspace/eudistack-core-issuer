@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
-import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
@@ -28,7 +27,6 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -170,49 +168,16 @@ public class IssuanceController {
         return IssuanceIds.parse(id).isPresent();
     }
 
+    /**
+     * EUD-254: the workflow only returns when the one requested delivery succeeded -- a failure is
+     * raised and answered as a problem -- so a response is always 200, with one {@code responses} entry.
+     */
     private ResponseEntity<IssuanceHttpResponse> toResponseEntity(IssuanceResponse response,
                                                                   String publicIssuerBaseUrl) {
-        List<DeliveryResult> results = response.deliveryResults();
-        boolean hasDeliveryResults = results != null && !results.isEmpty();
-
-        log.debug("Issuance process completed. Signed Credential present: {}, Credential Offer URI present: {}, delivery results: {}",
-                response.signedCredential() != null, response.credentialOfferUri() != null,
-                hasDeliveryResults ? results.size() : 0);
-
-        // No channel executed at all -- the pre-flight guard rejected before anything ran. Not
-        // modeled by D-5's responses[] envelope (that requires >=1 executed channel); every guard
-        // rejection is a thrown exception handled by IssuanceExceptionHandler before this method is
-        // ever reached, so this is the harmless residual default for an empty/absent result set.
-        if (!hasDeliveryResults) {
-            return ResponseEntity.accepted().build();
-        }
-
-        IssuanceHttpResponse body = httpEnvelopeMapper.toHttpResponse(response);
-        boolean anyChannelFailed = results.stream().anyMatch(r -> r.status() == DeliveryResult.DeliveryOutcome.FAILED);
-        boolean anyChannelSucceeded = results.stream().anyMatch(r -> r.status() != DeliveryResult.DeliveryOutcome.FAILED);
-
-        // Mixed outcome (EUD-167 D-5 / AD-1 B, RFC 4918 §11.1/§13): at least one requested channel
-        // completed and at least one failed, regardless of which channel is which -- supersedes
-        // EUD-168's AD-11 (500 whenever the direct mode failed, 200 whenever it didn't), which predates
-        // and conflicts with D-5's general contract (PO decision, see EUD-167/spec-deltas.md D-6).
-        // A request where nothing at all completed never reaches this branch -- the workflow re-raises
-        // the original error upstream (assembleOutcome) so it renders as its own problem detail instead
-        // of being flattened here.
-        if (anyChannelFailed && anyChannelSucceeded) {
-            log.warn("Partial issuance outcome (mixed delivery results): {}", results);
-            return withLocation(ResponseEntity.status(HttpStatus.MULTI_STATUS), response, publicIssuerBaseUrl)
-                    .body(body);
-        }
-
-        // Every requested channel failed (e.g. wallet-only with the wallet dependency down, direct
-        // never attempted so assembleOutcome had nothing to re-raise): not mixed, not a success.
-        if (anyChannelFailed) {
-            log.warn("Issuance fully failed across all requested channels: {}", results);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
-        }
-
-        // D-5: 202 wallet-only is retired -- a fully successful request is always 200.
-        return withLocation(ResponseEntity.ok(), response, publicIssuerBaseUrl).body(body);
+        log.debug("Issuance process completed. Signed Credential present: {}, Credential Offer URI present: {}",
+                response.signedCredential() != null, response.credentialOfferUri() != null);
+        return withLocation(ResponseEntity.ok(), response, publicIssuerBaseUrl)
+                .body(httpEnvelopeMapper.toHttpResponse(response));
     }
 
     /** Location of the created process, absolute because the API lives under the issuer context path (EUD-277). */

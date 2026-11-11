@@ -12,7 +12,6 @@ import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
-import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
@@ -115,120 +114,6 @@ class IssuanceControllerTest {
 
     @MockitoBean
     private UrlResolver urlResolver;
-
-    /**
-     * EUD-167 D-6/D-5 (AD-1 B) supersedes EUD-168 AD-11's 500: a hybrid issuance whose direct mode
-     * failed while the wallet mode dispatched is a mixed outcome, reported as HTTP 207 Multi-Status
-     * (RFC 4918 §11.1/§13) with per-mode results and the credential offer URI intact -- not a 500.
-     */
-    @Test
-    void createIssuance_WhenDirectDeliveryFailedInHybrid_Returns207WithPerModeResultsAndOfferUri()
-            throws JsonProcessingException {
-        IssuanceRequest request = buildIssuanceRequest();
-        String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fabc";
-
-        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL)))
-                .thenReturn(Mono.just(IssuanceResponse.builder()
-                        .credentialOfferUri(credentialOfferUri)
-                        .deliveryResults(List.of(
-                                DeliveryResult.failed("direct", DeliveryErrorCode.SIGNING_FAILED.value()),
-                                DeliveryResult.dispatched("ui")))
-                        .build()));
-
-        webTestClient.mutateWith(csrf())
-                .post()
-                .uri(ISSUANCES_PATH)
-                .header("Authorization", BEARER_TOKEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().isEqualTo(HttpStatus.MULTI_STATUS)
-                .expectBody()
-                .jsonPath("$.responses[0].channel").isEqualTo("direct")
-                .jsonPath("$.responses[0].status").isEqualTo(503)
-                .jsonPath("$.responses[0].error.type").isEqualTo("signing_failed")
-                .jsonPath("$.responses[0].error.title").isEqualTo("Signing failed")
-                .jsonPath("$.responses[0].body").doesNotExist()
-                .jsonPath("$.responses[1].channel").isEqualTo("ui")
-                .jsonPath("$.responses[1].status").isEqualTo(200)
-                .jsonPath("$.responses[1].body.credential_offer_uri").isEqualTo(credentialOfferUri)
-                .jsonPath("$.responses[1].error").doesNotExist();
-    }
-
-    /**
-     * The mirror case: a wallet mode failed while the direct mode delivered. Also a mixed outcome
-     * under D-5's general rule (at least one 2xx, at least one failure => 207) -- previously 200 under
-     * AD-11, which only looked at whether the *direct* mode failed.
-     */
-    @Test
-    void createIssuance_WhenOnlyAWalletModeFailed_Returns207WithPerModeResults() throws JsonProcessingException {
-        IssuanceRequest request = buildIssuanceRequest();
-        String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fabc";
-
-        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL)))
-                .thenReturn(Mono.just(IssuanceResponse.builder()
-                        .credentialOfferUri(credentialOfferUri)
-                        .deliveryResults(List.of(
-                                DeliveryResult.failed("email", DeliveryErrorCode.DELIVERY_FAILED.value()),
-                                DeliveryResult.dispatched("ui")))
-                        .build()));
-
-        webTestClient.mutateWith(csrf())
-                .post()
-                .uri(ISSUANCES_PATH)
-                .header("Authorization", BEARER_TOKEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().isEqualTo(HttpStatus.MULTI_STATUS)
-                .expectBody()
-                .jsonPath("$.responses[0].channel").isEqualTo("email")
-                .jsonPath("$.responses[0].status").isEqualTo(503)
-                .jsonPath("$.responses[0].error.type").isEqualTo("delivery_failed")
-                .jsonPath("$.responses[1].channel").isEqualTo("ui")
-                .jsonPath("$.responses[1].status").isEqualTo(200)
-                .jsonPath("$.responses[1].body.credential_offer_uri").isEqualTo(credentialOfferUri);
-    }
-
-    /**
-     * Every requested channel failed (e.g. the wallet dependency is down for a wallet-only request,
-     * so the direct leg was never attempted and assembleOutcome had nothing to re-raise). Not a mixed
-     * outcome -- a genuine failure, reported as 500 instead of 200/202.
-     */
-    @Test
-    void createIssuance_WhenAllChannelsFailed_Returns500() throws JsonProcessingException {
-        IssuanceRequest request = buildIssuanceRequest();
-
-        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL)))
-                .thenReturn(Mono.just(IssuanceResponse.builder()
-                        .deliveryResults(List.of(
-                                DeliveryResult.failed("email", DeliveryErrorCode.DELIVERY_FAILED.value()),
-                                DeliveryResult.failed("ui", DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT.value())))
-                        .build()));
-
-        webTestClient.mutateWith(csrf())
-                .post()
-                .uri(ISSUANCES_PATH)
-                .header("Authorization", BEARER_TOKEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().is5xxServerError()
-                .expectBody()
-                .jsonPath("$.responses[0].channel").isEqualTo("email")
-                .jsonPath("$.responses[0].status").isEqualTo(503)
-                .jsonPath("$.responses[0].error.type").isEqualTo("delivery_failed")
-                // WALLET_DELIVERY_TIMEOUT maps to 504, distinct from the generic 503 (per-channel status).
-                .jsonPath("$.responses[1].channel").isEqualTo("ui")
-                .jsonPath("$.responses[1].status").isEqualTo(504)
-                .jsonPath("$.responses[1].error.type").isEqualTo("wallet_delivery_timeout");
-    }
 
     @Test
     void createIssuance_WhenCredentialOfferUriIsPresent_Returns200WithBody() throws JsonProcessingException {
@@ -566,28 +451,8 @@ class IssuanceControllerTest {
                 .jsonPath("$.type").isEqualTo("delivery_mode_not_eligible");
     }
 
-    @Test
-    void createIssuance_WhenSignedCredentialAndCredentialOfferUriAreAbsent_Returns202AcceptedWithoutBody() throws JsonProcessingException {
-        IssuanceRequest request = buildIssuanceRequest();
-
-        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
-                .thenReturn(Mono.just(IssuanceResponse.builder().build()));
-
-        webTestClient.mutateWith(csrf())
-                .post()
-                .uri(ISSUANCES_PATH)
-                .header("Authorization", BEARER_TOKEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().isAccepted()
-                .expectBody().isEmpty();
-    }
-
 
     private static final String ISSUANCE_ID = "6f1c1c1e-5a0b-4d52-9d58-1f3b6f0d2a11";
-    private static final String OTHER_ISSUANCE_ID = "0b9a7c3e-8d1f-4a6e-b2c4-5e7f9a1b3c5d";
 
     private WebTestClient.ResponseSpec postIssuance(IssuanceResponse workflowResponse) throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();
@@ -640,42 +505,6 @@ class IssuanceControllerTest {
                 .expectHeader().valueEquals(HttpHeaders.LOCATION, expectedLocation(ISSUANCE_ID));
     }
 
-    /** The workflow carries the OID4VCI process id when both legs succeeded (EC-08); the controller only echoes it. */
-    @Test
-    void createIssuance_HybridDirectAndUi_ReturnsLocationOfTheCarriedProcess() throws JsonProcessingException {
-        postIssuance(IssuanceResponse.builder()
-                .signedCredential("signed-jwt")
-                .credentialOfferUri("openid-credential-offer://x")
-                .deliveryResults(List.of(DeliveryResult.delivered("direct"), DeliveryResult.dispatched("ui")))
-                .issuanceId(OTHER_ISSUANCE_ID)
-                .build())
-                .expectStatus().isOk()
-                .expectHeader().valueEquals(HttpHeaders.LOCATION, expectedLocation(OTHER_ISSUANCE_ID));
-    }
-
-    @Test
-    void createIssuance_MixedOutcome207_ReturnsLocationOfTheSucceededProcess() throws JsonProcessingException {
-        postIssuance(IssuanceResponse.builder()
-                .signedCredential("signed-jwt")
-                .deliveryResults(List.of(
-                        DeliveryResult.delivered("direct"),
-                        DeliveryResult.failed("ui", DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT.value())))
-                .issuanceId(ISSUANCE_ID)
-                .build())
-                .expectStatus().isEqualTo(HttpStatus.MULTI_STATUS)
-                .expectHeader().valueEquals(HttpHeaders.LOCATION, expectedLocation(ISSUANCE_ID));
-    }
-
-    @Test
-    void createIssuance_AllChannelsFailed_ReturnsNoLocation() throws JsonProcessingException {
-        postIssuance(IssuanceResponse.builder()
-                .deliveryResults(List.of(DeliveryResult.failed("email", DeliveryErrorCode.DELIVERY_FAILED.value())))
-                .issuanceId(ISSUANCE_ID)
-                .build())
-                .expectStatus().is5xxServerError()
-                .expectHeader().doesNotExist(HttpHeaders.LOCATION);
-    }
-
     @Test
     void createIssuance_WorkflowError_ReturnsNoLocation() throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();
@@ -691,13 +520,6 @@ class IssuanceControllerTest {
                 .bodyValue(objectMapper.writeValueAsString(request))
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.CONFLICT)
-                .expectHeader().doesNotExist(HttpHeaders.LOCATION);
-    }
-
-    @Test
-    void createIssuance_EmptyOutcome202_ReturnsNoLocation() throws JsonProcessingException {
-        postIssuance(IssuanceResponse.builder().issuanceId(ISSUANCE_ID).build())
-                .expectStatus().isAccepted()
                 .expectHeader().doesNotExist(HttpHeaders.LOCATION);
     }
 
