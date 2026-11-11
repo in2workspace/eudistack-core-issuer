@@ -34,6 +34,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.ValidityWindow;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBindingExemption;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
@@ -54,6 +55,7 @@ import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -341,12 +343,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                         .deliveryResults(List.of(DeliveryResult.delivered(DeliveryMode.DIRECT.value)))
                         .issuanceId(issued.issuanceId())
                         .build())
-                .onErrorMap(e -> {
-                    credentialIssuedLogger.logFailed(configId, e);
-                    // The stage tag only classifies the failure; the original exception keeps being
-                    // handled as it was.
-                    return e instanceof DeliveryStageFailure stageFailure ? stageFailure.getCause() : e;
-                });
+                .doOnError(e -> credentialIssuedLogger.logFailed(configId, e));
     }
 
     /**
@@ -358,8 +355,11 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                          Map<String, Object> cnf, CredentialTerms terms) {
         return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, mode.value, cnf, terms)
                 .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
+                .onErrorMap(TimeoutException.class,
+                        e -> new DeliveryFailedException(DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT, e))
                 .flatMap(offer -> offer.emailError() != null
-                        ? Mono.error(new EmailCommunicationException(offer.emailError()))
+                        ? Mono.error(new DeliveryFailedException(DeliveryErrorCode.DELIVERY_FAILED,
+                                new EmailCommunicationException(offer.emailError())))
                         : Mono.just(IssuanceResponse.builder()
                                 .credentialOfferUri(offer.credentialOfferUri())
                                 .deliveryResults(List.of(DeliveryResult.dispatched(mode.value)))
@@ -419,7 +419,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                 .flatMap(enrichedDataSet ->
                                         statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat,
                                                         issuanceId.toString(), token, publicIssuerBaseUrl)
-                                                .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.STATUS_LIST_UNAVAILABLE))
+                                                .onErrorMap(failedAt(DeliveryErrorCode.STATUS_LIST_UNAVAILABLE))
                                                 .flatMap(entry -> {
                                                     CredentialStatus credStatus = CredentialStatus.fromStatusListEntry(entry);
                                                     String enrichedWithStatus = genericCredentialBuilder.injectCredentialStatus(
@@ -427,7 +427,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                     return credentialSignerWorkflow.signCredential(
                                                                     token, enrichedWithStatus, configId, credentialFormat,
                                                                     cnf, issuanceId.toString(), request.email())
-                                                            .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.SIGNING_FAILED))
+                                                            .onErrorMap(failedAt(DeliveryErrorCode.SIGNING_FAILED))
                                                             .flatMap(signedCredential -> {
                                                                 CredentialStatusEnum finalStatus = determineFinalStatus(buildResult);
                                                                 Issuance issuance = buildDirectIssuanceEntity(
@@ -439,7 +439,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                         .doOnSuccess(saved -> log.debug(
                                                                                 "ProcessId: {} - Direct issuance saved: {} status={}",
                                                                                 processId, saved.getIssuanceId(), finalStatus))
-                                                                        .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.PERSISTENCE_FAILED))
+                                                                        .onErrorMap(failedAt(DeliveryErrorCode.PERSISTENCE_FAILED))
                                                                         .thenReturn(IssuanceResponse.builder()
                                                                                 .signedCredential(signedCredential)
                                                                                 .issuanceId(issuanceId.toString())
@@ -458,23 +458,12 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     /**
-     * Tags which stage of the direct leg failed, so the failure can be answered with a closed code
-     * instead of {@code Throwable.getMessage()} (F3/W1) -- a {@code WebClientResponseException}
-     * from the signing provider or the status list carries its method/URL, and an R2DBC failure carries
-     * table/column/schema names (the schema name <em>is</em> the tenant). The original exception is kept
-     * as the cause; it is what gets logged.
+     * Tags the stage of the delivery that failed with its closed code (EUD-254 AC-03), unless an inner
+     * stage already did. The original exception is kept as the cause: it is what gets logged, and the
+     * signing configuration scope still finds a configuration change through it.
      */
-    private static final class DeliveryStageFailure extends RuntimeException {
-        private final DeliveryErrorCode code;
-
-        private DeliveryStageFailure(DeliveryErrorCode code, Throwable cause) {
-            super(cause);
-            this.code = code;
-        }
-
-        static Function<Throwable, Throwable> wrapUnlessAlready(DeliveryErrorCode code) {
-            return ex -> ex instanceof DeliveryStageFailure ? ex : new DeliveryStageFailure(code, ex);
-        }
+    private static Function<Throwable, Throwable> failedAt(DeliveryErrorCode code) {
+        return ex -> ex instanceof DeliveryFailedException ? ex : new DeliveryFailedException(code, ex);
     }
 
     private Mono<Oid4VciLegResult> performOid4VciIssuance(String processId, IssuanceRequest request,
@@ -500,12 +489,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             grantType);
 
                     return issuanceService.saveIssuance(issuance)
+                            .onErrorMap(failedAt(DeliveryErrorCode.PERSISTENCE_FAILED))
                             .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
                             .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                             .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
                                             saved.getIssuanceId().toString(), configId, grantType, request.email(),
                                             oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
                                             publicIssuerBaseUrl)
+                                    .onErrorMap(failedAt(DeliveryErrorCode.DELIVERY_FAILED))
                                     .map(offerResult -> new Oid4VciLegResult(
                                             offerResult.credentialOfferUri(), offerResult.emailError(),
                                             saved.getIssuanceId().toString()))

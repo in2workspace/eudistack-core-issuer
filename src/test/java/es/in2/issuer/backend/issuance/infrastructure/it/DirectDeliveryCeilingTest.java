@@ -155,7 +155,7 @@ class DirectDeliveryCeilingTest {
                 chain.filter(exchange).contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
 
         webTestClient = WebTestClient.bindToController(controller)
-                .controllerAdvice(new IssuanceExceptionHandler(new ErrorResponseFactory()))
+                .controllerAdvice(new IssuanceExceptionHandler(new ErrorResponseFactory(), 5))
                 .webFilter(tenantContextFilter)
                 .build();
     }
