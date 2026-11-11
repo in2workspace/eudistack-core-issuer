@@ -1,0 +1,169 @@
+package es.in2.issuer.backend.shared.domain.service.impl;
+
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.IdempotencyClaim;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.IdempotencyPolicy;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.Requester;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.StoredResponse;
+import es.in2.issuer.backend.shared.domain.service.IdempotencyService;
+import es.in2.issuer.backend.shared.domain.spi.IdempotencyStore;
+import es.in2.issuer.backend.shared.domain.util.Sha256;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+
+import javax.crypto.Cipher;
+import javax.crypto.Mac;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.UUID;
+
+/**
+ * Scopes the key to its requester, compares bodies by a digest of their canonical JSON and keeps the
+ * successful responses in the shared {@link IdempotencyStore}.
+ */
+@Slf4j
+@Service
+public class IdempotencyServiceImpl implements IdempotencyService {
+
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final String RESPONSE_KEY_LABEL = "eudistack-issuer-idempotent-response|";
+    private static final String CIPHER_TRANSFORMATION = "AES/GCM/NoPadding";
+    private static final int GCM_NONCE_BYTES = 12;
+    private static final int GCM_TAG_BITS = 128;
+    private static final byte SEALED_FORMAT_V1 = 1;
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    private final IdempotencyStore store;
+    private final IdempotencyPolicy policy;
+    private final Clock clock;
+    private final ObjectMapper canonicalMapper;
+
+    public IdempotencyServiceImpl(IdempotencyStore store, IdempotencyPolicy policy, Clock clock, ObjectMapper objectMapper) {
+        this.store = store;
+        this.policy = policy;
+        this.clock = clock;
+        // Trailing content must make the body "not JSON": otherwise "{}" and "{}x" would share a digest.
+        this.canonicalMapper = objectMapper.copy()
+                .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
+                .configure(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, true);
+    }
+
+    @Override
+    public Mono<IdempotencyClaim> claim(Requester requester, String idempotencyKey, byte[] requestBody) {
+        return Mono.defer(() -> {
+            Instant now = clock.instant();
+            String scopeKey = scopeKey(requester, idempotencyKey);
+            byte[] responseKey = responseKey(requester, idempotencyKey);
+            return store.claim(scopeKey, requestHash(requestBody), UUID.randomUUID().toString(),
+                            now, now.plus(policy.lease()), now.plus(policy.retention()))
+                    .map(claim -> switch (claim) {
+                        case IdempotencyClaim.Acquired acquired -> acquired.withResponseKey(responseKey);
+                        case IdempotencyClaim.Replay replay -> new IdempotencyClaim.Replay(
+                                open(replay.response(), responseKey, scopeKey));
+                        default -> claim;
+                    });
+        });
+    }
+
+    @Override
+    public Mono<Void> complete(IdempotencyClaim.Acquired claim, StoredResponse response) {
+        return Mono.defer(() -> {
+            byte[] responseKey = claim.responseKey();
+            if (responseKey == null) {
+                return Mono.error(new IllegalStateException("The claim has no response key"));
+            }
+            return store.complete(claim.scopeKey(), claim.ownerId(), seal(response, responseKey, claim.scopeKey()));
+        });
+    }
+
+    /**
+     * The key that encrypts the kept response: HMAC-SHA256 of the requester keyed by the idempotency key. The
+     * idempotency key is stored only inside a digest, so the database alone does not open the response, which
+     * with {@code direct} delivery is a signed attestation (the PRD of EUD-254 does not keep it in clear).
+     */
+    static byte[] responseKey(Requester requester, String idempotencyKey) {
+        try {
+            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+            mac.init(new SecretKeySpec(idempotencyKey.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM));
+            return mac.doFinal((RESPONSE_KEY_LABEL + requester.countingScope()).getBytes(StandardCharsets.UTF_8));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("HMAC-SHA256 is not available", e);
+        }
+    }
+
+    /** AES-256-GCM of the body, bound to its stored key: version byte, 12-byte nonce, ciphertext and tag. */
+    static StoredResponse seal(StoredResponse response, byte[] responseKey, String scopeKey) {
+        try {
+            byte[] nonce = new byte[GCM_NONCE_BYTES];
+            RANDOM.nextBytes(nonce);
+            Cipher cipher = cipher(Cipher.ENCRYPT_MODE, responseKey, nonce, scopeKey);
+            byte[] ciphertext = cipher.doFinal(response.body());
+            byte[] sealed = ByteBuffer.allocate(1 + nonce.length + ciphertext.length)
+                    .put(SEALED_FORMAT_V1).put(nonce).put(ciphertext).array();
+            return new StoredResponse(response.status(), response.contentType(), response.location(), sealed);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Could not encrypt the idempotent response", e);
+        }
+    }
+
+    static StoredResponse open(StoredResponse stored, byte[] responseKey, String scopeKey) {
+        byte[] sealed = stored.body();
+        if (sealed.length < 1 + GCM_NONCE_BYTES || sealed[0] != SEALED_FORMAT_V1) {
+            throw new IllegalStateException("The kept idempotent response has an unknown format");
+        }
+        try {
+            byte[] nonce = Arrays.copyOfRange(sealed, 1, 1 + GCM_NONCE_BYTES);
+            Cipher cipher = cipher(Cipher.DECRYPT_MODE, responseKey, nonce, scopeKey);
+            byte[] body = cipher.doFinal(sealed, 1 + GCM_NONCE_BYTES, sealed.length - 1 - GCM_NONCE_BYTES);
+            return new StoredResponse(stored.status(), stored.contentType(), stored.location(), body);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Could not decrypt the kept idempotent response", e);
+        }
+    }
+
+    private static Cipher cipher(int mode, byte[] key, byte[] nonce, String scopeKey) throws GeneralSecurityException {
+        Cipher cipher = Cipher.getInstance(CIPHER_TRANSFORMATION);
+        cipher.init(mode, new SecretKeySpec(key, "AES"), new GCMParameterSpec(GCM_TAG_BITS, nonce));
+        cipher.updateAAD(scopeKey.getBytes(StandardCharsets.UTF_8));
+        return cipher;
+    }
+
+    @Override
+    public Mono<Void> release(IdempotencyClaim.Acquired claim) {
+        return store.release(claim.scopeKey(), claim.ownerId());
+    }
+
+    /** The key within its requester, as a digest: the stored key names neither the person nor the organization. */
+    static String scopeKey(Requester requester, String idempotencyKey) {
+        return Sha256.hex(requester.countingScope() + "|" + idempotencyKey);
+    }
+
+    /**
+     * Digest of the body as canonical JSON (members sorted, no insignificant whitespace), so a retry that
+     * serializes the same request differently is still the same body. A body that is not JSON is compared
+     * byte for byte.
+     */
+    String requestHash(byte[] body) {
+        if (body == null || body.length == 0) {
+            return Sha256.hex(new byte[0]);
+        }
+        try {
+            Object value = canonicalMapper.readValue(body, Object.class);
+            return Sha256.hex(canonicalMapper.writeValueAsBytes(value));
+        } catch (IOException e) {
+            log.debug("Idempotent request body is not JSON, comparing it byte for byte");
+            return Sha256.hex(body);
+        }
+    }
+}

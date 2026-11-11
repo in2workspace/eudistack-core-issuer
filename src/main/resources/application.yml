@@ -250,6 +250,21 @@ issuance:
 # exercised. spring.rabbitmq.* (see the main `spring:` block above) is only consulted
 # when enabled=true.
 issuer:
+  # EUD-269: idempotency and volume limits of the issuance, revocation and query APIs, kept in the
+  # tenant's database so every instance shares them. The limit of the systems of one organization is
+  # raised from the tenant configuration, without a redeploy:
+  #   tenant_config 'issuer.volume_limit.<issuance|revocation|search|read>.<organizationIdentifier>' = <n>
+  api:
+    idempotency:
+      retention: ${ISSUER_API_IDEMPOTENCY_RETENTION:24h}
+      lease: ${ISSUER_API_IDEMPOTENCY_LEASE:2m}
+    volume-limit:
+      window: 1m
+      issuance: { systems-per-organization: 300, per-person: 30 }
+      revocation: { systems-per-organization: 300, per-person: 30 }
+      search: { systems-per-organization: 60, per-person: 10 }
+      read: { systems-per-organization: 300, per-person: 30 }
+    request-control-cleanup-cron: ${ISSUER_API_REQUEST_CONTROL_CLEANUP_CRON:0 */10 * * * *}
   signing:
     certificates:
       # EUD-289: S3 ARN of the bucket or prefix of the own-key certificates, arn:aws:s3:::<bucket>[/<prefix>].

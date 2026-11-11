@@ -18,6 +18,8 @@ import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static es.in2.issuer.backend.shared.infrastructure.config.ApiOperationResolver.MANAGEMENT_API_PREFIX;
+
 /**
  * SEC-06: Simple per-IP rate limiter for mutating endpoints.
  * Uses a sliding window (1 minute) with a configurable max requests per IP.
@@ -46,6 +48,9 @@ public class RateLimitFilter implements WebFilter {
         if (method == null || method == HttpMethod.GET || method == HttpMethod.OPTIONS || method == HttpMethod.HEAD) {
             return chain.filter(exchange);
         }
+        if (hasVolumeLimitOfItsRequester(exchange)) {
+            return chain.filter(exchange);
+        }
 
         String clientIp = resolveClientIp(exchange);
         AtomicInteger counter = requestCounts.get(clientIp, k -> new AtomicInteger(0));
@@ -61,6 +66,16 @@ public class RateLimitFilter implements WebFilter {
         }
 
         return chain.filter(exchange);
+    }
+
+    /**
+     * The issuance, revocation and query APIs have the volume limit of their requester -- per person, and per
+     * organization for its systems, shared by every instance -- instead of this one per address (EUD-269,
+     * {@link ApiVolumeLimitFilter}). Every other route keeps it, among them the public OID4VCI ones.
+     */
+    private static boolean hasVolumeLimitOfItsRequester(ServerWebExchange exchange) {
+        String path = exchange.getRequest().getPath().pathWithinApplication().value();
+        return path.equals(MANAGEMENT_API_PREFIX) || path.startsWith(MANAGEMENT_API_PREFIX + "/");
     }
 
     private String resolveClientIp(ServerWebExchange exchange) {
