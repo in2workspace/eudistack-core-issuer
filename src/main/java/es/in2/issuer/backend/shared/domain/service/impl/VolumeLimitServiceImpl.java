@@ -11,6 +11,7 @@ import es.in2.issuer.backend.shared.domain.model.requestcontrol.VolumeLimitPolic
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.service.VolumeLimitService;
 import es.in2.issuer.backend.shared.domain.spi.VolumeCounterStore;
+import es.in2.issuer.backend.shared.domain.util.LogSafe;
 import es.in2.issuer.backend.shared.domain.util.Sha256;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +29,12 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * Counts each request in the shared counters and decides it against the limit of its operation:
  * the default of the policy, or, for the systems of an organization, the one support set for it in
  * the tenant configuration ({@value #ORGANIZATION_LIMIT_PREFIX}{@code <operation>.<organization>}),
- * which takes effect without a redeploy once the configuration cache refreshes.
+ * which takes effect without a redeploy once the configuration cache refreshes: within a minute when the
+ * organization had no limit of its own, within five minutes when it changes one it had (the cache of
+ * {@link TenantConfigService}).
+ *
+ * <p>A rejected request is taken back from the counter, so a client that keeps retrying while it is over the
+ * limit does not stay locked out: the limit counts the requests served in the last minute.
  */
 @Slf4j
 @Service
@@ -39,8 +45,9 @@ public class VolumeLimitServiceImpl implements VolumeLimitService {
     public static final String ORGANIZATION_LIMIT_PREFIX = "issuer.volume_limit.";
 
     /**
-     * How long a configured limit, or its absence, is reused: most organizations have none, and without
-     * remembering that every request of a system would read the configuration.
+     * How long the absence of a configured limit is remembered: most organizations have none, and without
+     * remembering it every request of a system would read the configuration. A configured value is cached by
+     * {@link TenantConfigService} itself.
      */
     static final Duration ORGANIZATION_LIMIT_CACHE_TTL = Duration.ofMinutes(1);
 
@@ -48,7 +55,7 @@ public class VolumeLimitServiceImpl implements VolumeLimitService {
     private final VolumeCounterStore counterStore;
     private final TenantConfigService tenantConfigService;
     private final Clock clock;
-    private final Cache<String, Optional<Integer>> organizationLimits = Caffeine.newBuilder()
+    private final Cache<String, Boolean> organizationsWithoutLimit = Caffeine.newBuilder()
             .expireAfterWrite(ORGANIZATION_LIMIT_CACHE_TTL)
             .maximumSize(10_000)
             .build();
@@ -58,10 +65,14 @@ public class VolumeLimitServiceImpl implements VolumeLimitService {
         return Mono.defer(() -> {
             Instant now = clock.instant();
             SlidingWindow window = policy.window();
+            String counterKey = counterKey(operation, requester);
+            Instant bucket = window.currentBucket(now);
             return limitOf(operation, requester)
-                    .flatMap(limit -> counterStore.increment(counterKey(operation, requester),
-                                    window.currentBucket(now), window.oldestCountedBucket(now))
-                            .map(buckets -> window.decide(buckets, limit, now)));
+                    .flatMap(limit -> counterStore.increment(counterKey, bucket, window.oldestCountedBucket(now))
+                            .map(buckets -> window.decide(buckets, limit, now)))
+                    .flatMap(decision -> decision.allowed()
+                            ? Mono.just(decision)
+                            : counterStore.undo(counterKey, bucket).thenReturn(decision));
         });
     }
 
@@ -73,18 +84,23 @@ public class VolumeLimitServiceImpl implements VolumeLimitService {
         String key = ORGANIZATION_LIMIT_PREFIX + operation.key() + "." + requester.organizationIdentifier();
         return Mono.deferContextual(ctx -> {
             String cacheKey = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "") + ":" + key;
-            Optional<Integer> cached = organizationLimits.getIfPresent(cacheKey);
-            Mono<Optional<Integer>> configured = cached != null
-                    ? Mono.just(cached)
-                    : tenantConfigService.getString(key)
-                            .map(value -> Optional.ofNullable(parseLimit(key, value)))
-                            .defaultIfEmpty(Optional.empty())
-                            .doOnNext(found -> organizationLimits.put(cacheKey, found));
-            return configured.map(found -> found.orElse(defaultLimit));
+            if (organizationsWithoutLimit.getIfPresent(cacheKey) != null) {
+                return Mono.just(defaultLimit);
+            }
+            return tenantConfigService.getString(key)
+                    .map(value -> Optional.ofNullable(parseLimit(key, value)))
+                    .defaultIfEmpty(Optional.empty())
+                    .doOnNext(found -> {
+                        if (found.isEmpty()) {
+                            organizationsWithoutLimit.put(cacheKey, Boolean.TRUE);
+                        }
+                    })
+                    .map(found -> found.orElse(defaultLimit));
         })
                 // A broken configuration store must not take the API down: the default still protects it.
                 .onErrorResume(e -> {
-                    log.warn("Volume limit configuration '{}' unreadable, using the default: {}", key, e.toString());
+                    log.warn("Volume limit configuration '{}' unreadable, using the default: {}", LogSafe.of(key),
+                            e.toString());
                     return Mono.just(defaultLimit);
                 });
     }
@@ -98,7 +114,7 @@ public class VolumeLimitServiceImpl implements VolumeLimitService {
         } catch (NumberFormatException _) {
             // logged below
         }
-        log.warn("Volume limit configuration '{}' is not a positive integer, using the default", key);
+        log.warn("Volume limit configuration '{}' is not a positive integer, using the default", LogSafe.of(key));
         return null;
     }
 

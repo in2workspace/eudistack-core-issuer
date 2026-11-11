@@ -38,6 +38,9 @@ public interface IdempotencyStore {
     /** Frees the key of a request that failed, so a retry is processed again. A no-op if it no longer holds it. */
     Mono<Void> release(String scopeKey, String ownerId);
 
+    /** Moves the end of the lease of the request that holds the key. A no-op if it no longer holds it. */
+    Mono<Void> renew(String scopeKey, String ownerId, Instant lockedUntil);
+
     /** Deletes the keys whose retention ended; returns how many. */
     Mono<Long> purgeExpired(Instant now);
 }

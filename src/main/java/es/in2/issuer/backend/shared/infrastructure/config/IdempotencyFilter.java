@@ -26,7 +26,7 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.util.context.ContextView;
+import reactor.core.Disposable;
 
 import java.net.URI;
 import java.util.List;
@@ -137,14 +137,25 @@ public class IdempotencyFilter implements WebFilter, Ordered {
 
     private Mono<Void> process(ServerWebExchange exchange, WebFilterChain chain, IdempotencyClaim.Acquired claim) {
         return Mono.deferContextual(context -> {
-            RecordingResponse response = new RecordingResponse(exchange.getResponse(), claim, context);
+            RecordingResponse response = new RecordingResponse(exchange.getResponse(), claim);
+            // While the request runs its lease is renewed, so a slow issuance (a remote signature) is never
+            // taken over by a retry. If the client goes away the request is cancelled and the renewal stops,
+            // but the key is not freed: whether the process was created is unknown, so a retry is answered
+            // 409 until the lease ends, and only then processed again.
+            Disposable renewal = Flux.interval(idempotencyService.renewEvery())
+                    .concatMap(tick -> idempotencyService.renew(claim)
+                            .onErrorResume(e -> {
+                                log.warn("Could not renew the lease of an idempotency key: {}", e.toString());
+                                return Mono.empty();
+                            }))
+                    .contextWrite(context)
+                    .subscribe();
             return chain.filter(exchange.mutate().response(response).build())
                     // A response written without a body (or not written at all) is settled here.
                     .then(Mono.defer(() -> response.settle(new byte[0])))
                     // The error is answered after this filter, by the exception handlers: it is not stored.
                     .onErrorResume(error -> response.release().then(Mono.error(error)))
-                    // The client went away: whether the process was created is unknown, so the key is freed.
-                    .doOnCancel(response::releaseDetached);
+                    .doFinally(signal -> renewal.dispose());
         });
     }
 
@@ -209,13 +220,11 @@ public class IdempotencyFilter implements WebFilter, Ordered {
     private final class RecordingResponse extends ServerHttpResponseDecorator {
 
         private final IdempotencyClaim.Acquired claim;
-        private final ContextView context;
         private final AtomicBoolean settled = new AtomicBoolean(false);
 
-        private RecordingResponse(ServerHttpResponse delegate, IdempotencyClaim.Acquired claim, ContextView context) {
+        private RecordingResponse(ServerHttpResponse delegate, IdempotencyClaim.Acquired claim) {
             super(delegate);
             this.claim = claim;
-            this.context = context;
         }
 
         @Override
@@ -256,20 +265,16 @@ public class IdempotencyFilter implements WebFilter, Ordered {
                     contentType != null ? contentType.toString() : null,
                     headers.getFirst(HttpHeaders.LOCATION), body);
             return idempotencyService.complete(claim, stored)
-                    // The response is still sent; a retry will then find the key free and be processed again.
+                    // The response is still sent. The key stays held until its lease ends: a retry is answered
+                    // 409 until then, and afterwards processed again.
                     .onErrorResume(e -> {
-                        log.warn("Could not store the response of an idempotency key: {}", e.toString());
+                        log.error("Could not store the response of an idempotency key: {}", e.toString());
                         return Mono.empty();
                     });
         }
 
         Mono<Void> release() {
             return settled.compareAndSet(false, true) ? releaseOnce() : Mono.empty();
-        }
-
-        void releaseDetached() {
-            release().contextWrite(context).subscribe(null,
-                    e -> log.warn("Could not free an idempotency key after a cancelled request: {}", e.toString()));
         }
 
         private Mono<Void> releaseOnce() {

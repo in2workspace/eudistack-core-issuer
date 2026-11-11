@@ -5,6 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.requestcontrol.Requester;
 import es.in2.issuer.backend.shared.domain.model.requestcontrol.VolumeLimitDecision;
 import es.in2.issuer.backend.shared.domain.service.VolumeLimitService;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
+import es.in2.issuer.backend.shared.domain.util.LogSafe;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatus;
@@ -84,7 +85,7 @@ public class ApiVolumeLimitFilter implements WebFilter, Ordered {
         VolumeLimitDecision decision = outcome.decision();
         // The organization is not personal data; the person is never logged.
         log.warn("Volume limit exceeded: operation={} requester={} organization={} limit={} retryAfter={}s",
-                operation.key(), requester.kind(), requester.organizationIdentifier(),
+                operation.key(), requester.kind(), LogSafe.of(requester.organizationIdentifier()),
                 decision.limit(), decision.retryAfterSeconds());
         metrics.recordVolumeLimitRejection(operation.key(), requester.kind().name().toLowerCase(Locale.ROOT));
         return problemWriter.write(exchange, HttpStatus.TOO_MANY_REQUESTS,

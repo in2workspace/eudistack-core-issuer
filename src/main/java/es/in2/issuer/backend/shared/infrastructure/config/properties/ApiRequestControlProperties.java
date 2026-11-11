@@ -18,8 +18,6 @@ public class ApiRequestControlProperties {
 
     private VolumeLimit volumeLimit = new VolumeLimit();
     private Idempotency idempotency = new Idempotency();
-    /** Cron of the purge of expired idempotency keys and past volume counters. */
-    private String requestControlCleanupCron = "0 */10 * * * *";
 
     @Getter
     @Setter

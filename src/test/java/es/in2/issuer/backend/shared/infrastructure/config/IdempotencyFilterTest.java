@@ -23,6 +23,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.net.URI;
+import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,8 +34,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -66,6 +70,8 @@ class IdempotencyFilterTest {
         lenient().when(requesterResolver.current()).thenReturn(Mono.just(REQUESTER));
         lenient().when(idempotencyService.complete(any(), any())).thenReturn(Mono.empty());
         lenient().when(idempotencyService.release(any())).thenReturn(Mono.empty());
+        lenient().when(idempotencyService.renew(any())).thenReturn(Mono.empty());
+        lenient().when(idempotencyService.renewEvery()).thenReturn(Duration.ofMinutes(1));
     }
 
     private static MockServerWebExchange issuance(String key) {
@@ -141,6 +147,36 @@ class IdempotencyFilterTest {
                 .verifyError(IllegalStateException.class);
 
         verify(idempotencyService).release(ACQUIRED);
+    }
+
+    @Test
+    void aSlowRequest_renewsItsLeaseWhileItRuns_andStopsWhenItEnds() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(ACQUIRED));
+        when(idempotencyService.renewEvery()).thenReturn(Duration.ofMillis(20));
+        AtomicInteger calls = new AtomicInteger();
+        WebFilterChain slow = exchange -> Mono.delay(Duration.ofMillis(150))
+                .then(controller(HttpStatus.OK, calls, new AtomicReference<>()).filter(exchange));
+
+        StepVerifier.create(filter.filter(issuance(KEY), slow)).verifyComplete();
+
+        verify(idempotencyService, atLeast(2)).renew(ACQUIRED);
+        int renewals = mockingDetails(idempotencyService).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("renew")).toList().size();
+        Mono.delay(Duration.ofMillis(100)).block();
+        verify(idempotencyService, times(renewals)).renew(ACQUIRED);
+    }
+
+    @Test
+    void theClientGoesAway_theKeyIsNotFreed() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(ACQUIRED));
+
+        StepVerifier.create(filter.filter(issuance(KEY), exchange -> Mono.never()))
+                .thenAwait(Duration.ofMillis(50))
+                .thenCancel()
+                .verify();
+
+        verify(idempotencyService, never()).release(any());
+        verify(idempotencyService, never()).complete(any(), any());
     }
 
     @Test

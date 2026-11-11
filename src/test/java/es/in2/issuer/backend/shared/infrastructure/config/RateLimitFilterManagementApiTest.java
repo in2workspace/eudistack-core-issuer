@@ -41,6 +41,28 @@ class RateLimitFilterManagementApiTest {
     }
 
     @Test
+    void theManagementApis_limitByAddressTheRequestsThatFailAuthentication() {
+        RateLimitFilter filter = new RateLimitFilter(2);
+        WebFilterChain unauthenticated = exchange -> {
+            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+            return Mono.empty();
+        };
+
+        StepVerifier.create(filter.filter(post("/api/v1/issuances"), unauthenticated)).verifyComplete();
+        StepVerifier.create(filter.filter(post("/api/v1/issuances/abc/revocation"), unauthenticated)).verifyComplete();
+        MockServerWebExchange third = post("/api/v1/issuances");
+        AtomicInteger calls = new AtomicInteger();
+        StepVerifier.create(filter.filter(third, exchange -> {
+            calls.incrementAndGet();
+            return Mono.empty();
+        })).verifyComplete();
+
+        assertThat(third.getResponse().getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(third.getResponse().getHeaders().getFirst("Retry-After")).isEqualTo("60");
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
     void theOtherRoutes_keepTheLimitByAddress() {
         RateLimitFilter filter = new RateLimitFilter(1);
         WebFilterChain chain = exchange -> Mono.empty();

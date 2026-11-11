@@ -26,6 +26,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -53,6 +55,7 @@ class VolumeLimitServiceImplTest {
                 ApiOperation.SEARCH, new VolumeLimitPolicy.Limits(60, 10),
                 ApiOperation.READ, new VolumeLimitPolicy.Limits(300, 30)));
         service = new VolumeLimitServiceImpl(policy, counterStore, tenantConfigService, Clock.fixed(NOW, ZoneOffset.UTC));
+        lenient().when(counterStore.undo(anyString(), any())).thenReturn(Mono.empty());
     }
 
     private Mono<VolumeLimitDecision> check(ApiOperation operation, Requester requester) {
@@ -75,6 +78,21 @@ class VolumeLimitServiceImplTest {
                 })
                 .verifyComplete();
         verify(tenantConfigService, never()).getString(anyString());
+    }
+
+    @Test
+    void check_aRejectedRequestIsTakenBack_anAllowedOneIsNot() {
+        counted(31);
+        StepVerifier.create(check(ApiOperation.ISSUANCE, Requester.person(ORG, "pseudonym")))
+                .assertNext(decision -> assertThat(decision.allowed()).isFalse())
+                .verifyComplete();
+        verify(counterStore).undo(anyString(), eq(Instant.parse("2026-11-10T10:00:30Z")));
+
+        counted(30);
+        StepVerifier.create(check(ApiOperation.ISSUANCE, Requester.person(ORG, "other")))
+                .assertNext(decision -> assertThat(decision.allowed()).isTrue())
+                .verifyComplete();
+        verify(counterStore, times(1)).undo(anyString(), any());
     }
 
     @Test

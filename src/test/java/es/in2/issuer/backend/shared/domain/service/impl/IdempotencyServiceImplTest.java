@@ -20,6 +20,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,6 +33,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class IdempotencyServiceImplTest {
 
+    private static final String SECRET = "server-secret";
     private static final Instant NOW = Instant.parse("2026-11-10T10:00:00Z");
 
     @Mock
@@ -41,7 +43,7 @@ class IdempotencyServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new IdempotencyServiceImpl(store, new IdempotencyPolicy(Duration.ofHours(24), Duration.ofMinutes(2)),
+        service = new IdempotencyServiceImpl(store, new IdempotencyPolicy(Duration.ofHours(24), Duration.ofMinutes(2), SECRET),
                 Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
     }
 
@@ -68,11 +70,47 @@ class IdempotencyServiceImplTest {
     void scopeKey_theSameKeyOfTwoRequestersNeverCollides_andNamesNobody() {
         String key = "retry-1";
 
-        assertThat(IdempotencyServiceImpl.scopeKey(Requester.system("ORG-1"), key))
-                .isNotEqualTo(IdempotencyServiceImpl.scopeKey(Requester.system("ORG-2"), key))
-                .isNotEqualTo(IdempotencyServiceImpl.scopeKey(Requester.person("ORG-1", "p"), key))
+        assertThat(IdempotencyServiceImpl.scopeKey(SECRET, Requester.system("ORG-1"), key))
+                .isNotEqualTo(IdempotencyServiceImpl.scopeKey(SECRET, Requester.system("ORG-2"), key))
+                .isNotEqualTo(IdempotencyServiceImpl.scopeKey(SECRET, Requester.person("ORG-1", "p"), key))
                 .hasSize(64)
                 .doesNotContain("ORG-1");
+    }
+
+    @Test
+    void scopeKey_dependsOnTheServerSecret_andOnTheSystemWithinItsOrganization() {
+        String key = "order-1";
+
+        assertThat(IdempotencyServiceImpl.scopeKey(SECRET, Requester.system("ORG-1", "m1"), key))
+                .isNotEqualTo(IdempotencyServiceImpl.scopeKey("", Requester.system("ORG-1", "m1"), key))
+                .isNotEqualTo(IdempotencyServiceImpl.scopeKey(SECRET, Requester.system("ORG-1", "m2"), key));
+        assertThat(IdempotencyServiceImpl.responseKey(SECRET, Requester.system("ORG-1", "m1"), key))
+                .isNotEqualTo(IdempotencyServiceImpl.responseKey("", Requester.system("ORG-1", "m1"), key));
+    }
+
+    @Test
+    void renew_extendsTheLeaseOfTheRequestByOneLease() {
+        when(store.renew("scope", "owner", NOW.plus(Duration.ofMinutes(2)))).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.renew(new IdempotencyClaim.Acquired("scope", "owner"))).verifyComplete();
+
+        verify(store).renew("scope", "owner", NOW.plus(Duration.ofMinutes(2)));
+        assertThat(service.renewEvery()).isEqualTo(Duration.ofMinutes(1));
+    }
+
+    @Test
+    void complete_retriesAPassingFailureOfTheStore() {
+        Requester requester = Requester.system("ORG-1");
+        AtomicInteger attempts = new AtomicInteger();
+        when(store.complete(eq("scope"), eq("owner"), any())).thenReturn(Mono.defer(() ->
+                attempts.incrementAndGet() == 1 ? Mono.error(new IllegalStateException("blip")) : Mono.empty()));
+
+        StepVerifier.create(service.complete(new IdempotencyClaim.Acquired("scope", "owner",
+                        IdempotencyServiceImpl.responseKey(SECRET, requester, "k")),
+                        new StoredResponse(200, null, null, bytes("{}"))))
+                .verifyComplete();
+
+        assertThat(attempts).hasValue(2);
     }
 
     @Test
@@ -83,15 +121,15 @@ class IdempotencyServiceImplTest {
 
         StepVerifier.create(service.claim(requester, "k", bytes("{}")))
                 .expectNext(new IdempotencyClaim.Acquired("scope", "owner",
-                        IdempotencyServiceImpl.responseKey(requester, "k")))
+                        IdempotencyServiceImpl.responseKey(SECRET, requester, "k")))
                 .verifyComplete();
     }
 
     @Test
     void complete_keepsTheResponseEncrypted_andTheReplayOpensIt() {
         Requester requester = Requester.person("ORG-1", "p");
-        String scopeKey = IdempotencyServiceImpl.scopeKey(requester, "k");
-        byte[] responseKey = IdempotencyServiceImpl.responseKey(requester, "k");
+        String scopeKey = IdempotencyServiceImpl.scopeKey(SECRET, requester, "k");
+        byte[] responseKey = IdempotencyServiceImpl.responseKey(SECRET, requester, "k");
         StoredResponse response = new StoredResponse(200, "application/json", "/x/1",
                 bytes("{\"signed_credential\":\"eyJ\"}"));
         when(store.complete(eq(scopeKey), eq("owner"), any())).thenReturn(Mono.empty());
@@ -116,13 +154,13 @@ class IdempotencyServiceImplTest {
     void open_withAnotherIdempotencyKeyOrScope_fails() {
         Requester requester = Requester.system("ORG-1");
         StoredResponse sealed = IdempotencyServiceImpl.seal(new StoredResponse(201, null, null, bytes("body")),
-                IdempotencyServiceImpl.responseKey(requester, "k"), "scope");
+                IdempotencyServiceImpl.responseKey(SECRET, requester, "k"), "scope");
 
         assertThatThrownBy(() -> IdempotencyServiceImpl.open(sealed,
-                IdempotencyServiceImpl.responseKey(requester, "other"), "scope"))
+                IdempotencyServiceImpl.responseKey(SECRET, requester, "other"), "scope"))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> IdempotencyServiceImpl.open(sealed,
-                IdempotencyServiceImpl.responseKey(requester, "k"), "other-scope"))
+                IdempotencyServiceImpl.responseKey(SECRET, requester, "k"), "other-scope"))
                 .isInstanceOf(IllegalStateException.class);
     }
 

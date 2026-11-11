@@ -20,6 +20,9 @@ public interface VolumeCounterStore {
      */
     Mono<Map<Instant, Long>> increment(String counterKey, Instant currentBucket, Instant oldestBucket);
 
+    /** Takes back one request of {@code bucket}: a rejected request does not use up the limit. */
+    Mono<Void> undo(String counterKey, Instant bucket);
+
     /** Deletes the buckets that started before {@code before}; returns how many. */
     Mono<Long> purgeBefore(Instant before);
 }

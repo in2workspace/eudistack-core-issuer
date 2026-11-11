@@ -55,6 +55,18 @@ class R2dbcVolumeCounterStoreIT extends PostgresIntegrationBase {
     }
 
     @Test
+    void undo_takesBackOneRequestOfItsBucket_neverBelowZero() {
+        String key = "issuance:" + UUID.randomUUID();
+        increment(store, key, 0).block();
+        increment(store, key, 0).block();
+
+        scoped(store.undo(key, second(0))).block();
+        StepVerifier.create(increment(store, key, 0)).expectNext(Map.of(second(0), 2L)).verifyComplete();
+        scoped(store.undo(key, second(0)).then(store.undo(key, second(0))).then(store.undo(key, second(0)))).block();
+        StepVerifier.create(increment(store, key, 0)).expectNext(Map.of(second(0), 1L)).verifyComplete();
+    }
+
+    @Test
     void increment_readsTheBucketsOfTheWindow_andCountsApartPerKey() {
         String key = "read:" + UUID.randomUUID();
         increment(store, key, -70).block();

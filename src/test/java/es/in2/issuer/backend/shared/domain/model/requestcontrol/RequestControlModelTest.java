@@ -22,9 +22,32 @@ class RequestControlModelTest {
     }
 
     @Test
-    void requester_aPersonNeedsAKey_aSystemDropsIt() {
+    void requester_aPersonNeedsAKey_aSystemMayHaveOne() {
         assertThatThrownBy(() -> Requester.person("ORG-1", " ")).isInstanceOf(IllegalArgumentException.class);
-        assertThat(new Requester("ORG-1", RequesterKind.SYSTEM, "ignored").personKey()).isNull();
+        assertThat(new Requester("ORG-1", RequesterKind.SYSTEM, " ").callerKey()).isNull();
+        assertThat(Requester.system("ORG-1", "m1").callerKey()).isEqualTo("m1");
+    }
+
+    @Test
+    void requester_theSystemsOfAnOrganizationShareTheCount_butNotTheIdempotencyKeys() {
+        Requester first = Requester.system("ORG-1", "m1");
+        Requester second = Requester.system("ORG-1", "m2");
+
+        assertThat(first.countingScope()).isEqualTo(second.countingScope());
+        assertThat(first.idempotencyScope()).isNotEqualTo(second.idempotencyScope());
+        assertThat(Requester.person("ORG-1", "p1").idempotencyScope())
+                .isEqualTo(Requester.person("ORG-1", "p1").countingScope());
+    }
+
+    @Test
+    void idempotencyPolicy_renewsTwicePerLease_andNeverPrintsItsSecret() {
+        IdempotencyPolicy policy = new IdempotencyPolicy(java.time.Duration.ofHours(24),
+                java.time.Duration.ofMinutes(2), "top-secret");
+
+        assertThat(policy.renewEvery()).isEqualTo(java.time.Duration.ofMinutes(1));
+        assertThat(policy.toString()).doesNotContain("top-secret").contains("redacted");
+        assertThat(new IdempotencyPolicy(java.time.Duration.ofHours(1), java.time.Duration.ofMinutes(1), null)
+                .serverSecret()).isEmpty();
     }
 
     @Test

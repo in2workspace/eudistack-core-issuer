@@ -113,6 +113,21 @@ class R2dbcIdempotencyStoreIT extends PostgresIntegrationBase {
     }
 
     @Test
+    void aRenewedLease_isNotTakenOver_untilItEndsAgain() {
+        String scope = scope();
+        Instant now = Instant.now();
+        IdempotencyClaim.Acquired running = (IdempotencyClaim.Acquired) claim(store, scope, "h1", now).block();
+        Instant afterFirstLease = now.plus(LEASE).plusSeconds(1);
+
+        scoped(store.renew(scope, running.ownerId(), afterFirstLease.plus(LEASE))).block();
+
+        StepVerifier.create(claim(store, scope, "h1", afterFirstLease))
+                .expectNext(new IdempotencyClaim.InProgress()).verifyComplete();
+        assertThat(claim(store, scope, "h1", afterFirstLease.plus(LEASE).plusSeconds(1)).block())
+                .isInstanceOf(IdempotencyClaim.Acquired.class);
+    }
+
+    @Test
     void anAbandonedRequest_whoseLeaseEnded_canBeTakenOverWithTheSameBodyOnly() {
         String scope = scope();
         Instant now = Instant.now();

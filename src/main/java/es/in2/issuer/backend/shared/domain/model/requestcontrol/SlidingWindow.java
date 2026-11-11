@@ -71,14 +71,15 @@ public record SlidingWindow(Duration length) {
     }
 
     /**
-     * Until enough of the oldest buckets leave the window for one more request to fit. A bucket stops being
-     * counted once it ended {@code length} ago.
+     * Until enough of the oldest buckets leave the window for one more request to fit. The rejected request is
+     * taken back from its bucket, so one more fits once what remains of {@code total} (which still includes it)
+     * is within the limit. A bucket stops being counted once it ended {@code length} ago.
      */
     private long waitMillis(NavigableMap<Instant, Long> counted, long total, int limit, Instant now) {
         long remaining = total;
         for (Map.Entry<Instant, Long> bucket : counted.entrySet()) {
             remaining -= bucket.getValue();
-            if (remaining + 1 <= limit) {
+            if (remaining <= limit) {
                 return bucket.getKey().plus(bucket()).plus(length).toEpochMilli() - now.toEpochMilli();
             }
         }

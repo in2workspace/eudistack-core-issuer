@@ -43,24 +43,33 @@ class RequesterResolverTest {
     }
 
     @Test
-    void aMachineAttestation_isASystemOfItsOrganization() {
-        caller("learcredential.machine.sd.1");
+    void aMachineAttestation_isASystemOfItsOrganization_whicheverWayTheTokenNamesItsType() {
+        when(callerProvider.currentPerson()).thenReturn(Mono.just("did:key:machine-1"));
+        for (String type : List.of("learcredential.machine.sd.1", "LEARCredentialMachine")) {
+            caller(type);
 
-        StepVerifier.create(resolve(Map.of("sub", "machine"), "sandbox"))
-                .assertNext(requester -> {
-                    assertThat(requester.kind()).isEqualTo(RequesterKind.SYSTEM);
-                    assertThat(requester.organizationIdentifier()).isEqualTo(ORG);
-                })
-                .verifyComplete();
+            StepVerifier.create(resolve(Map.of("sub", "machine"), "sandbox"))
+                    .assertNext(requester -> {
+                        assertThat(requester.kind()).isEqualTo(RequesterKind.SYSTEM);
+                        assertThat(requester.organizationIdentifier()).isEqualTo(ORG);
+                        assertThat(requester.callerKey()).hasSize(64).doesNotContain("machine-1");
+                    })
+                    .verifyComplete();
+        }
     }
 
     @Test
-    void anM2mClient_isASystem() {
-        caller(null);
+    void twoSystemsOfOneOrganization_shareTheCount_butNotTheIdempotencyKeys() {
+        caller("learcredential.machine.sd.1");
+        when(callerProvider.currentPerson()).thenReturn(Mono.just("did:key:machine-1"));
+        Requester first = resolve(Map.of("sub", "m1"), "sandbox").block();
+        when(callerProvider.currentPerson()).thenReturn(Mono.just("did:key:machine-2"));
+        Requester second = resolve(Map.of("sub", "m2"), "sandbox").block();
 
-        StepVerifier.create(resolve(Map.of("caller_type", "M2M"), "sandbox"))
-                .assertNext(requester -> assertThat(requester.kind()).isEqualTo(RequesterKind.SYSTEM))
-                .verifyComplete();
+        assertThat(first).isNotNull();
+        assertThat(second).isNotNull();
+        assertThat(first.countingScope()).isEqualTo(second.countingScope());
+        assertThat(first.idempotencyScope()).isNotEqualTo(second.idempotencyScope());
     }
 
     @Test
@@ -73,9 +82,9 @@ class RequesterResolverTest {
 
         assertThat(sandbox).isNotNull();
         assertThat(sandbox.kind()).isEqualTo(RequesterKind.PERSON);
-        assertThat(sandbox.personKey()).hasSize(64).doesNotContainIgnoringCase("ana");
+        assertThat(sandbox.callerKey()).hasSize(64).doesNotContainIgnoringCase("ana");
         assertThat(cgcom).isNotNull();
-        assertThat(cgcom.personKey()).isNotEqualTo(sandbox.personKey());
+        assertThat(cgcom.callerKey()).isNotEqualTo(sandbox.callerKey());
         // Case and surrounding spaces do not make another person.
         when(callerProvider.currentPerson()).thenReturn(Mono.just("ana@example.org"));
         assertThat(resolve(Map.of("sub", "x"), "sandbox").block()).isEqualTo(sandbox);

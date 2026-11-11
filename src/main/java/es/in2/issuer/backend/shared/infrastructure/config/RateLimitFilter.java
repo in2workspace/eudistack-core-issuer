@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import es.in2.issuer.backend.shared.domain.util.LogSafe;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
@@ -32,11 +33,16 @@ public class RateLimitFilter implements WebFilter {
 
     private final int maxRequestsPerMinute;
     private final Cache<String, AtomicInteger> requestCounts;
+    private final Cache<String, AtomicInteger> failedAuthentications;
 
     public RateLimitFilter(
             @Value("${issuer.api.rate-limit.max-per-minute:100}") int maxRequestsPerMinute) {
         this.maxRequestsPerMinute = maxRequestsPerMinute;
         this.requestCounts = Caffeine.newBuilder()
+                .expireAfterWrite(Duration.ofMinutes(1))
+                .maximumSize(50_000)
+                .build();
+        this.failedAuthentications = Caffeine.newBuilder()
                 .expireAfterWrite(Duration.ofMinutes(1))
                 .maximumSize(50_000)
                 .build();
@@ -49,7 +55,7 @@ public class RateLimitFilter implements WebFilter {
             return chain.filter(exchange);
         }
         if (hasVolumeLimitOfItsRequester(exchange)) {
-            return chain.filter(exchange);
+            return limitFailedAuthentications(exchange, chain);
         }
 
         String clientIp = resolveClientIp(exchange);
@@ -60,12 +66,37 @@ public class RateLimitFilter implements WebFilter {
             log.warn("Rate limit exceeded for IP {}: {}/{} requests/min on {} {}",
                     clientIp, current, maxRequestsPerMinute,
                     method, exchange.getRequest().getPath().value());
-            exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
-            exchange.getResponse().getHeaders().set("Retry-After", "60");
-            return exchange.getResponse().setComplete();
+            return reject(exchange);
         }
 
         return chain.filter(exchange);
+    }
+
+    /**
+     * On the issuance, revocation and query APIs an authenticated request has the volume limit of its
+     * requester instead (EUD-269), so only the requests that fail authentication (401) are counted per
+     * address here: an address over the limit of them is rejected before its token is verified, which keeps
+     * floods of invalid or expired tokens throttled, and its authenticated traffic is never limited by it.
+     */
+    private Mono<Void> limitFailedAuthentications(ServerWebExchange exchange, WebFilterChain chain) {
+        String clientIp = resolveClientIp(exchange);
+        AtomicInteger failures = failedAuthentications.getIfPresent(clientIp);
+        if (failures != null && failures.get() >= maxRequestsPerMinute) {
+            log.warn("Rate limit of failed authentications exceeded for IP {} on {} {}", LogSafe.of(clientIp),
+                    exchange.getRequest().getMethod(), exchange.getRequest().getPath().value());
+            return reject(exchange);
+        }
+        return chain.filter(exchange).doFinally(signal -> {
+            if (HttpStatus.UNAUTHORIZED.equals(exchange.getResponse().getStatusCode())) {
+                failedAuthentications.get(clientIp, k -> new AtomicInteger(0)).incrementAndGet();
+            }
+        });
+    }
+
+    private static Mono<Void> reject(ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+        exchange.getResponse().getHeaders().set("Retry-After", "60");
+        return exchange.getResponse().setComplete();
     }
 
     /**

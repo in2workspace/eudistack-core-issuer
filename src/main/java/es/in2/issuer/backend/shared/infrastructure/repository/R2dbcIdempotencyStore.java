@@ -26,7 +26,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class R2dbcIdempotencyStore implements IdempotencyStore {
 
-    static final String STATE_IN_PROGRESS = "IN_PROGRESS";
     static final String STATE_COMPLETED = "COMPLETED";
     private static final int MAX_CLAIM_ATTEMPTS = 3;
 
@@ -65,6 +64,11 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
             WHERE scope_key = :scopeKey AND owner_id = :ownerId AND state = 'IN_PROGRESS'
             """;
 
+    private static final String RENEW_SQL = """
+            UPDATE api_idempotency_record SET locked_until = :lockedUntil
+            WHERE scope_key = :scopeKey AND owner_id = :ownerId AND state = 'IN_PROGRESS'
+            """;
+
     private static final String RELEASE_SQL = """
             DELETE FROM api_idempotency_record
             WHERE scope_key = :scopeKey AND owner_id = :ownerId AND state = 'IN_PROGRESS'
@@ -72,8 +76,9 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
 
     private final DatabaseClient databaseClient;
 
+    /** The row that stopped a claim; {@code response} only when it is completed. */
     private record ExistingRecord(String requestHash, String state, Instant lockedUntil, Instant expiresAt,
-                                  Integer status, String contentType, String location, byte[] body) { }
+                                  StoredResponse response) { }
 
     @Override
     public Mono<IdempotencyClaim> claim(String scopeKey, String requestHash, String ownerId,
@@ -110,8 +115,7 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
             return Mono.just(new IdempotencyClaim.KeyReused());
         }
         if (STATE_COMPLETED.equals(existing.state())) {
-            return Mono.just(new IdempotencyClaim.Replay(new StoredResponse(existing.status(),
-                    existing.contentType(), existing.location(), existing.body())));
+            return Mono.just(new IdempotencyClaim.Replay(existing.response()));
         }
         // An expired lease with the same body was taken over by a concurrent retry: retry to see its outcome.
         return existing.lockedUntil().isAfter(now) ? Mono.just(new IdempotencyClaim.InProgress()) : Mono.empty();
@@ -120,15 +124,16 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
     private Mono<ExistingRecord> read(String scopeKey) {
         return databaseClient.sql(READ_SQL)
                 .bind("scopeKey", scopeKey)
-                .map((row, metadata) -> new ExistingRecord(
-                        row.get("request_hash", String.class),
-                        row.get("state", String.class),
-                        row.get("locked_until", Instant.class),
-                        row.get("expires_at", Instant.class),
-                        row.get("response_status", Integer.class),
-                        row.get("response_content_type", String.class),
-                        row.get("response_location", String.class),
-                        row.get("response_body", byte[].class)))
+                .map((row, metadata) -> {
+                    String state = row.get("state", String.class);
+                    Integer status = row.get("response_status", Integer.class);
+                    StoredResponse response = STATE_COMPLETED.equals(state) && status != null
+                            ? new StoredResponse(status, row.get("response_content_type", String.class),
+                                    row.get("response_location", String.class), row.get("response_body", byte[].class))
+                            : null;
+                    return new ExistingRecord(row.get("request_hash", String.class), state,
+                            row.get("locked_until", Instant.class), row.get("expires_at", Instant.class), response);
+                })
                 .one();
     }
 
@@ -159,6 +164,17 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
         return databaseClient.sql(RELEASE_SQL)
                 .bind("scopeKey", scopeKey)
                 .bind("ownerId", UUID.fromString(ownerId))
+                .fetch()
+                .rowsUpdated()
+                .then();
+    }
+
+    @Override
+    public Mono<Void> renew(String scopeKey, String ownerId, Instant lockedUntil) {
+        return databaseClient.sql(RENEW_SQL)
+                .bind("scopeKey", scopeKey)
+                .bind("ownerId", UUID.fromString(ownerId))
+                .bind("lockedUntil", lockedUntil)
                 .fetch()
                 .rowsUpdated()
                 .then();

@@ -53,6 +53,19 @@ public class R2dbcVolumeCounterStore implements VolumeCounterStore {
     }
 
     @Override
+    public Mono<Void> undo(String counterKey, Instant bucket) {
+        return databaseClient.sql("""
+                        UPDATE api_volume_counter SET request_count = request_count - 1
+                        WHERE counter_key = :counterKey AND window_start = :bucket AND request_count > 0
+                        """)
+                .bind("counterKey", counterKey)
+                .bind("bucket", bucket)
+                .fetch()
+                .rowsUpdated()
+                .then();
+    }
+
+    @Override
     public Mono<Long> purgeBefore(Instant before) {
         return databaseClient.sql("DELETE FROM api_volume_counter WHERE window_start < :before")
                 .bind("before", before)
