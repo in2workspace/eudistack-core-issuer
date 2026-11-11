@@ -3,35 +3,41 @@ package es.in2.issuer.backend.issuance.domain.model;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * Closed set of codes for {@code responses[].error.type} (EUD-168 F3/W1; wire field renamed from
- * {@code delivery_results[].error} by EUD-167 D-6 -- {@code deliveryResults} is now purely internal).
+ * Closed set of problem types of a failed delivery (EUD-254 FR-03, AC-03): what the caller learns of a
+ * valid request whose delivery flow could not be completed.
  *
- * <p>Before this, a failed mode carried {@code Throwable.getMessage()} verbatim: for the direct leg
- * that can be a {@code WebClientResponseException}'s method/URL from the signing provider or the
- * status list, or an R2DBC failure's table/column/schema names -- and the schema name <em>is</em> the
- * tenant. Before AD-11 that same failure propagated to a {@code problem+json} sanitized by
- * {@code ErrorResponseFactory}; the per-mode isolation skipped that sanitizer. A code carries no more
- * than what the caller already knows from the mode and the request -- the raw detail stays server-side
- * in the log line the failure site already emits.
+ * <p>A code, never {@code Throwable.getMessage()} (EUD-168 F3/W1): a failure of the signing provider or
+ * the status list can carry a method and URL, and an R2DBC failure the table, column and schema names --
+ * and the schema name <em>is</em> the tenant. The raw detail stays server-side, in the log.
+ *
+ * <p>{@link #retryable()} separates a dependency that is temporarily unavailable, worth retrying later
+ * (503 with {@code Retry-After}), from a failure a retry would not fix (500).
  */
 public enum DeliveryErrorCode {
 
-    SIGNING_FAILED("signing_failed"),
-    STATUS_LIST_UNAVAILABLE("status_list_unavailable"),
-    PERSISTENCE_FAILED("persistence_failed"),
-    WALLET_DELIVERY_TIMEOUT("wallet_delivery_timeout"),
+    SIGNING_FAILED("signing_failed", true),
+    STATUS_LIST_UNAVAILABLE("status_list_unavailable", true),
+    WALLET_DELIVERY_TIMEOUT("wallet_delivery_timeout", true),
+    PERSISTENCE_FAILED("persistence_failed", false),
     /** Anything that isn't one of the classified stages above -- still safe, never raw. */
-    DELIVERY_FAILED("delivery_failed");
+    DELIVERY_FAILED("delivery_failed", false);
 
     private final String value;
+    private final boolean retryable;
 
-    DeliveryErrorCode(String value) {
+    DeliveryErrorCode(String value, boolean retryable) {
         this.value = value;
+        this.retryable = retryable;
     }
 
     @JsonValue
     public String value() {
         return value;
+    }
+
+    /** Whether a dependency of the delivery was temporarily unavailable, so the same request may be retried. */
+    public boolean retryable() {
+        return retryable;
     }
 
     /** Short, stable human summary of the failure -- never the raw cause. */

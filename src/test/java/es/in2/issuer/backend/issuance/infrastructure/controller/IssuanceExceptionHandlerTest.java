@@ -6,12 +6,16 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException
 import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import reactor.core.publisher.Mono;
@@ -24,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class IssuanceExceptionHandlerTest {
 
+    private static final int RETRY_AFTER_SECONDS = 7;
+
     private ErrorResponseFactory errors;
     private IssuanceExceptionHandler handler;
     private ServerHttpRequest request;
@@ -31,7 +37,7 @@ class IssuanceExceptionHandlerTest {
     @BeforeEach
     void setUp() {
         errors = mock(ErrorResponseFactory.class);
-        handler = new IssuanceExceptionHandler(errors);
+        handler = new IssuanceExceptionHandler(errors, RETRY_AFTER_SECONDS);
         request = MockServerHttpRequest.get("/any").build();
     }
 
@@ -292,6 +298,56 @@ class IssuanceExceptionHandlerTest {
 
         verify(errors).handleWith(exNull,  request, type, title, st, fallback);
         verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+    }
+
+    // --- EUD-268 task 7: a failed delivery is a problem, 503 with Retry-After or 500 ---
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = DeliveryErrorCode.class,
+            names = {"SIGNING_FAILED", "STATUS_LIST_UNAVAILABLE", "WALLET_DELIVERY_TIMEOUT"})
+    void deliveryFailedWithATemporarilyUnavailableDependencyIs503WithRetryAfter(DeliveryErrorCode code) {
+        IssuanceExceptionHandler realHandler = new IssuanceExceptionHandler(new ErrorResponseFactory(), RETRY_AFTER_SECONDS);
+        ServerHttpRequest post = MockServerHttpRequest.post("/api/v1/issuances").build();
+        DeliveryFailedException ex = new DeliveryFailedException(code,
+                new IllegalStateException("https://qtsp.internal/sign failed for schema tenant_a"));
+
+        StepVerifier.create(realHandler.handleDeliveryFailed(ex, post))
+                .assertNext(response -> {
+                    assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
+                    assertEquals("7", response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
+                    assertEquals(MediaType.APPLICATION_PROBLEM_JSON, response.getHeaders().getContentType());
+                    GlobalErrorMessage problem = response.getBody();
+                    assertNotNull(problem);
+                    assertEquals(code.value(), problem.type());
+                    assertEquals(code.title(), problem.title());
+                    assertEquals(503, problem.status());
+                    assertEquals("The issuance could not be completed. Retry later.", problem.detail());
+                    assertEquals("/api/v1/issuances", problem.instance());
+                })
+                .verifyComplete();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = DeliveryErrorCode.class,
+            names = {"PERSISTENCE_FAILED", "DELIVERY_FAILED"})
+    void deliveryFailedForAnotherReasonIs500WithoutRetryAfter(DeliveryErrorCode code) {
+        IssuanceExceptionHandler realHandler = new IssuanceExceptionHandler(new ErrorResponseFactory(), RETRY_AFTER_SECONDS);
+        ServerHttpRequest post = MockServerHttpRequest.post("/api/v1/issuances").build();
+        DeliveryFailedException ex = new DeliveryFailedException(code,
+                new IllegalStateException("relation tenant_a.issuance does not exist"));
+
+        StepVerifier.create(realHandler.handleDeliveryFailed(ex, post))
+                .assertNext(response -> {
+                    assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+                    assertNull(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
+                    GlobalErrorMessage problem = response.getBody();
+                    assertNotNull(problem);
+                    assertEquals(code.value(), problem.type());
+                    assertEquals(500, problem.status());
+                    assertEquals("The issuance could not be completed.", problem.detail());
+                    assertFalse(problem.detail().contains("tenant_a"));
+                })
+                .verifyComplete();
     }
 
 }

@@ -244,6 +244,7 @@ issuance:
   delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
   delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}
   hybrid-wallet-timeout-seconds: ${ISSUANCE_HYBRID_WALLET_TIMEOUT_SECONDS:30}
+  delivery-retry-after-seconds: ${ISSUANCE_DELIVERY_RETRY_AFTER_SECONDS:5}
 
 # EUD-225: revocation-instruction message queue. Disabled by default (AD-6) — no broker
 # required, no bean declared, the emitter starts exactly as before with no code path

@@ -11,7 +11,9 @@ import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
@@ -562,7 +564,8 @@ class IssuanceWorkflowImplTest {
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
-                .expectErrorMatches(e -> e instanceof IllegalStateException && "QTSP unavailable".equals(e.getMessage()))
+                .expectErrorMatches(e -> deliveryFailed(DeliveryErrorCode.STATUS_LIST_UNAVAILABLE, IllegalStateException.class).test(e)
+                        && "QTSP unavailable".equals(e.getCause().getMessage()))
                 .verify();
 
         verifyNoInteractions(credentialOfferService);
@@ -1057,7 +1060,7 @@ class IssuanceWorkflowImplTest {
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
-                .expectError(IllegalStateException.class)
+                .expectErrorMatches(deliveryFailed(DeliveryErrorCode.SIGNING_FAILED, IllegalStateException.class))
                 .verify();
 
         verify(issuanceService, never()).saveIssuance(any());
@@ -1091,7 +1094,7 @@ class IssuanceWorkflowImplTest {
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
-                .expectError(IllegalStateException.class)
+                .expectErrorMatches(deliveryFailed(DeliveryErrorCode.PERSISTENCE_FAILED, IllegalStateException.class))
                 .verify();
     }
 
@@ -1418,7 +1421,7 @@ class IssuanceWorkflowImplTest {
         stubWalletLeg("email", payload, Mono.just(new CredentialOfferResult(null, "mail server unavailable")));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
-                .expectError(EmailCommunicationException.class)
+                .expectErrorMatches(deliveryFailed(DeliveryErrorCode.DELIVERY_FAILED, EmailCommunicationException.class))
                 .verify();
     }
 
@@ -1429,9 +1432,38 @@ class IssuanceWorkflowImplTest {
         stubWalletLeg("ui", payload, Mono.error(new IllegalStateException("offer cache unavailable")));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
-                .expectErrorMatches(e -> e instanceof IllegalStateException
-                        && "offer cache unavailable".equals(e.getMessage()))
+                .expectErrorMatches(e -> deliveryFailed(DeliveryErrorCode.DELIVERY_FAILED, IllegalStateException.class).test(e)
+                        && "offer cache unavailable".equals(e.getCause().getMessage()))
                 .verify();
+    }
+
+    @Test
+    void walletDeliveryWhoseProcessCannotBeStoredShouldFailWithPersistenceFailed() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null, null))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class)))
+                .thenReturn(Mono.error(new IllegalStateException("relation tenant_a.issuance does not exist")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMatches(deliveryFailed(DeliveryErrorCode.PERSISTENCE_FAILED, IllegalStateException.class))
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** The delivery failed with {@code code}, keeping the original failure as its cause. */
+    private static java.util.function.Predicate<Throwable> deliveryFailed(DeliveryErrorCode code,
+                                                                          Class<? extends Throwable> cause) {
+        return e -> e instanceof DeliveryFailedException failed
+                && failed.code() == code
+                && cause.isInstance(failed.getCause());
     }
 
     @Test
@@ -1441,7 +1473,7 @@ class IssuanceWorkflowImplTest {
         stubWalletLeg("ui", payload, Mono.never());
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
-                .expectError(TimeoutException.class)
+                .expectErrorMatches(deliveryFailed(DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT, TimeoutException.class))
                 .verify(Duration.ofSeconds(HYBRID_WALLET_TIMEOUT_SECONDS + 5L));
     }
 
@@ -1452,7 +1484,7 @@ class IssuanceWorkflowImplTest {
         stubWalletLeg("email", payload, Mono.just(new CredentialOfferResult(null, "mail server unavailable")));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
-                .expectError(EmailCommunicationException.class)
+                .expectError(DeliveryFailedException.class)
                 .verify();
 
         ArgumentCaptor<DeliveryTrace> trace = ArgumentCaptor.forClass(DeliveryTrace.class);

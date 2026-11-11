@@ -44,12 +44,15 @@ import static org.mockito.Mockito.when;
  *       organization the request decides, valid for the window it asked for.</li>
  *   <li>Each rejection is its contract code and status, served as {@code application/problem+json},
  *       conforming to the contract's {@code Problem} schema, and leaves no issuance process created.</li>
+ *   <li>A valid request whose delivery fails is a Problem too: 503 with {@code Retry-After} when a
+ *       dependency did not answer in time, 500 otherwise.</li>
  * </ul>
  *
  * <p>Every request but the one under test is valid: a DoctorID enabled in the catalog of
  * {@code e2e-tenant-a} for email and ui, whose entry lets the requester set the dates up to 365 days,
  * requested by an organization administrator. The email itself is not sent ({@link EmailService} is a mock).
- * The delivery failures (503/500) join when the delivery flow is reduced to one mode; {@code invalid_holder_key}
+ * The delivery failures go through the email: the wallet flow's time limit is shortened here so that an email
+ * that never answers times out quickly. {@code invalid_holder_key}
  * is covered by HolderKeyTest, since the only types that take a holder key here (the machine LEAR types)
  * carry powers whose grant rules are not this order's.
  */
@@ -79,6 +82,10 @@ class IssuanceContractIT extends PostgresIntegrationBase {
              "medical_speciality": ["Cardiology"]}""";
 
     private static final String HOLDER_EMAIL = "jane.doe@example.org";
+    /** Long enough for a delivery against the test database, short enough for the timeout case. */
+    private static final int WALLET_TIMEOUT_SECONDS = 5;
+    /** Default of {@code issuance.delivery-retry-after-seconds}. */
+    private static final String RETRY_AFTER_SECONDS = "5";
     private static final String FRONTEND_URL_KEY = "issuer.frontend_url";
 
     @MockitoBean
@@ -89,6 +96,7 @@ class IssuanceContractIT extends PostgresIntegrationBase {
     @DynamicPropertySource
     static void useCatalogProfiles(DynamicPropertyRegistry registry) {
         registry.add("credential.profiles.path", () -> "classpath:catalog-profiles");
+        registry.add("issuance.hybrid-wallet-timeout-seconds", () -> WALLET_TIMEOUT_SECONDS);
     }
 
     @BeforeEach
@@ -116,6 +124,30 @@ class IssuanceContractIT extends PostgresIntegrationBase {
             databaseClient.sql("DELETE FROM \"" + TENANT + SCHEMA_SUFFIX + "\".tenant_config WHERE config_key = :key")
                     .bind("key", FRONTEND_URL_KEY).then().block();
         }
+    }
+
+    // ---- 500 / 503: the delivery failed ----------------------------------------------
+
+    /**
+     * PRD AC-03: the email could not be sent. Not a temporarily unavailable dependency the contract names,
+     * so 500 without {@code Retry-After}. The draft process stays, as any process whose offer did not
+     * reach the holder; the cleanup job removes it.
+     */
+    @Test
+    void aBouncedOfferEmailIsDeliveryFailed() {
+        offerEmailAnswers(Mono.error(new IllegalStateException("smtp.internal:587 refused the connection")));
+
+        deliveryFailed(request("\"delivery\": \"email\""), HttpStatus.INTERNAL_SERVER_ERROR, "delivery_failed")
+                .jsonPath("$.detail").isEqualTo("The issuance could not be completed.");
+    }
+
+    /** PRD AC-03: the wallet flow did not answer in time, so 503 with {@code Retry-After}. */
+    @Test
+    void anOfferEmailThatNeverAnswersIsWalletDeliveryTimeoutWithRetryAfter() {
+        offerEmailAnswers(Mono.never());
+
+        deliveryFailed(request("\"delivery\": \"email\""), HttpStatus.SERVICE_UNAVAILABLE, "wallet_delivery_timeout")
+                .jsonPath("$.detail").isEqualTo("The issuance could not be completed. Retry later.");
     }
 
     // ---- 200 -------------------------------------------------------------------------
@@ -346,6 +378,38 @@ class IssuanceContractIT extends PostgresIntegrationBase {
                 .bind("key", FRONTEND_URL_KEY)
                 .fetch().rowsUpdated().block();
         return rows != null && rows > 0;
+    }
+
+    /**
+     * A valid request whose delivery failed: a contract Problem with {@code type} and {@code status}, no
+     * {@code Location}, and {@code Retry-After} only on a 503.
+     */
+    private WebTestClient.BodyContentSpec deliveryFailed(String body, HttpStatus status, String type) {
+        WebTestClient.ResponseSpec response = webTestClient().post().uri(ISSUANCES)
+                .headers(headers(organizationAdministratorToken(TENANT), TENANT))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .exchange()
+                .expectStatus().isEqualTo(status)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectHeader().doesNotExist(HttpHeaders.LOCATION);
+        if (status == HttpStatus.SERVICE_UNAVAILABLE) {
+            response.expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS);
+        } else {
+            response.expectHeader().doesNotExist(HttpHeaders.RETRY_AFTER);
+        }
+        return response.expectBody()
+                .consumeWith(conformsTo("Problem"))
+                .jsonPath("$.type").isEqualTo(type)
+                .jsonPath("$.status").isEqualTo(status.value())
+                .jsonPath("$.title").isNotEmpty();
+    }
+
+    private void offerEmailAnswers(Mono<Void> answer) {
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(answer);
+        when(emailService.sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), any()))
+                .thenReturn(answer);
     }
 
     private WebTestClient.BodyContentSpec rejected(String body, HttpStatus status, String type) {
