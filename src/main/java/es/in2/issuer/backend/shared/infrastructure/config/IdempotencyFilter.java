@@ -112,9 +112,10 @@ public class IdempotencyFilter implements WebFilter, Ordered {
                 .defaultIfEmpty(Optional.empty())
                 .flatMap(requester -> requester.isEmpty()
                         ? chain.filter(exchange)
-                        : readBody(request).flatMap(body -> body.isEmpty()
-                                ? payloadTooLarge(exchange)
-                                : handle(exchange, chain, requester.get(), key, body.get())));
+                        // An empty body means it was larger than the payload limit.
+                        : readBody(request).flatMap(body -> body
+                                .map(bytes -> handle(exchange, chain, requester.get(), key, bytes))
+                                .orElseGet(() -> payloadTooLarge(exchange))));
     }
 
     private Mono<Void> handle(ServerWebExchange exchange, WebFilterChain chain, Requester requester,
@@ -123,7 +124,7 @@ public class IdempotencyFilter implements WebFilter, Ordered {
         return idempotencyService.claim(requester, key, body)
                 .flatMap(claim -> switch (claim) {
                     case IdempotencyClaim.Acquired acquired -> process(replayable, chain, acquired);
-                    case IdempotencyClaim.Replay replay -> replay(exchange, replay.response());
+                    case IdempotencyClaim.Replay(StoredResponse stored) -> replay(exchange, stored);
                     case IdempotencyClaim.InProgress _ -> problemWriter.write(exchange, HttpStatus.CONFLICT,
                             GlobalErrorTypes.IDEMPOTENCY_IN_PROGRESS.getCode(), "Idempotency key in progress",
                             "Another request with the same X-Idempotency-Key is in progress",

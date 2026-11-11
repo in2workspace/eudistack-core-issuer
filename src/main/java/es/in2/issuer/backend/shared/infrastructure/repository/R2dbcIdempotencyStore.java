@@ -27,6 +27,8 @@ import java.util.UUID;
 public class R2dbcIdempotencyStore implements IdempotencyStore {
 
     static final String STATE_COMPLETED = "COMPLETED";
+    private static final String SCOPE_KEY = "scopeKey";
+    private static final String OWNER_ID = "ownerId";
     private static final int MAX_CLAIM_ATTEMPTS = 3;
 
     private static final String CLAIM_SQL = """
@@ -89,9 +91,9 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
     private Mono<IdempotencyClaim> claim(String scopeKey, String requestHash, String ownerId,
                                          Instant now, Instant lockedUntil, Instant expiresAt, int attempt) {
         return databaseClient.sql(CLAIM_SQL)
-                .bind("scopeKey", scopeKey)
+                .bind(SCOPE_KEY, scopeKey)
                 .bind("requestHash", requestHash)
-                .bind("ownerId", UUID.fromString(ownerId))
+                .bind(OWNER_ID, UUID.fromString(ownerId))
                 .bind("lockedUntil", lockedUntil)
                 .bind("expiresAt", expiresAt)
                 .bind("now", now)
@@ -123,7 +125,7 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
 
     private Mono<ExistingRecord> read(String scopeKey) {
         return databaseClient.sql(READ_SQL)
-                .bind("scopeKey", scopeKey)
+                .bind(SCOPE_KEY, scopeKey)
                 .map((row, metadata) -> {
                     String state = row.get("state", String.class);
                     Integer status = row.get("response_status", Integer.class);
@@ -140,8 +142,8 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
     @Override
     public Mono<Void> complete(String scopeKey, String ownerId, StoredResponse response) {
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(COMPLETE_SQL)
-                .bind("scopeKey", scopeKey)
-                .bind("ownerId", UUID.fromString(ownerId))
+                .bind(SCOPE_KEY, scopeKey)
+                .bind(OWNER_ID, UUID.fromString(ownerId))
                 .bind("status", response.status())
                 .bind("body", response.body());
         spec = response.contentType() != null
@@ -162,8 +164,8 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
     @Override
     public Mono<Void> release(String scopeKey, String ownerId) {
         return databaseClient.sql(RELEASE_SQL)
-                .bind("scopeKey", scopeKey)
-                .bind("ownerId", UUID.fromString(ownerId))
+                .bind(SCOPE_KEY, scopeKey)
+                .bind(OWNER_ID, UUID.fromString(ownerId))
                 .fetch()
                 .rowsUpdated()
                 .then();
@@ -172,8 +174,8 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
     @Override
     public Mono<Void> renew(String scopeKey, String ownerId, Instant lockedUntil) {
         return databaseClient.sql(RENEW_SQL)
-                .bind("scopeKey", scopeKey)
-                .bind("ownerId", UUID.fromString(ownerId))
+                .bind(SCOPE_KEY, scopeKey)
+                .bind(OWNER_ID, UUID.fromString(ownerId))
                 .bind("lockedUntil", lockedUntil)
                 .fetch()
                 .rowsUpdated()

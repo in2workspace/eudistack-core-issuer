@@ -74,7 +74,11 @@ class SlidingWindowTest {
 
     @Test
     void invalidWindowOrLimit_isRejected() {
-        assertThatThrownBy(() -> new SlidingWindow(Duration.ofMillis(59))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> MINUTE.decide(Map.of(), 0, NOW)).isInstanceOf(IllegalArgumentException.class);
+        Duration tooShort = Duration.ofMillis(59);
+
+        assertThatThrownBy(() -> new SlidingWindow(tooShort)).isInstanceOf(IllegalArgumentException.class);
+        Map<Instant, Long> noBuckets = Map.of();
+
+        assertThatThrownBy(() -> MINUTE.decide(noBuckets, 0, NOW)).isInstanceOf(IllegalArgumentException.class);
     }
 }

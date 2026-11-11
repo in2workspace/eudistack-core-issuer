@@ -77,8 +77,8 @@ public class IdempotencyServiceImpl implements IdempotencyService {
                             now, now.plus(policy.lease()), now.plus(policy.retention()))
                     .map(claim -> switch (claim) {
                         case IdempotencyClaim.Acquired acquired -> acquired.withResponseKey(responseKey);
-                        case IdempotencyClaim.Replay replay -> new IdempotencyClaim.Replay(
-                                open(replay.response(), responseKey, scopeKey));
+                        case IdempotencyClaim.Replay(StoredResponse sealed) -> new IdempotencyClaim.Replay(
+                                open(sealed, responseKey, scopeKey));
                         default -> claim;
                     });
         });
@@ -195,7 +195,7 @@ public class IdempotencyServiceImpl implements IdempotencyService {
         try {
             Object value = canonicalMapper.readValue(body, Object.class);
             return Sha256.hex(canonicalMapper.writeValueAsBytes(value));
-        } catch (IOException e) {
+        } catch (IOException _) {
             log.debug("Idempotent request body is not JSON, comparing it byte for byte");
             return Sha256.hex(body);
         }

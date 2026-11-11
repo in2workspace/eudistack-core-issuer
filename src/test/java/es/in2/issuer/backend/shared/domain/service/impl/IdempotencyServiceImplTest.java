@@ -156,11 +156,12 @@ class IdempotencyServiceImplTest {
         StoredResponse sealed = IdempotencyServiceImpl.seal(new StoredResponse(201, null, null, bytes("body")),
                 IdempotencyServiceImpl.responseKey(SECRET, requester, "k"), "scope");
 
-        assertThatThrownBy(() -> IdempotencyServiceImpl.open(sealed,
-                IdempotencyServiceImpl.responseKey(SECRET, requester, "other"), "scope"))
+        byte[] otherKey = IdempotencyServiceImpl.responseKey(SECRET, requester, "other");
+        byte[] sameKey = IdempotencyServiceImpl.responseKey(SECRET, requester, "k");
+
+        assertThatThrownBy(() -> IdempotencyServiceImpl.open(sealed, otherKey, "scope"))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> IdempotencyServiceImpl.open(sealed,
-                IdempotencyServiceImpl.responseKey(SECRET, requester, "k"), "other-scope"))
+        assertThatThrownBy(() -> IdempotencyServiceImpl.open(sealed, sameKey, "other-scope"))
                 .isInstanceOf(IllegalStateException.class);
     }
 

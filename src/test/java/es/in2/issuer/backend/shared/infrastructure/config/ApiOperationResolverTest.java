@@ -5,7 +5,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpMethod;
 
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,7 +40,7 @@ class ApiOperationResolverTest {
 
     @org.junit.jupiter.api.Test
     void resolve_withoutMethodOrPath_hasNoOperation() {
-        assertThat(ApiOperationResolver.resolve(null, "/api/v1/issuances")).isEqualTo(Optional.empty());
+        assertThat(ApiOperationResolver.resolve(null, "/api/v1/issuances")).isEmpty();
         assertThat(ApiOperationResolver.resolve(HttpMethod.POST, null)).isEmpty();
     }
 }

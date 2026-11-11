@@ -37,10 +37,10 @@ public sealed interface IdempotencyClaim {
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof Acquired that
-                    && Objects.equals(scopeKey, that.scopeKey)
-                    && Objects.equals(ownerId, that.ownerId)
-                    && Arrays.equals(responseKey, that.responseKey);
+            return other instanceof Acquired(String thatScopeKey, String thatOwnerId, byte[] thatResponseKey)
+                    && Objects.equals(scopeKey, thatScopeKey)
+                    && Objects.equals(ownerId, thatOwnerId)
+                    && Arrays.equals(responseKey, thatResponseKey);
         }
 
         @Override

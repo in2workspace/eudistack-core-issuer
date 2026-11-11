@@ -28,11 +28,12 @@ public record StoredResponse(int status, String contentType, String location, by
 
     @Override
     public boolean equals(Object other) {
-        return other instanceof StoredResponse that
-                && status == that.status
-                && Objects.equals(contentType, that.contentType)
-                && Objects.equals(location, that.location)
-                && Arrays.equals(body, that.body);
+        return other instanceof StoredResponse(int thatStatus, String thatContentType, String thatLocation,
+                                               byte[] thatBody)
+                && status == thatStatus
+                && Objects.equals(contentType, thatContentType)
+                && Objects.equals(location, thatLocation)
+                && Arrays.equals(body, thatBody);
     }
 
     @Override

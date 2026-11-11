@@ -55,7 +55,9 @@ class RequestControlModelTest {
         SlidingWindow window = new SlidingWindow(Duration.ofMinutes(1));
         VolumeLimitPolicy.Limits limits = new VolumeLimitPolicy.Limits(300, 30);
 
-        assertThatThrownBy(() -> new VolumeLimitPolicy(window, Map.of(ApiOperation.ISSUANCE, limits)))
+        Map<ApiOperation, VolumeLimitPolicy.Limits> onlyIssuance = Map.of(ApiOperation.ISSUANCE, limits);
+
+        assertThatThrownBy(() -> new VolumeLimitPolicy(window, onlyIssuance))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new VolumeLimitPolicy.Limits(0, 30)).isInstanceOf(IllegalArgumentException.class);
         assertThat(limits.of(RequesterKind.SYSTEM)).isEqualTo(300);
@@ -64,7 +66,10 @@ class RequestControlModelTest {
 
     @Test
     void idempotencyPolicy_leaseCannotOutliveTheRetention() {
-        assertThatThrownBy(() -> new IdempotencyPolicy(Duration.ofMinutes(1), Duration.ofMinutes(2)))
+        Duration oneMinute = Duration.ofMinutes(1);
+        Duration twoMinutes = Duration.ofMinutes(2);
+
+        assertThatThrownBy(() -> new IdempotencyPolicy(oneMinute, twoMinutes))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new IdempotencyPolicy(Duration.ZERO, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
