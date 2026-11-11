@@ -7,6 +7,7 @@ import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
+import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
@@ -64,6 +65,7 @@ import java.util.Set;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import java.util.EnumSet;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.AUTHORIZATION_CODE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
@@ -1390,6 +1392,72 @@ class IssuanceWorkflowImplTest {
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow);
         verify(credentialIssuedLogger, never()).logIssued(any());
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    // --- EUD-268: one delivery flow -- a failed delivery is an error, never a per-mode result ---
+
+    /** Stubs a wallet-mode issuance up to the credential offer, whose answer is given. */
+    private void stubWalletLeg(String mode, JsonNode payload, Mono<CredentialOfferResult> offer) {
+        CredentialProfile profile = profileWithoutCnf();
+        Issuance savedIssuance = Issuance.builder().issuanceId(UUID.randomUUID()).credentialOfferRefreshToken("rt").build();
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null, null))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), eq(mode), any(), any()))
+                .thenReturn(offer);
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+    }
+
+    @Test
+    void emailDeliveryWhoseEmailBouncedShouldFailInsteadOfReportingAFailedMode() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        stubWalletLeg("email", payload, Mono.just(new CredentialOfferResult(null, "mail server unavailable")));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectError(EmailCommunicationException.class)
+                .verify();
+    }
+
+    @Test
+    void uiDeliveryWhoseOfferFailsShouldPropagateTheError() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "ui", EMAIL, null);
+        stubWalletLeg("ui", payload, Mono.error(new IllegalStateException("offer cache unavailable")));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMatches(e -> e instanceof IllegalStateException
+                        && "offer cache unavailable".equals(e.getMessage()))
+                .verify();
+    }
+
+    @Test
+    void walletDeliveryThatDoesNotAnswerInTimeShouldTimeOut() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "ui", EMAIL, null);
+        stubWalletLeg("ui", payload, Mono.never());
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectError(TimeoutException.class)
+                .verify(Duration.ofSeconds(HYBRID_WALLET_TIMEOUT_SECONDS + 5L));
+    }
+
+    @Test
+    void failedDeliveryShouldAuditAnIndeterminateResultAndNoPerModeOne() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        stubWalletLeg("email", payload, Mono.just(new CredentialOfferResult(null, "mail server unavailable")));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectError(EmailCommunicationException.class)
+                .verify();
+
+        ArgumentCaptor<DeliveryTrace> trace = ArgumentCaptor.forClass(DeliveryTrace.class);
+        verify(auditService).auditDelivery(trace.capture());
+        assertEquals(Set.of(DeliveryResult.failed("unknown", "indeterminate_result")), trace.getValue().results());
     }
 
     // --- EUD-268: one delivery mode per request ---

@@ -34,7 +34,7 @@ public enum DeliveryErrorCode {
         return value;
     }
 
-    /** Short, stable human summary for {@code ChannelError.title} (EUD-167 D-6) -- never the raw cause. */
+    /** Short, stable human summary of the failure -- never the raw cause. */
     public String title() {
         return switch (this) {
             case SIGNING_FAILED -> "Signing failed";

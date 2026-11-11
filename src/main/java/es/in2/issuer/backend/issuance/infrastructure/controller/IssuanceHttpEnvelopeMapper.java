@@ -1,9 +1,7 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
-import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.ChannelBody;
-import es.in2.issuer.backend.issuance.domain.model.dto.ChannelError;
 import es.in2.issuer.backend.issuance.domain.model.dto.ChannelResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceHttpResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
@@ -13,15 +11,12 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Projects the domain-shaped {@link IssuanceResponse} (still flat: {@code signedCredential} /
- * {@code credentialOfferUri} / {@code deliveryResults}, produced by {@code IssuanceWorkflowImpl}
- * unchanged) onto the HTTP envelope EUD-167 D-5/D-6 specifies: one {@code responses[]} entry per
- * requested channel, {@code direct} carrying {@code signed_credential} in its {@code body}, {@code ui}
- * carrying {@code credential_offer_uri} in it <em>only when there is one</em> (see {@link #offerBody}),
- * and {@code email} never carrying a body of its own -- the URI was already delivered inside the email,
- * not returned to the API caller through this channel -- or an RFC 9457 {@code error} for a failed
- * channel. {@link IssuanceController} decides the response-line HTTP status (200/207/500) from the same
- * {@code deliveryResults}; this mapper only shapes the body.
+ * Projects the domain-shaped {@link IssuanceResponse} onto the HTTP envelope of the EUD-254 contract:
+ * one {@code responses[]} entry, for the requested mode, with status 200. {@code direct} carries
+ * {@code signed_credential} in its {@code body}, {@code ui} carries {@code credential_offer_uri} in it
+ * <em>only when there is one</em> (see {@link #offerBody}), and {@code email} has no body -- the URI
+ * was delivered inside the email, not returned to the API caller. A failed delivery never reaches this
+ * mapper: the workflow raises it and it is answered as a problem.
  */
 @Component
 public class IssuanceHttpEnvelopeMapper {
@@ -35,17 +30,10 @@ public class IssuanceHttpEnvelopeMapper {
     }
 
     private ChannelResponse toChannelResponse(DeliveryResult result, IssuanceResponse response) {
-        return result.status() == DeliveryResult.DeliveryOutcome.FAILED
-                ? failedChannel(result)
-                : succeededChannel(result, response);
-    }
-
-    private ChannelResponse succeededChannel(DeliveryResult result, IssuanceResponse response) {
-        ChannelBody body = buildChannelBody(result, response);
         return ChannelResponse.builder()
                 .channel(result.mode())
                 .status(200)
-                .body(body)
+                .body(buildChannelBody(result, response))
                 .build();
     }
 
@@ -68,33 +56,5 @@ public class IssuanceHttpEnvelopeMapper {
         return credentialOfferUri != null
                 ? ChannelBody.builder().credentialOfferUri(credentialOfferUri).build()
                 : null;
-    }
-
-    private ChannelResponse failedChannel(DeliveryResult result) {
-        // A stuck dependency times out (504); every other classified stage is a dependency/processing
-        // failure the caller cannot retry differently (503). Never the caller's fault -> never 4xx here.
-        int status = DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT.value().equals(result.error())
-                ? 504
-                : 503;
-        ChannelError error = ChannelError.builder()
-                .type(result.error())
-                .title(titleFor(result.error()))
-                .status(status)
-                .detail("Delivery failed for channel '" + result.mode() + "'")
-                .build();
-        return ChannelResponse.builder()
-                .channel(result.mode())
-                .status(status)
-                .error(error)
-                .build();
-    }
-
-    private String titleFor(String code) {
-        for (DeliveryErrorCode candidate : DeliveryErrorCode.values()) {
-            if (candidate.value().equals(code)) {
-                return candidate.title();
-            }
-        }
-        return "Delivery failed";
     }
 }
