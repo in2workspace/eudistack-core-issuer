@@ -19,8 +19,8 @@ import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
@@ -48,6 +48,8 @@ public class IdempotencyServiceImpl implements IdempotencyService {
     private static final int GCM_NONCE_BYTES = 12;
     private static final int GCM_TAG_BITS = 128;
     private static final byte SEALED_FORMAT_V1 = 1;
+    /** Format byte and nonce, before the ciphertext and its tag. */
+    private static final int SEALED_HEADER_BYTES = 1 + GCM_NONCE_BYTES;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final IdempotencyStore store;
@@ -132,10 +134,12 @@ public class IdempotencyServiceImpl implements IdempotencyService {
             byte[] nonce = new byte[GCM_NONCE_BYTES];
             RANDOM.nextBytes(nonce);
             Cipher cipher = cipher(Cipher.ENCRYPT_MODE, responseKey, nonce, scopeKey);
-            byte[] ciphertext = cipher.doFinal(response.body());
-            byte[] sealed = ByteBuffer.allocate(1 + nonce.length + ciphertext.length)
-                    .put(SEALED_FORMAT_V1).put(nonce).put(ciphertext).array();
-            return new StoredResponse(response.status(), response.contentType(), response.location(), sealed);
+            // Appended rather than sized by arithmetic on the body length (CodeQL java/uncontrolled-arithmetic).
+            ByteArrayOutputStream sealed = new ByteArrayOutputStream();
+            sealed.write(SEALED_FORMAT_V1);
+            sealed.writeBytes(nonce);
+            sealed.writeBytes(cipher.doFinal(response.body()));
+            return new StoredResponse(response.status(), response.contentType(), response.location(), sealed.toByteArray());
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Could not encrypt the idempotent response", e);
         }
@@ -143,13 +147,13 @@ public class IdempotencyServiceImpl implements IdempotencyService {
 
     static StoredResponse open(StoredResponse stored, byte[] responseKey, String scopeKey) {
         byte[] sealed = stored.body();
-        if (sealed.length < 1 + GCM_NONCE_BYTES || sealed[0] != SEALED_FORMAT_V1) {
+        if (sealed.length < SEALED_HEADER_BYTES || sealed[0] != SEALED_FORMAT_V1) {
             throw new IllegalStateException("The kept idempotent response has an unknown format");
         }
         try {
-            byte[] nonce = Arrays.copyOfRange(sealed, 1, 1 + GCM_NONCE_BYTES);
+            byte[] nonce = Arrays.copyOfRange(sealed, 1, SEALED_HEADER_BYTES);
             Cipher cipher = cipher(Cipher.DECRYPT_MODE, responseKey, nonce, scopeKey);
-            byte[] body = cipher.doFinal(sealed, 1 + GCM_NONCE_BYTES, sealed.length - 1 - GCM_NONCE_BYTES);
+            byte[] body = cipher.doFinal(Arrays.copyOfRange(sealed, SEALED_HEADER_BYTES, sealed.length));
             return new StoredResponse(stored.status(), stored.contentType(), stored.location(), body);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Could not decrypt the kept idempotent response", e);
