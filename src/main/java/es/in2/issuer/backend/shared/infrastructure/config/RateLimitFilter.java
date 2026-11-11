@@ -76,7 +76,8 @@ public class RateLimitFilter implements WebFilter {
      * On the issuance, revocation and query APIs an authenticated request has the volume limit of its
      * requester instead (EUD-269), so only the requests that fail authentication (401) are counted per
      * address here: an address over the limit of them is rejected before its token is verified, which keeps
-     * floods of invalid or expired tokens throttled, and its authenticated traffic is never limited by it.
+     * floods of invalid or expired tokens throttled. Authenticated requests are never counted here; an address
+     * that went over the limit of failed ones is rejected for the rest of its minute, as on the other routes.
      */
     private Mono<Void> limitFailedAuthentications(ServerWebExchange exchange, WebFilterChain chain) {
         String clientIp = resolveClientIp(exchange);
