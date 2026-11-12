@@ -97,7 +97,13 @@ class ArchUnitTest {
                     // wired by Spring DI through that interface — no direct class reference to
                     // the concrete adapter exists in source, same situation as the other
                     // component-scanning-discovered beans above.
-                    BASE_PACKAGE + ".shared.infrastructure.repository.IssuanceR2dbcAdapter");
+                    BASE_PACKAGE + ".shared.infrastructure.repository.IssuanceR2dbcAdapter",
+                    // EUD-266: CatalogEntryR2dbcAdapter implements CatalogEntryPort and is wired by
+                    // Spring DI through that interface, like IssuanceR2dbcAdapter above.
+                    BASE_PACKAGE + ".shared.infrastructure.repository.CatalogEntryR2dbcAdapter",
+                    // EUD-266: ApplicationRunner discovered by component scanning (no direct class
+                    // references), like TenantSchemaFlywayMigrator above.
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantCatalogConfigBackfill");
 
     // EUDISTACK-650 (H-05) scopes the hexagonal fix to Issuance only. These domain entities
     // have the exact same Spring Data leakage (@Table/@Id/@Column, or a direct
@@ -131,6 +137,18 @@ class ArchUnitTest {
             noClasses()
                     .that().resideInAPackage(BASE_PACKAGE + "..")
                     .should().dependOnClassesThat().resideInAPackage("io.github.novacrypto..");
+
+    @ArchTest
+    static final ArchRule signingDomainShouldNotDependOnBouncyCastle =
+            noClasses()
+                    .that().resideInAPackage(BASE_PACKAGE + ".signing.domain..")
+                    // Test fixtures (OwnKeyTestPki and the like) build test certificates with BouncyCastle.
+                    .and(DescribedPredicate.describe("are production classes",
+                            (JavaClass javaClass) -> javaClass.getSource()
+                                    .map(source -> !source.getUri().toString().contains("/test/"))
+                                    .orElse(true)))
+                    .should().dependOnClassesThat().resideInAPackage("org.bouncycastle..")
+                    .because("hexagonal boundary: BouncyCastle is an infrastructure library");
 
     @ArchTest
     static final ArchRule domainShouldNotDependOnSpringData =

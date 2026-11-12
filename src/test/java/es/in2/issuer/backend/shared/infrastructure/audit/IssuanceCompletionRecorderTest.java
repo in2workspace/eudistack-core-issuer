@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.shared.infrastructure.audit;
 
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Completion;
@@ -50,7 +53,7 @@ class IssuanceCompletionRecorderTest {
     }
 
     private void issuerIs(String organization, String organizationIdentifier) {
-        when(signingConfigService.getRemoteSignature()).thenReturn(Mono.just(signingConfig));
+        when(signingConfigService.getActiveSigningConfig()).thenReturn(Mono.just(ActiveSigningConfig.qtsp(signingConfig)));
         when(certificateService.resolveRemoteDetailedIssuer(signingConfig)).thenReturn(Mono.just(
                 new DetailedIssuer("did:elsi:" + organizationIdentifier, organizationIdentifier, organization, "ES", "cn", "serial")));
     }
@@ -128,7 +131,7 @@ class IssuanceCompletionRecorderTest {
     @Test
     void record_issuerLookupFails_completesWithoutStagingAnything() {
         // Arrange
-        when(signingConfigService.getRemoteSignature()).thenReturn(Mono.just(signingConfig));
+        when(signingConfigService.getActiveSigningConfig()).thenReturn(Mono.just(ActiveSigningConfig.qtsp(signingConfig)));
         when(certificateService.resolveRemoteDetailedIssuer(signingConfig)).thenReturn(Mono.error(new IllegalStateException("qtsp down")));
 
         // Act
@@ -136,6 +139,24 @@ class IssuanceCompletionRecorderTest {
 
         // Assert
         assertTrue(auditTrail.all().isEmpty());
+    }
+
+    @Test
+    void record_tenantSigningWithItsOwnKey_takesTheProviderFromThatCertificate() {
+        // Arrange
+        OwnKeySigningConfig ownKey = mock(OwnKeySigningConfig.class);
+        when(signingConfigService.getActiveSigningConfig()).thenReturn(Mono.just(
+                new ActiveSigningConfig(SigningModality.OWN_KEY, null, ownKey)));
+        when(certificateService.resolveOwnKeyDetailedIssuer(ownKey)).thenReturn(Mono.just(
+                new DetailedIssuer("did:elsi:VATES-B2", "VATES-B2", "OWN KEY SL", "ES", "cn", "serial")));
+
+        // Act
+        StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
+
+        // Assert
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertEquals("OWN KEY SL", entry.details().get("provider_legal_name"));
+        assertEquals("VATES-B2", entry.details().get("provider_registration_id"));
     }
 
     @Test

@@ -1,29 +1,41 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
-import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
+
 /**
- * Routes signing requests to the CSC operation configured for the active
- * tenant's QTSP. Reads signing config per-tenant from the database (via
- * {@link TenantSigningConfigService}) and injects it into the {@link
- * SigningRequest} before delegating.
+ * Routes signing requests to the provider of the active tenant's signing modality, through
+ * {@link SigningProviderResolver}: the QTSP provider or the KMS own-key provider. Reads signing config
+ * per-tenant (via {@link TenantSigningConfigService}) and injects it into the {@link SigningRequest}
+ * before delegating.
  *
- * <p>There is no global fallback: if {@code tenant_signing_config} has no
- * row for the active tenant, a {@link SigningException} is thrown. Seed
- * the row via {@code seed-tenants[.stg].sql} or via the per-tenant config
- * management service (future EUDI-090).
+ * <p>There is no global fallback: if {@code tenant_signing_config} has no active
+ * row for the tenant, a {@link SigningException} is thrown.
+ *
+ * <p>This is the single choke point of signing: every attempt, for either modality, is recorded
+ * through {@link SigningAuditor}, including those that fail before a configuration
+ * is resolved (modality and provider then read {@code unknown}).
  */
 @Slf4j
 @Service
@@ -32,64 +44,137 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
     private final TenantSigningConfigService tenantSigningConfigService;
     private final SigningProviderResolver signingProviderResolver;
+    private final SigningAuditor signingAuditor;
 
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {
 
-        return Mono.justOrEmpty(request.remoteSignature())
-                .switchIfEmpty(loadTenantRemoteSignature())
-                .flatMap(remoteSignatureDto ->
-                        sign(request, remoteSignatureDto));
+        return Mono.deferContextual(ctx -> {
+            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SigningAuditor.UNKNOWN);
+            long startNanos = System.nanoTime();
+            AtomicReference<ActiveSigningConfig> resolved = new AtomicReference<>();
+
+            return Mono.justOrEmpty(request.remoteSignature())
+                    .map(ActiveSigningConfig::qtsp)
+                    .switchIfEmpty(Mono.defer(this::loadActiveSigningConfig))
+                    .doOnNext(resolved::set)
+                    .flatMap(config -> sign(request, config)
+                            .onErrorResume(error -> isDisabledOwnKey(config, error),
+                                    error -> reloadAndSign(request, resolved)))
+                    .doOnNext(result -> signingAuditor.success(SigningAuditor.SIGN_EVENT,
+                            attempt(tenant, request, resolved.get(), startNanos)))
+                    .doOnError(error -> signingAuditor.failure(SigningAuditor.SIGN_EVENT,
+                            attempt(tenant, request, resolved.get(), startNanos), error));
+        });
     }
 
-    private Mono<RemoteSignatureDto> loadTenantRemoteSignature() {
-
-        return tenantSigningConfigService.getRemoteSignature()
-                .switchIfEmpty(Mono.error(
-                        new NoActiveSigningConfigurationException(
-                                """
-                                        No remote signature configuration available for this tenant.
-                                        Seed tenant_signing_config for the active tenant.
-                                        """
-                        )
-                ));
+    /**
+     * An own key that KMS no longer lets sign, for example disabled by infra when it replaced or withdrew
+     * the certificate of the tenant, while this instance may still hold the old configuration in cache.
+     */
+    private static boolean isDisabledOwnKey(ActiveSigningConfig config, Throwable error) {
+        return config.modality() == SigningModality.OWN_KEY
+                && SigningFailureReasons.of(error) == SigningFailureReason.KEY_UNUSABLE;
     }
 
-    private Mono<SigningResult> sign(
-            SigningRequest signingRequest,
-            RemoteSignatureDto remoteSignatureDto
-    ) {
-
-        validateSigningOperation(remoteSignatureDto.signingOperation());
-
-        SigningProvider signingProvider =
-                signingProviderResolver.resolveFromValue(
-                        remoteSignatureDto.signingOperation()
-                );
-
-        log.info(
-                "Signing via operation='{}' type='{}' url='{}'",
-                remoteSignatureDto.signingOperation(),
-                signingRequest.type(),
-                remoteSignatureDto.url()
-        );
-
-        return signingProvider.sign(
-                enrich(signingRequest, remoteSignatureDto)
-        );
+    /**
+     * Reads the tenant's configuration again and signs once more with it: the key of the new certificate
+     * when infra replaced it, {@code NO_CONFIGURATION} when it removed it. A second failure is not retried.
+     *
+     * <p>Within a {@code SigningConfigScope} the payload was built with the old configuration, so a
+     * replacement is not signed here: the reload fails with {@code SigningConfigurationChangedException}
+     * and the scope runs the request again with the new one.
+     */
+    private Mono<SigningResult> reloadAndSign(SigningRequest request, AtomicReference<ActiveSigningConfig> resolved) {
+        log.info("Own key not usable, reloading the signing configuration");
+        return tenantSigningConfigService.reloadActiveSigningConfig()
+                .switchIfEmpty(Mono.error(DelegatingSigningProviderImpl::noConfiguration))
+                .doOnNext(resolved::set)
+                .flatMap(config -> sign(request, config));
     }
 
-    private void validateSigningOperation(String operation) {
-
-        if (operation == null || operation.isBlank()) {
-
-            throw new SigningException(
-                    """
-                            signingOperation is required in the QTSP configuration.
-                            Set it to 'sign-hash' or 'sign-doc'.
-                            """
-            );
+    /** Audit data of one attempt: classification only, never the payload, tokens or key reference. */
+    private static SigningAuditor.Attempt attempt(String tenant, SigningRequest request,
+                                                  ActiveSigningConfig config, long startNanos) {
+        String object = objectOf(request);
+        String issuanceId = request.context() == null ? null : request.context().issuanceId();
+        String modality = SigningAuditor.UNKNOWN;
+        String provider = SigningAuditor.UNKNOWN;
+        if (config != null) {
+            switch (config.modality()) {
+                case QTSP -> {
+                    modality = SigningAuditor.QTSP_MODALITY;
+                    provider = config.qtsp().provider();
+                }
+                case OWN_KEY -> {
+                    modality = SigningAuditor.OWN_KEY_MODALITY;
+                    provider = SigningAuditor.KMS_PROVIDER;
+                }
+            }
         }
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+        return new SigningAuditor.Attempt(tenant, object, issuanceId, modality, provider, durationMs,
+                SigningAuditor.qualifiedCertificate(config));
+    }
+
+    private Mono<ActiveSigningConfig> loadActiveSigningConfig() {
+
+        return tenantSigningConfigService.getActiveSigningConfig()
+                .switchIfEmpty(Mono.error(DelegatingSigningProviderImpl::noConfiguration));
+    }
+
+    private static SigningException noConfiguration() {
+        return new SigningException(
+                SigningFailureReason.NO_CONFIGURATION,
+                """
+                        No active signing configuration available for this tenant.
+                        Seed tenant_signing_config for the active tenant.
+                        """
+        );
+    }
+
+    private Mono<SigningResult> sign(SigningRequest request, ActiveSigningConfig config) {
+
+        return Mono.deferContextual(ctx -> {
+            // The size of the signed content goes to the application log, not to the audit event: the
+            // SignatureRequested event of the audit catalogue, which will replace signing.attempt, has no
+            // field for it. The content itself is never logged.
+            log.info("Signing attempt tenant={} modality={} object={} payloadBytes={}",
+                    ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SigningAuditor.UNKNOWN),
+                    modalityOf(config), objectOf(request), payloadBytes(request));
+            SigningRequest withConfig = switch (config.modality()) {
+                case QTSP -> enrich(request, config.qtsp());
+                case OWN_KEY -> withOwnKey(request, config.ownKey());
+            };
+            return signingProviderResolver.resolve(config.modality()).sign(withConfig);
+        });
+    }
+
+    private static String modalityOf(ActiveSigningConfig config) {
+        return switch (config.modality()) {
+            case QTSP -> SigningAuditor.QTSP_MODALITY;
+            case OWN_KEY -> SigningAuditor.OWN_KEY_MODALITY;
+        };
+    }
+
+    private static String objectOf(SigningRequest request) {
+        return request.typ() == null ? String.valueOf(request.type()) : request.type() + "/" + request.typ();
+    }
+
+    /** UTF-8 size of the content handed to the signer. */
+    private static int payloadBytes(SigningRequest request) {
+        return request.data() == null ? 0 : request.data().getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private static SigningRequest withOwnKey(SigningRequest original, OwnKeySigningConfig ownKey) {
+
+        return SigningRequest.builder()
+                .type(original.type())
+                .data(original.data())
+                .context(original.context())
+                .typ(original.typ())
+                .ownKey(ownKey)
+                .build();
     }
 
     private static SigningRequest enrich(

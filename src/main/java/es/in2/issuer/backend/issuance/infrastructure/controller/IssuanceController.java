@@ -65,7 +65,7 @@ public class IssuanceController {
         // (EUD-253, point 10 -- the X-Id-Token of product certifications is gone).
         return issuanceWorkflow.issueCredential(processId, request, authorizationHeader,
                         publicIssuerBaseUrl)
-                .map(this::toResponseEntity);
+                .map(response -> toResponseEntity(response, publicIssuerBaseUrl));
     }
 
     /** C1/C2 (EUD-253): the decision's scope says whether the caller sees its organization or the whole tenant. */
@@ -170,7 +170,8 @@ public class IssuanceController {
         return IssuanceIds.parse(id).isPresent();
     }
 
-    private ResponseEntity<IssuanceHttpResponse> toResponseEntity(IssuanceResponse response) {
+    private ResponseEntity<IssuanceHttpResponse> toResponseEntity(IssuanceResponse response,
+                                                                  String publicIssuerBaseUrl) {
         List<DeliveryResult> results = response.deliveryResults();
         boolean hasDeliveryResults = results != null && !results.isEmpty();
 
@@ -199,7 +200,8 @@ public class IssuanceController {
         // of being flattened here.
         if (anyChannelFailed && anyChannelSucceeded) {
             log.warn("Partial issuance outcome (mixed delivery results): {}", results);
-            return ResponseEntity.status(HttpStatus.MULTI_STATUS).body(body);
+            return withLocation(ResponseEntity.status(HttpStatus.MULTI_STATUS), response, publicIssuerBaseUrl)
+                    .body(body);
         }
 
         // Every requested channel failed (e.g. wallet-only with the wallet dependency down, direct
@@ -210,6 +212,15 @@ public class IssuanceController {
         }
 
         // D-5: 202 wallet-only is retired -- a fully successful request is always 200.
-        return ResponseEntity.ok(body);
+        return withLocation(ResponseEntity.ok(), response, publicIssuerBaseUrl).body(body);
+    }
+
+    /** Location of the created process, absolute because the API lives under the issuer context path (EUD-277). */
+    private static ResponseEntity.BodyBuilder withLocation(ResponseEntity.BodyBuilder builder,
+                                                           IssuanceResponse response, String publicIssuerBaseUrl) {
+        if (response.issuanceId() != null) {
+            builder.header(HttpHeaders.LOCATION, publicIssuerBaseUrl + ISSUANCES_PATH + "/" + response.issuanceId());
+        }
+        return builder;
     }
 }

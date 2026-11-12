@@ -14,7 +14,8 @@ import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holde
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.OfferKind;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuedAttributeNames;
 import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
-import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
@@ -40,6 +41,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBi
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -57,6 +59,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -95,6 +98,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final AuditTrailPort auditTrail;
     private final IssuanceCompletionRecorder issuanceCompletionRecorder;
     private final TransactionalOperator transactionalOperator;
+    private final TenantCredentialProfileService tenantCredentialProfileService;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -340,7 +344,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         Mono<DirectDeliveryOutcome> directOutcome = hasDirect
                 ? performDirectIssuance(processId, request, bearerToken, publicIssuerBaseUrl, delivery, cnf)
                 .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
-                        DeliveryResult.delivered(DeliveryMode.DIRECT.value), null))
+                        DeliveryResult.delivered(DeliveryMode.DIRECT.value), null, r.issuanceId()))
                 .doOnSuccess(outcome -> {
                     if (outcome != null) {
                         credentialIssuedLogger.logIssued(request.credentialConfigurationId());
@@ -405,7 +409,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             String publicIssuerBaseUrl, String oid4vciDelivery, Map<String, Object> cnf) {
 
         return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, oid4vciDelivery, cnf)
-                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery, r.emailError()))
+                .map(r -> WalletDeliveryOutcome.success(
+                        r.credentialOfferUri(), oid4vciDelivery, r.emailError(), r.issuanceId()))
                 .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
                 .onErrorResume(ex -> {
                     log.warn("ProcessId: {} - Wallet delivery failed (isolated): {}", processId, ex.toString());
@@ -441,10 +446,15 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         }
         results.addAll(wallet.deliveryResults());
 
+        // Location points to a process whose channel succeeded; the OID4VCI process wins over the
+        // direct one when both did (EUD-277 EC-08).
+        String issuanceId = wallet.issuanceId() != null ? wallet.issuanceId() : direct.issuanceId();
+
         return IssuanceResponse.builder()
                 .signedCredential(direct.signedCredential())
                 .credentialOfferUri(wallet.credentialOfferUri())
                 .deliveryResults(results.isEmpty() ? null : results)
+                .issuanceId(issuanceId)
                 .build();
     }
 
@@ -453,26 +463,28 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * rather than threw. Kept apart from {@link IssuanceResponse} because a reported email failure is
      * per-mode detail, not a field of the API response.
      */
-    private record Oid4VciLegResult(String credentialOfferUri, String emailError) {}
+    private record Oid4VciLegResult(String credentialOfferUri, String emailError, String issuanceId) {}
 
     /**
      * Internal outcome of the direct path (not exposed in the API). {@code error} is the failure the
      * leg was isolated from, kept so it can be re-raised when no other mode delivered.
      */
-    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult, Throwable error) {
+    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult, Throwable error,
+                                         String issuanceId) {
         static DirectDeliveryOutcome empty() {
-            return new DirectDeliveryOutcome(null, null, null);
+            return new DirectDeliveryOutcome(null, null, null, null);
         }
 
         static DirectDeliveryOutcome failed(String detail, Throwable error) {
-            return new DirectDeliveryOutcome(null, DeliveryResult.failed(DeliveryMode.DIRECT.value, detail), error);
+            return new DirectDeliveryOutcome(null, DeliveryResult.failed(DeliveryMode.DIRECT.value, detail), error, null);
         }
     }
 
     /** Internal outcome of the wallet path — supports multi-mode CSV (email,ui). */
-    private record WalletDeliveryOutcome(String credentialOfferUri, List<DeliveryResult> deliveryResults) {
+    private record WalletDeliveryOutcome(String credentialOfferUri, List<DeliveryResult> deliveryResults,
+                                         String issuanceId) {
         static WalletDeliveryOutcome empty() {
-            return new WalletDeliveryOutcome(null, List.of());
+            return new WalletDeliveryOutcome(null, List.of(), null);
         }
 
         /**
@@ -480,7 +492,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
          * on the {@code email} mode alone and leaves {@code ui} dispatched, with its URI in the
          * response. Before this, both modes were reported failed and the URI was dropped.
          */
-        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery, String emailError) {
+        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery, String emailError,
+                                             String issuanceId) {
             List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
@@ -488,7 +501,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             ? DeliveryResult.failed(mode, emailError)
                             : DeliveryResult.dispatched(mode))
                     .toList();
-            return new WalletDeliveryOutcome(uri, results);
+            return new WalletDeliveryOutcome(uri, results, issuanceId);
         }
 
         static WalletDeliveryOutcome failed(String oid4vciDelivery, String error) {
@@ -497,7 +510,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     .filter(s -> !s.isEmpty())
                     .map(mode -> DeliveryResult.failed(mode, error))
                     .toList();
-            return new WalletDeliveryOutcome(null, results);
+            return new WalletDeliveryOutcome(null, results, null);
         }
     }
 
@@ -511,15 +524,25 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,
                                                           String publicIssuerBaseUrl, String originalDelivery,
                                                           Map<String, Object> cnf) {
+        UUID issuanceId = UUID.randomUUID();
+
+        // bindIssuer and the signature use the same signing configuration. If it changes in
+        // between, the scope runs issueDirectly again with the same issuanceId: a failure before the save
+        // releases the status list entry, and the credential built the first time never left the Issuer.
+        return SigningConfigScope.run(() ->
+                issueDirectly(processId, request, token, publicIssuerBaseUrl, originalDelivery, cnf, issuanceId));
+    }
+
+    private Mono<IssuanceResponse> issueDirectly(String processId, IssuanceRequest request, String token,
+                                                 String publicIssuerBaseUrl, String originalDelivery,
+                                                 Map<String, Object> cnf, UUID issuanceId) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String credentialFormat = profile.format() != null ? profile.format() : JWT_VC_JSON;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
 
-        UUID issuanceId = UUID.randomUUID();
-
-        Mono<IssuanceResponse> direct = genericCredentialBuilder.buildCredential(profile, request.payload())
+        Mono<IssuanceResponse> direct = buildCredential(profile, request)
                 .flatMap(buildResult ->
                         genericCredentialBuilder.bindIssuer(profile, buildResult.credentialDataSet(),
                                         issuanceId.toString(), request.email())
@@ -567,6 +590,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                         .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.PERSISTENCE_FAILED))
                                                                         .thenReturn(IssuanceResponse.builder()
                                                                                 .signedCredential(signedCredential)
+                                                                                .issuanceId(issuanceId.toString())
                                                                                 .build());
                                                             });
                                                 })
@@ -594,7 +618,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         }
         String reason = switch (stageFailure.code) {
             case STATUS_LIST_UNAVAILABLE -> "StatusListUnavailable";
-            case SIGNING_FAILED -> stageFailure.getCause() instanceof NoActiveSigningConfigurationException
+            case SIGNING_FAILED -> SigningFailureReasons.of(stageFailure) == SigningFailureReason.NO_CONFIGURATION
                     ? "InvalidConfiguration" : "SigningFailed";
             default -> null;
         };
@@ -638,7 +662,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String grantType = request.grantType() != null ? request.grantType() : AUTHORIZATION_CODE;
 
-        return genericCredentialBuilder.buildCredential(profile, request.payload())
+        return buildCredential(profile, request)
                 .flatMap(buildResult -> {
                     UUID issuanceId = UUID.randomUUID();
                     // The cnf travels on the row, not in this request: the wallet legs sign in a
@@ -664,7 +688,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                             .flatMap(offerResult -> stageOfferSent(issuanceId.toString(), request.email(),
                                                     oid4vciDelivery, offerResult)
                                                     .thenReturn(new Oid4VciLegResult(
-                                                            offerResult.credentialOfferUri(), offerResult.emailError())))
+                                                            offerResult.credentialOfferUri(), offerResult.emailError(),
+                                                            saved.getIssuanceId().toString())))
                                     ));
                 });
     }
@@ -691,6 +716,19 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         }
         return auditTrail.stageBestEffort(IssuanceAuditEvents.offerSent(issuanceId, OfferKind.INITIAL,
                 recipientEmail, offerResult.offerExpiresAt(), offerResult.emailError() == null));
+    }
+
+    /**
+     * Builds the credential with the validity and subject of the tenant's catalog entry. A row not
+     * filled yet falls back to the type file (D9); an entry that is not enabled would have been
+     * rejected by the PDP already, so there is nothing else to fall back from.
+     */
+    private Mono<CredentialBuildResult> buildCredential(CredentialProfile profile, IssuanceRequest request) {
+        return tenantCredentialProfileService.findEnabledEntry(request.credentialConfigurationId())
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(entry -> genericCredentialBuilder.buildCredential(
+                        profile, request.payload(), entry.orElse(null)));
     }
 
     private Issuance buildIssuanceEntity(

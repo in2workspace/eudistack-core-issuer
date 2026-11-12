@@ -3,9 +3,11 @@ package es.in2.issuer.backend.shared.infrastructure.audit;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Completion;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Provider;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.util.JwsHeaderFingerprint;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,9 +49,17 @@ public class IssuanceCompletionRecorder {
                 .orElseGet(Mono::empty));
     }
 
+    /** The organization of the signing certificate, whether the tenant signs through a QTSP or with its own key. */
+    private Mono<DetailedIssuer> detailedIssuerOf(ActiveSigningConfig config) {
+        return switch (config.modality()) {
+            case QTSP -> issuerCertificateService.resolveRemoteDetailedIssuer(config.qtsp());
+            case OWN_KEY -> issuerCertificateService.resolveOwnKeyDetailedIssuer(config.ownKey());
+        };
+    }
+
     private Mono<Provider> providerOf(String issuanceId) {
-        return tenantSigningConfigService.getRemoteSignature()
-                .flatMap(issuerCertificateService::resolveRemoteDetailedIssuer)
+        return tenantSigningConfigService.getActiveSigningConfig()
+                .flatMap(this::detailedIssuerOf)
                 .timeout(PROVIDER_LOOKUP_TIMEOUT)
                 .map(issuer -> new Provider(issuer.organization(), issuer.organizationIdentifier()))
                 .filter(Provider::isComplete)

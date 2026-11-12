@@ -36,7 +36,9 @@ import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
+import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -375,8 +377,13 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         // Which stage failed, for the audit entry: the status list and the signature are the two the catalogue names.
         AtomicReference<String> failedStage = new AtomicReference<>();
 
+        // Steps 1 to 4 use one signing configuration: if it changes between bindIssuer and the
+        // signature, the scope runs them again. That is safe: bindIssuer starts again from the persisted
+        // dataSet, the status list entry is keyed by issuanceId (see ISSUABLE_STATUSES), and step 3 overwrites
+        // the dataSet cached by the first run, which carried the old certificate's issuer.
         // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
-        Mono<CredentialResponse> pipeline = genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
+        Mono<CredentialResponse> pipeline = SigningConfigScope.run(() -> genericCredentialBuilder
+                .bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
                 .map(enrichedDataSet -> {
                     // Inject derived holder DID into mandatee.id when proof supplied a did:key-bound
                     // subject, or -- an AD-8 exempt type never takes the proof path (F2, S2) -- derive it
@@ -404,9 +411,9 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                                                 token, enrichedWithStatus, credentialType,
                                                 credentialFormat, cnf, issuanceId, email)
                                         .doOnError(error -> failedStage.set(
-                                                error instanceof NoActiveSigningConfigurationException
+                                                SigningFailureReasons.of(error) == SigningFailureReason.NO_CONFIGURATION
                                                         ? REASON_INVALID_CONFIGURATION : REASON_SIGNING_FAILED)))
-                )
+                ))
                 .flatMap(signedCredential -> {
                     // Step 5: Generate notification_id and cache mapping
                     String notificationId = UUID.randomUUID().toString();
