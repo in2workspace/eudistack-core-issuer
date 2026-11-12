@@ -46,6 +46,8 @@ public class CatalogEntryChangeAuditor {
     static final String EVENT = "CatalogEntryChanged";
     static final String RESOURCE_TYPE = "attestation-catalog";
     static final String UNKNOWN = "unknown";
+    private static final String DETAIL_OPERATION = "operation";
+    private static final String DETAIL_CONFIGURATION_ID = "credential_configuration_id";
     /** The caller is not allowed to write the catalog. */
     public static final String POLICY_DENIED = "PolicyDenied";
     /** The write was rejected for a business reason: the configuration is not valid for the schema. */
@@ -90,14 +92,8 @@ public class CatalogEntryChangeAuditor {
                                   String reason) {
         return Mono.zip(resolveActor(), resolveOrganization())
                 .doOnNext(who -> {
-                    Map<String, Object> details = new LinkedHashMap<>();
-                    if (operation != null) {
-                        details.put("operation", operation.value());
-                    }
-                    if (credentialConfigurationId != null) {
-                        details.put("credential_configuration_id", credentialConfigurationId);
-                    }
-                    auditService.auditFailure(EVENT, who.getT1(), who.getT2(), reason, details);
+                    auditService.auditFailure(EVENT, who.getT1(), who.getT2(), reason,
+                            deniedDetails(operation, credentialConfigurationId));
                 })
                 .then(stageDenied(operation, credentialConfigurationId, reason))
                 .onErrorResume(e -> {
@@ -122,23 +118,31 @@ public class CatalogEntryChangeAuditor {
         if (credentialConfigurationId == null) {
             return Mono.empty();
         }
-        Map<String, Object> details = new LinkedHashMap<>();
-        if (operation != null) {
-            details.put("operation", operation.value());
-        }
-        details.put("credential_configuration_id", credentialConfigurationId);
         return auditTrail.stageBestEffort(AuditEntry.forReason(AuditEventType.CATALOG_ENTRY_CHANGED,
-                resourceOf(credentialConfigurationId), reason, details));
+                resourceOf(credentialConfigurationId), reason, deniedDetails(operation, credentialConfigurationId)));
     }
 
     private static String resourceOf(String credentialConfigurationId) {
         return "catalog-entry:" + credentialConfigurationId;
     }
 
+    /** What is known of a refused write: each field only when it is known at that point. */
+    private static Map<String, Object> deniedDetails(CatalogEntryChange.Operation operation,
+                                                     String credentialConfigurationId) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        if (operation != null) {
+            details.put(DETAIL_OPERATION, operation.value());
+        }
+        if (credentialConfigurationId != null) {
+            details.put(DETAIL_CONFIGURATION_ID, credentialConfigurationId);
+        }
+        return details;
+    }
+
     private static Map<String, Object> details(CatalogEntryChange change) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("operation", change.operation().value());
-        details.put("credential_configuration_id", change.credentialConfigurationId());
+        details.put(DETAIL_OPERATION, change.operation().value());
+        details.put(DETAIL_CONFIGURATION_ID, change.credentialConfigurationId());
         if (change.operation() == CatalogEntryChange.Operation.UPDATE) {
             details.put("changes", change.changes());
         }
