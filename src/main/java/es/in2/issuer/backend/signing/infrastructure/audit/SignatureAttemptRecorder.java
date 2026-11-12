@@ -1,12 +1,13 @@
 package es.in2.issuer.backend.signing.infrastructure.audit;
 
+import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.exception.RemoteSignatureUnauthorizedException;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.infrastructure.audit.ExternalFailureClassifier;
 import es.in2.issuer.backend.signing.domain.audit.SigningAuditEvents;
 import es.in2.issuer.backend.signing.domain.audit.SigningAuditEvents.SignedObject;
-import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
 import es.in2.issuer.backend.signing.domain.util.JwsHeaderFingerprint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -55,7 +56,7 @@ public class SignatureAttemptRecorder {
     }
 
     private static String reasonOf(Throwable error) {
-        if (error instanceof NoActiveSigningConfigurationException) {
+        if (SigningFailureReasons.of(error) == SigningFailureReason.NO_CONFIGURATION) {
             return "NoActiveConfiguration";
         }
         if (causedBy(error, RemoteSignatureUnauthorizedException.class)) {

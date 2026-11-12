@@ -1,12 +1,13 @@
 package es.in2.issuer.backend.signing.infrastructure.audit;
 
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.exception.RemoteSignatureUnauthorizedException;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditSource;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.signing.domain.audit.SigningAuditEvents.SignedObject;
-import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -68,13 +69,13 @@ class SignatureAttemptRecorderTest {
     @Test
     void record_noSigningConfiguration_stagesFailureNoActiveConfiguration() {
         // Arrange
-        Mono<String> signing = Mono.error(new NoActiveSigningConfigurationException("no config"));
+        Mono<String> signing = Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION, "no config"));
 
         // Act
         Mono<String> recorded = recorder.recordAttempt("issuance:1", SignedObject.ATTESTATION, signing);
 
         // Assert
-        StepVerifier.create(recorded).expectError(NoActiveSigningConfigurationException.class).verify();
+        StepVerifier.create(recorded).expectError(SigningException.class).verify();
         AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
         assertEquals(AuditResult.FAILURE, entry.result());
         assertEquals("NoActiveConfiguration", entry.reason());

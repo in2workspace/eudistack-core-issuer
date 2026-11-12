@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,7 +45,6 @@ import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
@@ -221,13 +222,13 @@ class Oid4VciCredentialWorkflowImplTest {
     void createCredentialResponse_noSigningConfiguration_stagesAttemptFailedInvalidConfiguration() {
         // Arrange
         when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.error(new NoActiveSigningConfigurationException("no config")));
+                .thenReturn(Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION, "no config")));
 
         // Act
         Mono<?> credential = credentialRequestForTheStandardIssuance();
 
         // Assert
-        StepVerifier.create(credential).expectError(NoActiveSigningConfigurationException.class).verify();
+        StepVerifier.create(credential).expectError(SigningException.class).verify();
         assertThat(auditTrail.stagedInNewTransaction().getFirst().reason()).isEqualTo("InvalidConfiguration");
     }
 

@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.issuance.application.workflow.impl;
 
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,7 +10,6 @@ import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflo
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
-import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
@@ -678,7 +679,7 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.error(new NoActiveSigningConfigurationException("no configuration")));
+                .thenReturn(Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION, "no configuration")));
         when(statusListWorkflow.releaseEntry(anyString(), anyString())).thenReturn(Mono.empty());
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
