@@ -27,6 +27,7 @@ import reactor.test.StepVerifier;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -144,6 +145,31 @@ class SearchIdentifierIndexerTest {
 
         verify(tenantSecretKeyPort, never()).keyOf(anyString());
         verify(store, never()).insertAll(any(), anyString(), anyList());
+    }
+
+    @Test
+    void saveWithFingerprints_theCreationIsTheFirstChangeOfTheProcess() {
+        Issuance issuance = issuance(BOTH);
+        when(catalogEntryPort.findByIdForShare(TYPE)).thenReturn(Mono.empty());
+        when(issuancePort.insert(issuance)).thenReturn(Mono.just(issuance));
+        Instant before = Instant.now();
+
+        StepVerifier.create(inTenant(indexer.saveWithFingerprints(issuance))).expectNextCount(1).verifyComplete();
+
+        assertThat(issuance.getLastChangedAt()).isBetween(before, Instant.now());
+    }
+
+    @Test
+    void saveWithFingerprints_keepsALastChangeAlreadySet() {
+        Instant set = Instant.parse("2026-01-01T00:00:00Z");
+        Issuance issuance = issuance(BOTH);
+        issuance.setLastChangedAt(set);
+        when(catalogEntryPort.findByIdForShare(TYPE)).thenReturn(Mono.empty());
+        when(issuancePort.insert(issuance)).thenReturn(Mono.just(issuance));
+
+        StepVerifier.create(inTenant(indexer.saveWithFingerprints(issuance))).expectNextCount(1).verifyComplete();
+
+        assertThat(issuance.getLastChangedAt()).isEqualTo(set);
     }
 
     @Test

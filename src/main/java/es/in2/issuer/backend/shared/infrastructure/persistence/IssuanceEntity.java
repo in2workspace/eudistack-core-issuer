@@ -93,6 +93,11 @@ public class IssuanceEntity {
     @Column("version")
     private Long version;
 
+    // EUD-255 AD-2 (V20): creation or last change of state, set by the domain. Not a Spring
+    // auditing field: @LastModifiedDate would move it on every write.
+    @Column("last_changed_at")
+    private Instant lastChangedAt;
+
     // --- Auditing fields (R2DBC auditing will fill these) ---
     @CreatedDate
     @Column("created_at")

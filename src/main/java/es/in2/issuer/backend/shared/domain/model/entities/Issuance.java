@@ -73,6 +73,13 @@ public class Issuance {
     // for the Spring Data R2DBC mechanics this enables).
     private Long version;
 
+    /**
+     * The last change of the process: its creation or its last change of state (EUD-255 AD-2). The
+     * query API orders and paginates by it and returns it as {@code updated}. Unlike
+     * {@link #updatedAt}, technical writes (delivery attempt, offer renewal) do not move it.
+     */
+    private Instant lastChangedAt;
+
     // --- Auditing fields (populated by the persistence adapter) ---
     private Instant createdAt;
 
@@ -99,5 +106,17 @@ public class Issuance {
             return Optional.of(DeliveryMode.UI);
         }
         return modes.contains(DeliveryMode.EMAIL.value) ? Optional.of(DeliveryMode.EMAIL) : Optional.empty();
+    }
+
+    /**
+     * Changes the state and, when it really changes, the last change (EUD-255 AD-2). Every change of
+     * state -- issuance, activation, withdrawal, archive, revocation, expiry -- goes through here,
+     * so none of them can forget it. Building or reading a process does not count as a change.
+     */
+    public void setCredentialStatus(CredentialStatusEnum credentialStatus) {
+        if (this.credentialStatus != credentialStatus) {
+            this.lastChangedAt = Instant.now();
+        }
+        this.credentialStatus = credentialStatus;
     }
 }
