@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
+import es.in2.issuer.backend.shared.domain.exception.CredentialConfigurationNotEnabledException;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
@@ -127,6 +128,8 @@ class IssuanceWorkflowImplTest {
     void setUpDeliveryEligibility() {
         // No catalog entry by default: the builder falls back to the type file (D9).
         lenient().when(tenantCredentialProfileService.findEnabledEntry(anyString())).thenReturn(Mono.empty());
+        // Every type enabled in the tenant by default; the tests of a type that is not override it.
+        lenient().when(tenantCredentialProfileService.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
         // Identity by default: the normalizer has its own tests; here only the tests about what the
         // workflow does with its result override it.
         lenient().when(issuancePayloadNormalizer.normalize(anyString(), any()))
@@ -390,6 +393,42 @@ class IssuanceWorkflowImplTest {
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
+    }
+
+    /**
+     * EUD-254 FR-07 and §3 (EUD-268 task 11): a type the tenant has not enabled is unsupported like an
+     * unknown one, before the schema and the decision point -- not a 403 of the decision point.
+     */
+    @Test
+    void issueCredentialShouldRejectATypeNotEnabledInTheTenantBeforeTheSchemaAndTheDecision() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(tenantCredentialProfileService.isProfileAllowed(CONFIG_ID)).thenReturn(Mono.just(false));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectError(CredentialTypeUnsupportedException.class)
+                .verify();
+
+        verifyNoInteractions(payloadSchemaValidator, powerAuthorizationService, issuanceService, credentialOfferService);
+    }
+
+    /** Bootstrap issuance is not the contract's: it keeps the 409 of the eligible delivery modes. */
+    @Test
+    void issueCredentialWithoutAuthorizationShouldNotCheckTheTypeAgainstTheCatalogUpFront() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(deliveryEligibilityResolver.resolveEligibleModes(CONFIG_ID))
+                .thenReturn(Mono.error(new CredentialConfigurationNotEnabledException("not enabled")));
+
+        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL))
+                .expectError(CredentialConfigurationNotEnabledException.class)
+                .verify();
+
+        verify(tenantCredentialProfileService, never()).isProfileAllowed(anyString());
     }
 
     @Test

@@ -17,7 +17,6 @@ import es.in2.issuer.backend.shared.domain.policy.Caller;
 import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -69,18 +68,15 @@ class PowerAuthorizationServiceImplTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private CallerProvider callerProvider;
-    private TenantCredentialProfileService tenantCredentialProfileService;
     private AuditService auditService;
     private PowerAuthorizationServiceImpl service;
 
     @BeforeEach
     void setUp() {
         callerProvider = mock(CallerProvider.class);
-        tenantCredentialProfileService = mock(TenantCredentialProfileService.class);
         auditService = mock(AuditService.class);
-        when(tenantCredentialProfileService.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
         service = new PowerAuthorizationServiceImpl(new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
-                callerProvider, tenantCredentialProfileService, auditService, objectMapper);
+                callerProvider, auditService, objectMapper);
     }
 
     // --- helpers ---
@@ -614,18 +610,6 @@ class PowerAuthorizationServiceImplTest {
             when(callerProvider.current()).thenReturn(Mono.just(caller(ORG, TENANT, CERTIFY)));
             StepVerifier.create(inTenant(service.authorizeIssuance("p", "gx.labelcredential.w3c.2", "gx.labelcredential.w3c.2",
                     null, objectMapper.createObjectNode()), TENANT)).expectNextCount(1).verifyComplete();
-        }
-
-        /** AC-15: denied like any other rule, with its stable reason (N3). */
-        @Test
-        void PowerAuthorizationService_authorizeIssuance_typeNotEnabledInTheTenantIsDenied() {
-            // Given
-            when(tenantCredentialProfileService.isProfileAllowed("config-id")).thenReturn(Mono.just(false));
-
-            // When / Then
-            expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()),
-                    Reason.CREDENTIAL_TYPE_NOT_ENABLED);
-            lastDenyDetails(Reason.CREDENTIAL_TYPE_NOT_ENABLED.getCode());
         }
 
         /** AC-11. */

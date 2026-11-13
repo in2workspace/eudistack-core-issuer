@@ -280,6 +280,28 @@ class IssuanceContractIT extends PostgresIntegrationBase {
                 .formatted(VALID_PAYLOAD), HttpStatus.BAD_REQUEST, "unsupported_credential_type");
     }
 
+    /** PRD FR-07: a type of the issuer that the tenant's catalog does not have, rejected before its schema. */
+    @Test
+    void aTypeTheTenantHasNotEnabledIsUnsupportedCredentialTypeBeforeTheSchema() {
+        rejected("""
+                {"credential_configuration_id": "learcredential.employee.sd.1", "email": "jane.doe@example.org",
+                 "payload": {}}""", HttpStatus.BAD_REQUEST, "unsupported_credential_type");
+    }
+
+    /** PRD FR-07: an entry of the tenant's catalog that is disabled issues nothing. */
+    @Test
+    void aDisabledEntryOfTheCatalogIsUnsupportedCredentialType() {
+        emptyCatalog();
+        webTestClient().post().uri(CATALOG)
+                .headers(headers(tenantAdministratorToken(TENANT), TENANT))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(DOCTORID_ENTRY.replace("\"enabled\": true", "\"enabled\": false"))
+                .exchange()
+                .expectStatus().isCreated();
+
+        rejected(request("\"delivery\": \"email\""), HttpStatus.BAD_REQUEST, "unsupported_credential_type");
+    }
+
     @Test
     void aPayloadWithoutARequiredAttributeIsPayloadValidationErrorNamingIt() {
         rejected(requestWithPayload("""
