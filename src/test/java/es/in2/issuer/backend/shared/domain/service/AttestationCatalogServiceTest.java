@@ -76,6 +76,7 @@ class AttestationCatalogServiceTest {
     @Mock private TenantCredentialProfileService tenantCredentialProfileService;
     @Mock private TransactionalOperator transactionalOperator;
     @Mock private CatalogEntryChangeAuditor changeAuditor;
+    @Mock private SearchIdentifierIndexer searchIdentifierIndexer;
 
     private AttestationCatalogService service;
 
@@ -84,7 +85,7 @@ class AttestationCatalogServiceTest {
         SchemaDeliveryCeiling ceiling = new SchemaDeliveryCeiling(REGISTRY);
         service = new AttestationCatalogService(port, new CatalogEntryFiller(REGISTRY, ceiling),
                 new CatalogEntryValidator(REGISTRY, ceiling), REGISTRY, tenantCredentialProfileService,
-                transactionalOperator, changeAuditor);
+                transactionalOperator, changeAuditor, searchIdentifierIndexer);
         when(changeAuditor.audit(any())).thenReturn(Mono.empty());
         when(changeAuditor.auditDenied(any(), any(), any())).thenReturn(Mono.empty());
         when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -380,6 +381,39 @@ class AttestationCatalogServiceTest {
         assertThat(change.getValue().before()).isEqualTo(current);
         assertThat(change.getValue().after().version()).isEqualTo(4);
         assertThat(change.getValue().changes()).containsKeys("enabled", "search_identifiers");
+    }
+
+    @Test
+    void replace_thatChangesTheSearchIdentifiers_startsTheirBackgroundCalculation() {
+        // EUD-267, FR-09 of EUD-169: what was already issued is fingerprinted in the background.
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(filledDoctorId(3)));
+        when(port.updateIfVersion(any(), eq(3L))).thenAnswer(inv ->
+                Mono.just(Optional.of(stored(inv.getArgument(0), 4))));
+
+        StepVerifier.create(inTenant(service.replace(DOCTORID, doctorIdConfiguration().toInput(), "\"3\"")))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(searchIdentifierIndexer).reindexInBackground(TENANT);
+    }
+
+    @Test
+    void replace_thatKeepsTheSearchIdentifiers_doesNotStartTheirCalculation() {
+        CatalogEntry current = new CatalogEntry(DOCTORID, DOCTORID_URI, true,
+                Set.of(DeliveryMode.EMAIL, DeliveryMode.UI), new CatalogEntry.Validity(36500, false, null),
+                new CatalogEntry.Subject(List.of(ClaimPath.of("givenName"), ClaimPath.of("familyName")), " "),
+                List.of(new CatalogEntry.SearchIdentifier("colegiado", ClaimPath.of("personal_administrative_number"))),
+                3, Instant.now(), Instant.now());
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(current));
+        when(port.updateIfVersion(any(), eq(3L))).thenAnswer(inv ->
+                Mono.just(Optional.of(stored(inv.getArgument(0), 4))));
+
+        StepVerifier.create(inTenant(service.replace(DOCTORID, doctorIdConfiguration().withEnabled(false).toInput(), "\"3\"")))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(changeAuditor).audit(any());
+        verify(searchIdentifierIndexer, never()).reindexInBackground(any());
     }
 
     @Test

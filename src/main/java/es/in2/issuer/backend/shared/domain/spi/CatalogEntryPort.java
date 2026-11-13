@@ -20,6 +20,14 @@ public interface CatalogEntryPort {
     Mono<CatalogEntry> findById(String credentialConfigurationId);
 
     /**
+     * {@link #findById} that holds a shared lock on the entry until the transaction it runs in ends (EUD-267): a
+     * change of the entry waits for an issuance that read it to commit, so the fingerprints of that issuance are
+     * either computed with the identifiers the entry ends up with, or seen by the background calculation that the
+     * change starts once it has committed. Only meaningful inside a transaction.
+     */
+    Mono<CatalogEntry> findByIdForShare(String credentialConfigurationId);
+
+    /**
      * Inserts a new entry at version 0 and returns it as stored.
      *
      * @throws es.in2.issuer.backend.shared.domain.exception.CatalogEntryAlreadyExistsException

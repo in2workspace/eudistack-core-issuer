@@ -64,7 +64,6 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private static final String DEFAULT_DELIVERY = "email";
 
-    private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
     private final PowerAuthorizationService powerAuthorizationService;
     private final IssuancePayloadNormalizer issuancePayloadNormalizer;
@@ -81,6 +80,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final HolderDidFallbackAuditor holderDidFallbackAuditor;
     private final TenantCredentialProfileService tenantCredentialProfileService;
+    private final SearchIdentifierIndexer searchIdentifierIndexer;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -536,7 +536,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                         issuanceId, configId, credentialFormat,
                                                                         buildResult, enrichedWithStatus, organizationOf(request),
                                                                         request.email(), originalDelivery, finalStatus, cnf);
-                                                                return issuanceService.saveIssuance(issuance)
+                                                                // EUD-267: the process and its search identifier fingerprints, together.
+                                                                return searchIdentifierIndexer.saveWithFingerprints(issuance)
                                                                         .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                                                                         .doOnSuccess(saved -> log.debug(
                                                                                 "ProcessId: {} - Direct issuance saved: {} status={}",
@@ -601,7 +602,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             cnf,
                             grantType);
 
-                    return issuanceService.saveIssuance(issuance)
+                    // EUD-267: the process and its search identifier fingerprints, together.
+                    return searchIdentifierIndexer.saveWithFingerprints(issuance)
                             .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
                             .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                             .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(

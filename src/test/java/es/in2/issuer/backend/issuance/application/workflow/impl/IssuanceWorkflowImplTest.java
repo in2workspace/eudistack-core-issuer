@@ -28,7 +28,7 @@ import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationServ
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
-import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.SearchIdentifierIndexer;
 import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
@@ -91,7 +91,7 @@ class IssuanceWorkflowImplTest {
         return mono.contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT_ID));
     }
 
-    @Mock private IssuanceService issuanceService;
+    @Mock private SearchIdentifierIndexer searchIdentifierIndexer;
     @Mock private CredentialOfferService credentialOfferService;
     @Mock private PowerAuthorizationService powerAuthorizationService;
     @Mock private IssuancePayloadNormalizer issuancePayloadNormalizer;
@@ -167,7 +167,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(new IssuanceAuthorization(null, "VATES-INDICATED", List.of("E1", "E2"))));
         when(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -177,7 +177,7 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         ArgumentCaptor<Issuance> saved = ArgumentCaptor.forClass(Issuance.class);
-        verify(issuanceService).saveIssuance(saved.capture());
+        verify(searchIdentifierIndexer).saveWithFingerprints(saved.capture());
         assertEquals("VATES-INDICATED", saved.getValue().getOrganizationIdentifier());
         verify(auditService).auditSuccess(eq("issuance.created"), eq("VATES-INDICATED"), eq("issuance"), any(), any());
     }
@@ -200,7 +200,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(genericCredentialBuilder, credentialSignerWorkflow);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -217,7 +217,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 issuanceId.toString(), CONFIG_ID, AUTHORIZATION_CODE,
                 EMAIL, "email", "refresh-token-123", BASE_URL))
@@ -231,7 +231,7 @@ class IssuanceWorkflowImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceService).saveIssuance(any(Issuance.class));
+        verify(searchIdentifierIndexer).saveWithFingerprints(any(Issuance.class));
         verify(credentialOfferService).createAndDeliverCredentialOffer(
                 issuanceId.toString(), CONFIG_ID, AUTHORIZATION_CODE,
                 EMAIL, "email", "refresh-token-123", BASE_URL);
@@ -257,7 +257,7 @@ class IssuanceWorkflowImplTest {
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, entry))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -292,7 +292,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
@@ -321,7 +321,7 @@ class IssuanceWorkflowImplTest {
                 isNull(), eq(normalized))).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, normalized, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -356,7 +356,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, normalized)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, normalized, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
@@ -453,7 +453,7 @@ class IssuanceWorkflowImplTest {
         // Code-review W1: release is now attempted even when allocateEntry itself is what failed --
         // a no-op in production (nothing was ever allocated), but still invoked, so it must be stubbed.
         when(statusListWorkflow.releaseEntry(anyString())).thenReturn(Mono.empty());
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -496,7 +496,7 @@ class IssuanceWorkflowImplTest {
         when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.error(new RuntimeException("Remote signing provider at https://qtsp.internal timed out")));
         when(statusListWorkflow.releaseEntry(anyString())).thenReturn(Mono.empty());
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -532,10 +532,10 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.error(new RuntimeException("relation \"tenant_cgcom.issuance\" violates constraint")));
         when(statusListWorkflow.releaseEntry(anyString())).thenReturn(Mono.empty());
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -600,7 +600,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult(
                         "openid-credential-offer://offer-uri", "SMTP unavailable")));
@@ -647,7 +647,7 @@ class IssuanceWorkflowImplTest {
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), eq("enriched-with-status"), eq(CONFIG_ID),
                 anyString(), isNull(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -684,7 +684,7 @@ class IssuanceWorkflowImplTest {
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), eq("enriched-with-status"), eq(CONFIG_ID),
                 anyString(), isNull(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -699,7 +699,7 @@ class IssuanceWorkflowImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceService).saveIssuance(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.VALID));
+        verify(searchIdentifierIndexer).saveWithFingerprints(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.VALID));
         verifyNoInteractions(credentialOfferService);
         verify(credentialIssuedLogger).logIssued(CONFIG_ID);
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
@@ -727,7 +727,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.error(new SigningConfigurationChangedException()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(statusListWorkflow.releaseEntry(anyString())).thenReturn(Mono.empty());
-        when(issuanceService.saveIssuance(any(Issuance.class)))
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class)))
                 .thenReturn(Mono.just(Issuance.builder().issuanceId(UUID.randomUUID()).build()));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
@@ -737,7 +737,7 @@ class IssuanceWorkflowImplTest {
 
         verify(genericCredentialBuilder, times(2)).bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL));
         verify(statusListWorkflow, times(1)).releaseEntry(anyString());
-        verify(issuanceService, times(1)).saveIssuance(any(Issuance.class));
+        verify(searchIdentifierIndexer, times(1)).saveWithFingerprints(any(Issuance.class));
     }
 
     @Test
@@ -761,14 +761,14 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
-        verify(issuanceService).saveIssuance(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.ISSUED));
+        verify(searchIdentifierIndexer).saveWithFingerprints(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.ISSUED));
     }
 
     @Test
@@ -797,7 +797,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -818,7 +818,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -840,7 +840,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -867,7 +867,7 @@ class IssuanceWorkflowImplTest {
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), eq("enriched-with-status"), eq(EXEMPT_CONFIG_ID),
                 anyString(), anyMap(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -880,7 +880,7 @@ class IssuanceWorkflowImplTest {
                 cnfCaptor.capture(), any(), any());
         assertNotNull(cnfCaptor.getValue());
         assertTrue(cnfCaptor.getValue().containsKey("jwk"));
-        verify(issuanceService).saveIssuance(any(Issuance.class));
+        verify(searchIdentifierIndexer).saveWithFingerprints(any(Issuance.class));
         verifyNoInteractions(credentialOfferService);
 
         // F2: the direct leg derives the holder DID from the holder_key jwk and binds it into
@@ -925,7 +925,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 issuanceId.toString(), EXEMPT_CONFIG_ID, "authorization_code",
                 EMAIL, "email", "refresh-token-123", BASE_URL))
@@ -937,7 +937,7 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         ArgumentCaptor<Issuance> issuanceCaptor = ArgumentCaptor.forClass(Issuance.class);
-        verify(issuanceService).saveIssuance(issuanceCaptor.capture());
+        verify(searchIdentifierIndexer).saveWithFingerprints(issuanceCaptor.capture());
         assertNull(issuanceCaptor.getValue().getHolderCnf(), "no cnf should be built from a holder_key this profile no longer needs");
     }
 
@@ -964,7 +964,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     /**
@@ -992,7 +992,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -1015,7 +1015,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -1040,7 +1040,7 @@ class IssuanceWorkflowImplTest {
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(),
                 anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -1065,7 +1065,7 @@ class IssuanceWorkflowImplTest {
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), anyString(), eq(EMAIL), eq("email"),
                 eq("refresh-token-123"), eq(BASE_URL)))
@@ -1106,7 +1106,7 @@ class IssuanceWorkflowImplTest {
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(),
                 anyString(), anyMap(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(EXEMPT_CONFIG_ID), anyString(), eq(EMAIL), eq("email"),
                 eq("refresh-token-123"), eq(BASE_URL)))
@@ -1153,7 +1153,7 @@ class IssuanceWorkflowImplTest {
                 .expectError(IllegalStateException.class)
                 .verify();
 
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -1178,7 +1178,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), anyMap(), any(), any()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class)))
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class)))
                 .thenReturn(Mono.error(new IllegalStateException("db down")));
         when(statusListWorkflow.releaseEntry(anyString())).thenReturn(Mono.empty());
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -1206,7 +1206,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
 
@@ -1225,7 +1225,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -1242,7 +1242,7 @@ class IssuanceWorkflowImplTest {
                 .expectError(InvalidDeliveryModeException.class)
                 .verify();
 
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     @Test
@@ -1320,10 +1320,10 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
         // OID4VCI flow mocks
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(oid4vciIssuanceId.toString()), any(), any(), any(), eq("email"), eq("rt-123"), eq(BASE_URL)))
@@ -1342,7 +1342,7 @@ class IssuanceWorkflowImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceService, times(2)).saveIssuance(any(Issuance.class));
+        verify(searchIdentifierIndexer, times(2)).saveWithFingerprints(any(Issuance.class));
         verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(), any(), any(), any());
         verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any());
         // Exactly one credential is emitted here (the direct leg); the wallet leg only creates a
@@ -1372,14 +1372,14 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(firstSignature, nextSignatures);
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
     }
 
     private String savedDirectIssuanceId() {
         ArgumentCaptor<Issuance> saved = ArgumentCaptor.forClass(Issuance.class);
-        verify(issuanceService, atLeastOnce()).saveIssuance(saved.capture());
+        verify(searchIdentifierIndexer, atLeastOnce()).saveWithFingerprints(saved.capture());
         return saved.getAllValues().stream()
                 .filter(i -> i.getCredentialStatus() != CredentialStatusEnum.DRAFT)
                 .findFirst().orElseThrow()
@@ -1393,7 +1393,7 @@ class IssuanceWorkflowImplTest {
         UUID oid4vciIssuanceId = UUID.randomUUID();
         Issuance oid4vciIssuance = Issuance.builder().issuanceId(oid4vciIssuanceId).credentialOfferRefreshToken("rt").build();
         stubSuccessfulDirectLeg(profileWithoutCnf(), payload);
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -1433,7 +1433,7 @@ class IssuanceWorkflowImplTest {
                             anyString(), anyString(), isNull(), signedFor.capture(), anyString());
                     // Both attempts sign for the same process, the one saved once and returned for Location.
                     assertEquals(signedFor.getAllValues().get(0), signedFor.getAllValues().get(1));
-                    verify(issuanceService, times(1)).saveIssuance(
+                    verify(searchIdentifierIndexer, times(1)).saveWithFingerprints(
                             argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT));
                     assertEquals(savedDirectIssuanceId(), response.issuanceId());
                     assertEquals(signedFor.getValue(), response.issuanceId());
@@ -1447,7 +1447,7 @@ class IssuanceWorkflowImplTest {
         IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct,ui", EMAIL, null);
         Issuance oid4vciIssuance = Issuance.builder().issuanceId(UUID.randomUUID()).credentialOfferRefreshToken("rt").build();
         stubSuccessfulDirectLeg(profileWithoutCnf(), payload);
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.error(new RuntimeException("wallet unavailable")));
@@ -1470,7 +1470,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), any(), eq(EMAIL), eq("ui"), eq("rt-ui"), eq(BASE_URL)))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -1487,7 +1487,7 @@ class IssuanceWorkflowImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceService).saveIssuance(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.DRAFT));
+        verify(searchIdentifierIndexer).saveWithFingerprints(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.DRAFT));
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow);
         verify(credentialIssuedLogger, never()).logIssued(any());
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
@@ -1505,7 +1505,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
@@ -1531,7 +1531,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
@@ -1595,7 +1595,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -1624,7 +1624,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
@@ -1659,14 +1659,14 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
-        verify(issuanceService).saveIssuance(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.VALID));
+        verify(searchIdentifierIndexer).saveWithFingerprints(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.VALID));
     }
 
     @Test
@@ -1697,7 +1697,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -1736,7 +1736,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -1760,7 +1760,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 any(), eq(CONFIG_ID), eq("urn:ietf:params:oauth:grant-type:pre-authorized_code"),
                 eq(EMAIL), eq("email"), eq("rt-grant"), eq(BASE_URL)))
@@ -1795,7 +1795,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
@@ -1837,7 +1837,7 @@ class IssuanceWorkflowImplTest {
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), eq(CONFIG_ID),
                 eq("dc+sd-jwt"), isNull(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-sd-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -1846,7 +1846,7 @@ class IssuanceWorkflowImplTest {
 
         // AC-04: the SD-JWT VC credential is persisted with the profile's format, not a
         // default format or another branch's.
-        verify(issuanceService).saveIssuance(argThat(i -> "dc+sd-jwt".equals(i.getCredentialFormat())));
+        verify(searchIdentifierIndexer).saveWithFingerprints(argThat(i -> "dc+sd-jwt".equals(i.getCredentialFormat())));
     }
 
     @Test
@@ -1865,7 +1865,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -1877,7 +1877,7 @@ class IssuanceWorkflowImplTest {
 
         // AC-04: the credential_configuration_id sent matches exactly the resolved catalog
         // profile -- no intermediate rewrites on the persisted entity.
-        verify(issuanceService).saveIssuance(argThat(i -> CONFIG_ID.equals(i.getCredentialType())));
+        verify(searchIdentifierIndexer).saveWithFingerprints(argThat(i -> CONFIG_ID.equals(i.getCredentialType())));
     }
 
     @Test
@@ -1901,9 +1901,9 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.error(new RuntimeException("SMTP unavailable")));
@@ -1948,9 +1948,9 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         // Wallet path never completes within the hybrid budget (HYBRID_WALLET_TIMEOUT_SECONDS = 1s).
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
@@ -1997,7 +1997,7 @@ class IssuanceWorkflowImplTest {
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
         verify(credentialIssuedLogger).logFailed(eq(CONFIG_ID), any());
         verify(credentialIssuedLogger, never()).logIssued(any());
         verify(statusListWorkflow).releaseEntry(anyString());
@@ -2111,9 +2111,9 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), eq(expectedWalletChannel), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -2145,7 +2145,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), eq("enriched-with-status"), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -2155,7 +2155,7 @@ class IssuanceWorkflowImplTest {
 
         verify(statusListWorkflow).allocateEntry(eq(StatusPurpose.REVOCATION), any(), anyString(), anyString(), eq(BASE_URL));
         verify(genericCredentialBuilder).injectCredentialStatus(eq("enriched-data-set"), any(), anyString());
-        verify(issuanceService).saveIssuance(argThat(i ->
+        verify(searchIdentifierIndexer).saveWithFingerprints(argThat(i ->
                 i.getCredentialStatus() == CredentialStatusEnum.VALID
                         && "enriched-with-status".equals(i.getCredentialDataSet())));
     }
@@ -2179,7 +2179,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.error(new RuntimeException("DB down")));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.error(new RuntimeException("DB down")));
         when(statusListWorkflow.releaseEntry(anyString())).thenReturn(Mono.empty());
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
@@ -2212,7 +2212,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
@@ -2283,7 +2283,7 @@ class IssuanceWorkflowImplTest {
         // pre-existing trait of this method, unrelated to fail-closed behavior.)
         verifyNoInteractions(auditService, payloadSchemaValidator,
                 powerAuthorizationService, genericCredentialBuilder, credentialSignerWorkflow,
-                issuanceService, credentialOfferService);
+                searchIdentifierIndexer, credentialOfferService);
     }
 
     @Test
@@ -2308,9 +2308,9 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
-        when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
+        when(searchIdentifierIndexer.saveWithFingerprints(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.error(new RuntimeException("SMTP unavailable")));
@@ -2345,7 +2345,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 issuanceId.toString(), CONFIG_ID, AUTHORIZATION_CODE,
                 EMAIL, "email", "refresh-token-123", BASE_URL))
@@ -2385,7 +2385,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn("enriched-with-status");
         when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
         doThrow(new RuntimeException("AUDIT channel down")).when(auditService).auditDelivery(any());
 
@@ -2452,7 +2452,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(EXEMPT_CONFIG_ID), anyString(),
                 eq(EMAIL), eq("email"), anyString(), eq(BASE_URL)))
@@ -2464,7 +2464,7 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         ArgumentCaptor<Issuance> issuanceCaptor = ArgumentCaptor.forClass(Issuance.class);
-        verify(issuanceService).saveIssuance(issuanceCaptor.capture());
+        verify(searchIdentifierIndexer).saveWithFingerprints(issuanceCaptor.capture());
         String persistedCnf = issuanceCaptor.getValue().getHolderCnf();
         assertNotNull(persistedCnf, "holder cnf must survive to the Credential Endpoint");
         assertTrue(persistedCnf.contains("jwk"));
@@ -2491,7 +2491,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
-        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(searchIdentifierIndexer.saveWithFingerprints(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), anyString(),
                 eq(EMAIL), eq("email"), anyString(), eq(BASE_URL)))
@@ -2503,7 +2503,7 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         ArgumentCaptor<Issuance> issuanceCaptor = ArgumentCaptor.forClass(Issuance.class);
-        verify(issuanceService).saveIssuance(issuanceCaptor.capture());
+        verify(searchIdentifierIndexer).saveWithFingerprints(issuanceCaptor.capture());
         assertNull(issuanceCaptor.getValue().getHolderCnf());
     }
 
@@ -2527,7 +2527,7 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(searchIdentifierIndexer, never()).saveWithFingerprints(any());
     }
 
     private CredentialProfile profileExempt() {

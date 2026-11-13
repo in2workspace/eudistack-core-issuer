@@ -11,7 +11,7 @@ plugins {
 }
 
 group = 'com.eudistack'
-version = '3.14.0'
+version = '3.15.0'
 
 ext['netty.version'] = '4.1.132.Final'
 
@@ -82,6 +82,11 @@ dependencies {
     }
     // S3: the certificate of each own-key tenant, published by infra
     implementation('software.amazon.awssdk:s3') {
+        exclude group: 'software.amazon.awssdk', module: 'apache-client'
+        exclude group: 'software.amazon.awssdk', module: 'apache5-client'
+    }
+    // SSM Parameter Store: the secret key of each tenant, for the search identifier fingerprints (EUD-267)
+    implementation('software.amazon.awssdk:ssm') {
         exclude group: 'software.amazon.awssdk', module: 'apache-client'
         exclude group: 'software.amazon.awssdk', module: 'apache5-client'
     }

@@ -272,6 +272,17 @@ issuer:
       search: { systems-per-organization: 60, per-person: 10 }
       read: { systems-per-organization: 300, per-person: 30 }
     request-control-cleanup-cron: ${ISSUER_API_REQUEST_CONTROL_CLEANUP_CRON:0 */10 * * * *}
+  # EUD-267: the secret key of each tenant, for the fingerprints of the search identifiers. In AWS a SecureString of
+  # Parameter Store with 32 random bytes in base64, created by infra when the tenant is provisioned (EUD-274). The
+  # name has {tenant} where the tenant goes. Empty: only issuances of types with search identifiers fail. Locally the
+  # key is derived from a seed, only with the local profile (local-key-seed is refused otherwise). An emulator such as
+  # LocalStack is reached with ISSUER_SEARCHIDENTIFIERS_ENDPOINT (issuer.search-identifiers.endpoint).
+  search-identifiers:
+    key-parameter: ${ISSUER_SEARCH_IDENTIFIER_KEY_PARAMETER:}
+    local-key-seed: ${ISSUER_SEARCH_IDENTIFIER_LOCAL_KEY_SEED:}
+    # The background calculation of the fingerprints of what was already issued (initial load, an identifier
+    # added to an entry, a rotated key). It also runs right after a catalog change.
+    backfill-cron: ${ISSUER_SEARCH_IDENTIFIER_BACKFILL_CRON:0 */5 * * * *}
   signing:
     certificates:
       # EUD-289: S3 ARN of the bucket or prefix of the own-key certificates, arn:aws:s3:::<bucket>[/<prefix>].
