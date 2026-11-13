@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.13.1] - 2026-11-13
+
+### Added
+- **EUD-289 — a tenant can sign with its own key in AWS KMS** instead of a QTSP. The certificate is read from S3, the signature is checked against the leaf, and a startup self-test covers every own-key tenant. Before deploying, confirm no newest `tenant_signing_config` row is a QTSP row without `provider_specific_config`: migration V18 would stop the Issuer from starting.
+- **EUD-266 — attestation catalogue API** at `/api/v1/attestation-catalog`, with per-entry configuration and `ETag` / `If-Match`.
+- **EUD-271 — `POST /api/v1/issuances/{id}/revocation`.** The status change is atomic and the reason does not reach the holder.
+- **EUD-272 — one power-based authorization point** for issuance, query, revocation, withdraw and archive.
+
+### Changed
+- **Telemetry follows the wallet-ebw pattern.** The service is reported as `issuer-core`.
+- **EUD-244 — the build can read GitHub Packages** and receives the Docker credentials.
+
+### Fixed
+- **EUD-277 — creating an issuance returns `Location`** with the public URL of the process, and `X-Idempotency-Key` is scoped to the caller and the request body.
+- **EUD-307 — an issuance id that is not a canonical UUID answers 400**, not 404, on `GET` and `PATCH /api/v1/issuances/{id}`.
+
 ## [Unreleased]
 
 ### Added (EUD-277)
