@@ -7,7 +7,6 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTran
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.support.TestAuthorizationDecisions;
-import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -267,51 +266,6 @@ class IssuanceServiceImplBranchesTest {
         assertThat(auditTrail.tenantScopes()).isEmpty();
     }
 
-    @Test
-    void getAllIssuancesVisibleFor_asPlatformSysAdmin_listsNonPlatformTenantsSortedByUpdated() {
-        // Arrange
-        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, true);
-        Instant older = Instant.parse("2025-01-01T00:00:00Z");
-        Instant newer = Instant.parse("2026-01-01T00:00:00Z");
-        when(tenantRegistryService.getActiveTenantSchemas())
-                .thenReturn(Mono.just(List.of("platform", "acme")));
-        when(issuancePort.findAllOrderByUpdatedDesc()).thenReturn(Flux.just(
-                summaryIssuance(older), summaryIssuance(newer), summaryIssuance(null)));
-
-        // Act + Assert
-        StepVerifier.create(service.getAllIssuancesVisibleFor(ctx))
-                .assertNext(list -> {
-                    assertThat(list.issuances()).hasSize(3);
-                    assertThat(list.issuances()).extracting(e -> e.issuance().tenant()).containsOnly("acme");
-                    assertThat(list.issuances().stream().map(IssuanceList.IssuanceEntry::issuance)
-                            .filter(s -> s.updated() != null).map(s -> s.updated()).toList())
-                            .containsExactly(newer, older);
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void getAllIssuancesVisibleFor_asPlatformSysAdminWithInvalidJson_errors() {
-        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, true);
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("acme")));
-        when(issuancePort.findAllOrderByUpdatedDesc())
-                .thenReturn(Flux.just(issuance(CredentialStatusEnum.DRAFT, "{not json")));
-
-        StepVerifier.create(service.getAllIssuancesVisibleFor(ctx))
-                .expectError(ParseCredentialJsonException.class)
-                .verify();
-    }
-
-    @Test
-    void getAllIssuanceSummariesByOrganizationId_withInvalidJson_errors() {
-        when(issuancePort.findAllByOrganizationIdentifier("ORG"))
-                .thenReturn(Flux.just(issuance(CredentialStatusEnum.DRAFT, "{not json")));
-
-        StepVerifier.create(service.getAllIssuanceSummariesByOrganizationId("ORG"))
-                .expectError(ParseCredentialJsonException.class)
-                .verify();
-    }
-
     // --- credential offer email info ---
 
     @Test
@@ -405,12 +359,6 @@ class IssuanceServiceImplBranchesTest {
                 .credentialDataSet(dataSet)
                 .email("user@example.com")
                 .build();
-    }
-
-    private static Issuance summaryIssuance(Instant updatedAt) {
-        Issuance issuance = issuance(CredentialStatusEnum.VALID, "{}");
-        issuance.setUpdatedAt(updatedAt);
-        return issuance;
     }
 
     private static CredentialProfile profile(String mandatorOrgIdPath) {

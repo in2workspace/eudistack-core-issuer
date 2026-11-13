@@ -30,8 +30,12 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
+import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
+import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import org.mockito.ArgumentCaptor;
 import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -97,6 +101,9 @@ class IssuanceControllerTest {
 
     @MockitoBean
     private IssuanceService issuanceService;
+
+    @MockitoBean
+    private IssuanceQueryService issuanceQueryService;
 
     /** Not used by the controller any more; other beans of the WebFlux slice still need it. */
     @MockitoBean
@@ -470,73 +477,6 @@ class IssuanceControllerTest {
     }
 
     @Test
-    void getAllIssuances_ReturnsIssuanceList() {
-        String orgId = "testOrganizationId";
-        AuthorizationDecision authCtx = organizationAdminDecision(orgId);
-
-        IssuanceSummary summary = IssuanceSummary.builder()
-                .issuanceId(UUID.randomUUID())
-                .subject("testFullName")
-                .status("testStatus")
-                .createdAt(Instant.parse("2026-01-05T10:15:30.123Z"))
-                .expiresAt(Instant.parse("2027-01-05T10:15:30Z"))
-                .updated(Instant.now())
-                .organizationIdentifier(orgId)
-                .build();
-
-        IssuanceList issuanceList = IssuanceList.builder()
-                .issuances(List.of(new IssuanceList.IssuanceEntry(summary)))
-                .build();
-
-        when(powerAuthorizationService.authorizeQuery(any(), any()))
-                .thenReturn(Mono.just(authCtx));
-        when(issuanceService.getAllIssuancesVisibleFor(authCtx))
-                .thenReturn(Mono.just(issuanceList));
-
-        webTestClient
-                .get()
-                .uri(ISSUANCES_PATH)
-                .header("Authorization", "Bearer testToken")
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.credential_procedures").isArray()
-                .jsonPath("$.credential_procedures[0].credential_procedure.created_at").isEqualTo("2026-01-05T10:15:30Z")
-                .jsonPath("$.credential_procedures[0].credential_procedure.expires_at").isEqualTo("2027-01-05T10:15:30Z");
-    }
-
-    @Test
-    void getAllIssuances_OmitsExpiresAtWhenThereIsNoExpiry() {
-        String orgId = "testOrganizationId";
-        AuthorizationDecision authCtx = organizationAdminDecision(orgId);
-
-        IssuanceSummary summary = IssuanceSummary.builder()
-                .issuanceId(UUID.randomUUID())
-                .status("DRAFT")
-                .createdAt(Instant.parse("2026-01-05T10:15:30Z"))
-                .updated(Instant.now())
-                .organizationIdentifier(orgId)
-                .build();
-
-        when(powerAuthorizationService.authorizeQuery(any(), any()))
-                .thenReturn(Mono.just(authCtx));
-        when(issuanceService.getAllIssuancesVisibleFor(authCtx))
-                .thenReturn(Mono.just(IssuanceList.builder()
-                        .issuances(List.of(new IssuanceList.IssuanceEntry(summary)))
-                        .build()));
-
-        webTestClient
-                .get()
-                .uri(ISSUANCES_PATH)
-                .header("Authorization", "Bearer testToken")
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.credential_procedures[0].credential_procedure.created_at").isEqualTo("2026-01-05T10:15:30Z")
-                .jsonPath("$.credential_procedures[0].credential_procedure.expires_at").doesNotExist();
-    }
-
-    @Test
     void IssuanceController_getIssuance_decidesWithTheOrganizationStoredWithTheAttestation() {
         // Given
         String issuanceId = UUID.randomUUID().toString();
@@ -833,28 +773,84 @@ class IssuanceControllerTest {
                 .build();
     }
 
+    /** EUD-255 FR-03/FR-04: the filters reach the query use case already checked, and the page goes out as the contract says. */
+    @Test
+    void listIssuances_passesTheFiltersToTheQuery_andAnswersThePageOfTheContract() {
+        AuthorizationDecision decision = organizationAdminDecision("VATES-LIST");
+        UUID id = UUID.randomUUID();
+        IssuanceList page = new IssuanceList(List.of(IssuanceSummary.builder()
+                .id(id)
+                .organizationIdentifier("VATES-LIST")
+                .credentialConfigurationId("doctor.sd.1")
+                .lifeCycleStatus("VALID")
+                .created(Instant.parse("2026-10-01T09:10:02Z"))
+                .updated(Instant.parse("2026-10-01T09:12:44Z"))
+                .build()), null);
+        ArgumentCaptor<IssuanceQuery> query = ArgumentCaptor.forClass(IssuanceQuery.class);
+        when(powerAuthorizationService.authorizeQuery(isNull(), isNull())).thenReturn(Mono.just(decision));
+        when(issuanceQueryService.list(eq(decision), query.capture())).thenReturn(Mono.just(page));
+
+        webTestClient.get()
+                .uri(ISSUANCES_PATH + "?life_cycle_status=VALID,REVOKED&credential_configuration_id=doctor.sd.1&limit=10")
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .value(body -> assertThat(body)
+                        .contains("\"issuances\":[{\"id\":\"" + id + "\"")
+                        .contains("\"life_cycle_status\":\"VALID\"")
+                        .contains("\"updated\":\"2026-10-01T09:12:44Z\"")
+                        .contains("\"next_cursor\":null"));
+
+        assertThat(query.getValue().lifeCycleStatuses())
+                .containsExactlyInAnyOrder(CredentialStatusEnum.VALID, CredentialStatusEnum.REVOKED);
+        assertThat(query.getValue().credentialConfigurationId()).isEqualTo("doctor.sd.1");
+        assertThat(query.getValue().limit()).isEqualTo(10);
+        assertThat(query.getValue().cursor()).isNull();
+    }
+
+    /** API-10: the shape goes before the permission, and every field with a problem is reported. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void listIssuances_rejectsAMalformedQuery_beforeDecidingAnything() {
+        ArgumentCaptor<List<GlobalErrorMessage.FieldViolation>> violations = ArgumentCaptor.forClass(List.class);
+        when(errorResponseFactory.handleWithViolations(any(InvalidQueryException.class), any(), eq("invalid_request"),
+                anyString(), eq(HttpStatus.BAD_REQUEST), anyString(), violations.capture()))
+                .thenReturn(Mono.just(new GlobalErrorMessage("invalid_request", "Invalid request",
+                        HttpStatus.BAD_REQUEST.value(), "The query is not valid", ISSUANCES_PATH)));
+
+        webTestClient.get()
+                .uri(ISSUANCES_PATH + "?life_cycle_status=VALID,ACTIVE&limit=500&cursor=not-a-cursor")
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        assertThat(violations.getValue()).extracting(GlobalErrorMessage.FieldViolation::field)
+                .containsExactly("life_cycle_status", "limit", "cursor");
+        verifyNoInteractions(powerAuthorizationService, issuanceQueryService);
+    }
+
+    /** The 403 mapping of the denial is SharedExceptionHandler's (SharedExceptionHandlerTest), not part of this slice. */
+    @Test
+    void listIssuances_deniedByAuthorization_neverQueries() {
+        when(powerAuthorizationService.authorizeQuery(any(), any()))
+                .thenReturn(Mono.error(new LearIssuancePolicyException(
+                        LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));
+
+        webTestClient.get()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().value(status -> assertThat(status).isNotEqualTo(200));
+
+        verifyNoInteractions(issuanceQueryService);
+    }
+
     private static AuthorizationDecision organizationAdminDecision(String orgId) {
         Caller caller = new Caller(orgId, List.of(), "sandbox", "learcredential.machine.w3c.3", "jti");
         RecognizedCaller recognized = new RecognizedCaller(caller, "sandbox", RecognizedCaller.ORGANIZATION_ADMIN,
                 RecognizedCaller.ORGANIZATION_ADMIN, false, false);
         return new AuthorizationDecision(PowerAuthorizationService.QUERY, recognized, AuthorizationMatrix.Scope.OWN_ORGANIZATION);
-    }
-
-    /** The 403 mapping of the denial is SharedExceptionHandler's (SharedExceptionHandlerTest), not part of this slice. */
-    @Test
-    void getAllIssuances_DeniedByAuthorization_NeverQueries() {
-        when(powerAuthorizationService.authorizeQuery(any(), any()))
-                .thenReturn(Mono.error(new LearIssuancePolicyException(
-                        LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));
-
-        webTestClient
-                .get()
-                .uri(ISSUANCES_PATH)
-                .header("Authorization", "Bearer testToken")
-                .exchange()
-                .expectStatus().value(status -> org.assertj.core.api.Assertions.assertThat(status).isNotEqualTo(200));
-
-        org.mockito.Mockito.verifyNoInteractions(issuanceService);
     }
 
     // ── POST /api/v1/issuances/{id}/credential-offer (EUD-295) ──────────────────────────────

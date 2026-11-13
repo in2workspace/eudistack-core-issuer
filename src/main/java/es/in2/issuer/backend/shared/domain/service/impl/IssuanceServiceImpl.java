@@ -29,7 +29,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
-import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -337,101 +336,6 @@ public class IssuanceServiceImpl implements IssuanceService {
         return error instanceof InvalidCredentialStatusTransitionException
                 ? Optional.of("InvalidStatus")
                 : Optional.empty();
-    }
-
-    @Override
-    public Mono<IssuanceList> getAllIssuanceSummariesByOrganizationId(String organizationIdentifier) {
-        return toIssuanceList(issuancePort.findAllByOrganizationIdentifier(organizationIdentifier));
-    }
-
-    @Override
-    public Mono<IssuanceList> getAllIssuancesVisibleFor(AuthorizationDecision decision) {
-        return listVisibleFor(decision)
-                .flatMap(list -> auditTrail.stageBestEffort(IssuanceAuditEvents.queried(
-                                decision.caller().organizationIdentifier(), list.issuances().size()))
-                        .thenReturn(list));
-    }
-
-    private Mono<IssuanceList> listVisibleFor(AuthorizationDecision decision) {
-        // Tenant isolation is enforced by the search_path (TenantAwareConnectionFactory); the scope
-        // comes from the authorization decision (C1):
-        // - platform administrator in the platform tenant → cross-tenant read-only view (with tenant column)
-        // - scope on any organization                     → all issuances within the current tenant
-        // - scope on its own organization                 → only issuances from its organization
-        if (decision.caller().crossTenantView()) {
-            return buildCrossTenantIssuanceList();
-        }
-        if (decision.anyOrganization()) {
-            return toIssuanceList(issuancePort.findAllOrderByUpdatedDesc());
-        }
-        return getAllIssuanceSummariesByOrganizationId(decision.caller().organizationIdentifier());
-    }
-
-    private Mono<IssuanceList> buildCrossTenantIssuanceList() {
-        return tenantRegistryService.getActiveTenantSchemas()
-                .flatMapMany(Flux::fromIterable)
-                .filter(tenant -> !PLATFORM_TENANT.equals(tenant))
-                .flatMap(tenant ->
-                        issuancePort.findAllOrderByUpdatedDesc()
-                                .map(issuance -> {
-                                    try {
-                                        return IssuanceList.IssuanceEntry.builder()
-                                                .issuance(toIssuanceSummary(issuance, tenant))
-                                                .build();
-                                    } catch (ParseCredentialJsonException e) {
-                                        throw Exceptions.propagate(e);
-                                    }
-                                })
-                                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
-                )
-                .sort((a, b) -> {
-                    Instant ua = a.issuance().updated();
-                    Instant ub = b.issuance().updated();
-                    if (ua == null || ub == null) return 0;
-                    return ub.compareTo(ua);
-                })
-                .collectList()
-                .map(IssuanceList::new);
-    }
-
-    private Mono<IssuanceList> toIssuanceList(Flux<Issuance> source) {
-        return source
-                .map(issuance -> {
-                    try {
-                        return toIssuanceSummary(issuance);
-                    } catch (ParseCredentialJsonException e) {
-                        throw Exceptions.propagate(e);
-                    }
-                })
-                .map(info -> IssuanceList.IssuanceEntry.builder()
-                        .issuance(info)
-                        .build())
-                .collectList()
-                .map(IssuanceList::new);
-    }
-
-    private IssuanceSummary toIssuanceSummary(Issuance issuance) throws ParseCredentialJsonException {
-        return toIssuanceSummary(issuance, null);
-    }
-
-    private IssuanceSummary toIssuanceSummary(Issuance issuance, String tenant) throws ParseCredentialJsonException {
-        try {
-            objectMapper.readTree(issuance.getCredentialDataSet());
-        } catch (JsonProcessingException e) {
-            throw new ParseCredentialJsonException("Invalid credential JSON");
-        }
-
-        return IssuanceSummary.builder()
-                .issuanceId(issuance.getIssuanceId())
-                .subject(issuance.getSubject())
-                .credentialType(issuance.getCredentialType())
-                .status(String.valueOf(issuance.getCredentialStatus()))
-                .createdAt(issuance.getCreatedAt())
-                .expiresAt(issuance.getValidUntil() != null ? issuance.getValidUntil().toInstant() : null)
-                .organizationIdentifier(issuance.getOrganizationIdentifier())
-                .updated(issuance.getUpdatedAt())
-                .tenant(tenant)
-                .build();
     }
 
     @Override

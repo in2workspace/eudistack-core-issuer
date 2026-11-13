@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.domain.spi;
 
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -28,9 +29,14 @@ public interface IssuancePort {
 
     Flux<Issuance> findByCredentialStatusAndOrganizationIdentifier(CredentialStatusEnum credentialStatus, String organizationIdentifier);
 
-    Flux<Issuance> findAllByOrganizationIdentifier(String organizationIdentifier);
-
-    Flux<Issuance> findAllOrderByUpdatedDesc();
+    /**
+     * One page of the listing in the current tenant (EUD-255 AD-1): the processes that match the
+     * query's filters and come after its cursor, newest last change first, at most {@code fetchSize}.
+     * The tenant filter of the query is not applied here: the caller picks the schema.
+     *
+     * @param organizationIdentifier only that organization's processes, or {@code null} for the whole tenant
+     */
+    Flux<Issuance> findPage(IssuanceQuery query, String organizationIdentifier, int fetchSize);
 
     Mono<Issuance> findByIssuanceIdAndOrganizationIdentifier(UUID issuanceId, String organizationIdentifier);
 

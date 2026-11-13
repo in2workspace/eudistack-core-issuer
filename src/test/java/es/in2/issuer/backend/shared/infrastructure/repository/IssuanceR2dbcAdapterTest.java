@@ -139,25 +139,6 @@ class IssuanceR2dbcAdapterTest {
     }
 
     @Test
-    void shouldFindAllByOrganizationIdentifier() {
-        when(issuanceR2dbcRepository.findAllByOrganizationIdentifier("VATEU-B12345678"))
-                .thenReturn(Flux.just(entity));
-
-        StepVerifier.create(adapter.findAllByOrganizationIdentifier("VATEU-B12345678"))
-                .expectNextMatches(result -> result.getIssuanceId().equals(issuanceId))
-                .verifyComplete();
-    }
-
-    @Test
-    void shouldFindAllOrderByUpdatedDesc() {
-        when(issuanceR2dbcRepository.findAllOrderByUpdatedDesc()).thenReturn(Flux.just(entity));
-
-        StepVerifier.create(adapter.findAllOrderByUpdatedDesc())
-                .expectNextMatches(result -> result.getIssuanceId().equals(issuanceId))
-                .verifyComplete();
-    }
-
-    @Test
     void shouldFindByIssuanceIdAndOrganizationIdentifier() {
         when(issuanceR2dbcRepository.findByIssuanceIdAndOrganizationIdentifier(issuanceId, "VATEU-B12345678"))
                 .thenReturn(Mono.just(entity));

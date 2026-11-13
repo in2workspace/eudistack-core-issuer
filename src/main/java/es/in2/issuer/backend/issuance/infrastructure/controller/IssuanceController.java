@@ -12,6 +12,7 @@ import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.domain.util.IssuanceIds;
@@ -45,6 +46,7 @@ public class IssuanceController {
 
     private final IssuanceWorkflow issuanceWorkflow;
     private final IssuanceService issuanceService;
+    private final IssuanceQueryService issuanceQueryService;
     private final PowerAuthorizationService powerAuthorizationService;
     private final RevocationWorkflow revocationWorkflow;
     private final UrlResolver urlResolver;
@@ -68,12 +70,23 @@ public class IssuanceController {
                 .map(response -> toResponseEntity(response, publicIssuerBaseUrl));
     }
 
-    /** C1/C2 (EUD-253): the decision's scope says whether the caller sees its organization or the whole tenant. */
+    /**
+     * A page of the listing (EUD-255 FR-03, FR-04, FR-10). The parameters are checked for shape first,
+     * then C1/C2 (EUD-253) decides, and its scope says whether the caller sees its organization, the
+     * whole tenant or, from the platform tenant, every tenant (API-10).
+     */
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<IssuanceList> getAllIssuances() {
-        return powerAuthorizationService.authorizeQuery(null, null)
-                .flatMap(issuanceService::getAllIssuancesVisibleFor);
+    public Mono<IssuanceList> listIssuances(
+            @RequestParam(name = IssuanceListParameters.LIFE_CYCLE_STATUS, required = false) String lifeCycleStatus,
+            @RequestParam(name = IssuanceListParameters.CREDENTIAL_CONFIGURATION_ID, required = false) String credentialConfigurationId,
+            @RequestParam(name = IssuanceListParameters.TENANT, required = false) String tenant,
+            @RequestParam(name = IssuanceListParameters.LIMIT, required = false) String limit,
+            @RequestParam(name = IssuanceListParameters.CURSOR, required = false) String cursor) {
+        return Mono.fromCallable(() -> IssuanceListParameters.toQuery(
+                        lifeCycleStatus, credentialConfigurationId, tenant, limit, cursor))
+                .flatMap(query -> powerAuthorizationService.authorizeQuery(null, null)
+                        .flatMap(decision -> issuanceQueryService.list(decision, query)));
     }
 
     /**
