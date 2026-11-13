@@ -52,9 +52,11 @@ public record Requester(String tenant, String organizationIdentifier, RequesterK
      */
     public String countingScope() {
         String organization = tenant + "|" + organizationIdentifier;
-        return kind == RequesterKind.SYSTEM
-                ? organization + "|system"
-                : organization + "|person|" + (callerKey != null ? callerKey : UNIDENTIFIED);
+        if (kind == RequesterKind.SYSTEM) {
+            return organization + "|system";
+        }
+        String person = callerKey != null ? callerKey : UNIDENTIFIED;
+        return organization + "|person|" + person;
     }
 
     /**

@@ -79,10 +79,11 @@ class RequestControlModelTest {
         RequestControlSecrets.Secret one = RequestControlSecrets.Secret.of(1, "a".repeat(32));
         RequestControlSecrets.Secret sameId = RequestControlSecrets.Secret.of(1, "b".repeat(32));
         RequestControlSecrets.Secret two = RequestControlSecrets.Secret.of(2, "b".repeat(32));
+        String longEnough = "a".repeat(32);
 
         assertThatThrownBy(() -> RequestControlSecrets.Secret.of(1, "short")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> RequestControlSecrets.Secret.of(0, "a".repeat(32))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> RequestControlSecrets.Secret.of(256, "a".repeat(32))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RequestControlSecrets.Secret.of(0, longEnough)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RequestControlSecrets.Secret.of(256, longEnough)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new RequestControlSecrets(one, sameId)).isInstanceOf(IllegalArgumentException.class);
         RequestControlSecrets rotating = new RequestControlSecrets(two, one);
         assertThat(rotating.byId(1)).contains(one);
