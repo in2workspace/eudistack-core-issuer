@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.signing.domain.exception.RemoteSignatureUnauthorizedException;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -111,7 +112,7 @@ public class CscV1Adapter implements CscPort {
                 })
                 .onErrorResume(WebClientResponseException.class, ex -> {
                     if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
-                        return Mono.error(new RemoteSignatureException("Unauthorized on credentials/authorize (hash)"));
+                        return Mono.error(new RemoteSignatureUnauthorizedException("Unauthorized on credentials/authorize (hash)"));
                     }
                     return Mono.error(new RemoteSignatureException("CSC v1 authorize(hash) failed", ex));
                 });
@@ -136,7 +137,7 @@ public class CscV1Adapter implements CscPort {
                 })
                 .onErrorResume(WebClientResponseException.class, ex -> {
                     if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
-                        return Mono.error(new RemoteSignatureException("Unauthorized on signatures/signHash"));
+                        return Mono.error(new RemoteSignatureUnauthorizedException("Unauthorized on signatures/signHash"));
                     }
                     return Mono.error(new RemoteSignatureException("CSC v1 signHash failed", ex));
                 });

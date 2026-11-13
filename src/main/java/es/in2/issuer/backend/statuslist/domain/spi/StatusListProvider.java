@@ -27,7 +27,7 @@ public interface StatusListProvider {
     Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format,
                                         String issuanceId, String token, String publicIssuerBaseUrl);
 
-    Mono<Void> releaseEntry(String issuanceId);
+    Mono<Void> releaseEntry(String issuanceId, String publicIssuerBaseUrl);
 
     /**
      * Returns the signed status list credential (JWT) for the given list.

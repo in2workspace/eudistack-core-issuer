@@ -67,6 +67,7 @@ class TenantCredentialProfileServiceImplTest {
     @Mock private TransactionalOperator transactionalOperator;
     @Mock private CatalogEntryChangeAuditor changeAuditor;
 
+
     private TenantCredentialProfileServiceImpl service;
 
     @BeforeEach

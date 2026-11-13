@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.signing.domain.exception.RemoteSignatureUnauthorizedException;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.exception.AccessTokenException;
 import es.in2.issuer.backend.signing.domain.exception.AuthorizationDetailsException;
@@ -89,7 +90,7 @@ public class OAuth2AuthStrategy implements CscAuthStrategy {
                     log.error("Access token endpoint [{}] returned {} {}",
                             signatureGetAccessTokenEndpoint, ex.getStatusCode(), ex.getStatusText());
                     if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
-                        return Mono.error(new RemoteSignatureException("Unauthorized: Invalid credentials"));
+                        return Mono.error(new RemoteSignatureUnauthorizedException("Unauthorized: Invalid credentials"));
                     }
                     return Mono.error(new RemoteSignatureException("Remote service error while retrieving access token", ex));
                 })

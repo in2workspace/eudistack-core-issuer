@@ -4,6 +4,10 @@ import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.Proofs;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
+import es.in2.issuer.backend.shared.infrastructure.service.NoOpAuditTrailAdapter;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
@@ -35,6 +39,7 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -55,6 +60,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -96,6 +102,10 @@ class Oid4VciCredentialWorkflowImplBranchesTest {
     private CredentialIssuedLogger credentialIssuedLogger;
     @Mock
     private AuditService auditService;
+    @Mock
+    private TenantSigningConfigService tenantSigningConfigService;
+    @Mock
+    private IssuerCertificateService issuerCertificateService;
 
     private Oid4VciCredentialWorkflowImpl workflow;
 
@@ -105,7 +115,9 @@ class Oid4VciCredentialWorkflowImplBranchesTest {
                 credentialSignerWorkflow, proofValidationService, issuanceService,
                 credentialIssuerMetadataService, genericCredentialBuilder, credentialProfileRegistry,
                 statusListWorkflow, enrichmentCacheStore, notificationCacheStore, credentialIssuedLogger,
-                new HolderDidFallbackAuditor(auditService), auditService);
+                new HolderDidFallbackAuditor(auditService), auditService, new NoOpAuditTrailAdapter(),
+                new IssuanceCompletionRecorder(new NoOpAuditTrailAdapter(), tenantSigningConfigService, issuerCertificateService),
+                passThroughTransactions());
         lenient().when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL))
                 .thenReturn(Mono.just(metadataWithProofTypes(Map.of("jwt",
                         CredentialProfile.ProofTypeConfig.builder()
@@ -318,5 +330,13 @@ class Oid4VciCredentialWorkflowImplBranchesTest {
         Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
         return encoder.encodeToString(headerJson.getBytes(StandardCharsets.UTF_8)) + "."
                 + encoder.encodeToString("{}".getBytes(StandardCharsets.UTF_8)) + ".sig";
+    }
+
+    /** A transactional operator that runs the flow as it is: these tests do not exercise real transactions. */
+    private static TransactionalOperator passThroughTransactions() {
+        TransactionalOperator operator = mock(TransactionalOperator.class);
+        lenient().when(operator.transactional(org.mockito.ArgumentMatchers.<reactor.core.publisher.Mono<?>>any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        return operator;
     }
 }

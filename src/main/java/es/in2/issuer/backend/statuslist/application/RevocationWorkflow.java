@@ -6,6 +6,8 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTran
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.exception.UnauthorizedRoleException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -13,8 +15,11 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
+import es.in2.issuer.backend.statuslist.domain.audit.RevocationAuditEvents;
+import es.in2.issuer.backend.statuslist.domain.audit.RevocationAuditEvents.Origin;
 import es.in2.issuer.backend.statuslist.domain.exception.AlreadyRevokedException;
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationRequestException;
 import es.in2.issuer.backend.statuslist.domain.exception.NotRevocableException;
@@ -37,6 +42,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
@@ -57,6 +63,13 @@ public class RevocationWorkflow {
     private static final String ACTION_REVOKE_ISSUANCE = "revokeIssuance";
     private static final String DETAIL_WORKFLOW_ACTION = "workflowAction";
     private static final String ERROR_TYPE_BAD_REQUEST = "BAD_REQUEST";
+
+    /** The reasons of the catalogue's {@code Revocation} event when a revocation is refused. */
+    private static final String REASON_ISSUANCE_NOT_FOUND = "IssuanceNotFound";
+    private static final String REASON_ALREADY_REVOKED = "AlreadyRevoked";
+    private static final String REASON_NOT_REVOCABLE = "NotRevocable";
+    private static final String REASON_POLICY_DENIED = "PolicyDenied";
+    private static final String REASON_STATUS_LIST_UNAVAILABLE = "StatusListUnavailable";
 
     /**
      * Who the token says the requester is, when it carries no W3C attestation: the mandatee, by the email
@@ -81,6 +94,7 @@ public class RevocationWorkflow {
     private final EmailService emailService;
     private final AuditService auditService;
     private final JWTService jwtService;
+    private final AuditTrailPort auditTrail;
 
     private record RevocationContext(String token, Issuance issuance) { }
 
@@ -96,13 +110,16 @@ public class RevocationWorkflow {
      * @param whenMissing  decided before answering that the process does not exist
      * @param markFailure  translates a failure marking the list and committing the process
      * @param auditContext extra fields of every audit event of this entry point
+     * @param auditOrigin  what triggered the revocation, for the catalogue's {@code Revocation} event; empty when
+     *                     the trigger has no origin there (the revocation-instruction queue)
      */
     private record RevocationPath(String action,
                                   RevocationValidator decision,
                                   Function<Issuance, Mono<Void>> statusCheck,
                                   Mono<Void> whenMissing,
                                   UnaryOperator<Throwable> markFailure,
-                                  Map<String, Object> auditContext) { }
+                                  Map<String, Object> auditContext,
+                                  Optional<Origin> auditOrigin) { }
 
     @FunctionalInterface
     private interface RevocationValidator {
@@ -119,7 +136,7 @@ public class RevocationWorkflow {
         requireNonNullParam(bearerToken, "bearerToken");
         requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
-        return accessTokenService.getCleanBearerToken(bearerToken)
+        return auditTrail.withCorrelationId(processId, accessTokenService.getCleanBearerToken(bearerToken)
                 .flatMap(token -> resolveRequesterActor(token)
                         .flatMap(actor -> revokeInternal(
                                         processId,
@@ -134,10 +151,11 @@ public class RevocationWorkflow {
                                                 RevocationWorkflow::requireRevocable,
                                                 Mono.defer(() -> authorizeOperatorWithoutResource(token, issuanceId)),
                                                 UnaryOperator.identity(),
-                                                Map.of()
+                                                Map.of(),
+                                                Optional.of(Origin.REQUEST)
                                         )
                                 ))
-                );
+                ));
     }
 
     /**
@@ -150,7 +168,7 @@ public class RevocationWorkflow {
         requireNonNullParam(processId, "processId");
         requireNonNullParam(bearerToken, "bearerToken");
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
-        return accessTokenService.getCleanBearerToken(bearerToken)
+        return auditTrail.withCorrelationId(processId, accessTokenService.getCleanBearerToken(bearerToken)
                 .flatMap(token -> resolveRequester(bearerToken, token)
                         .flatMap(requester -> {
                             Map<String, Object> auditContext = Map.of("requesterOrganizationId", requester.organization());
@@ -171,10 +189,11 @@ public class RevocationWorkflow {
                                             issuance -> requireRevocable(issuanceId, issuance),
                                             Mono.defer(() -> authorizeOperatorWithoutResource(token, issuanceId)),
                                             error -> toContractFailure(issuanceId, error),
-                                            auditContext
+                                            auditContext,
+                                            Optional.of(Origin.REQUEST)
                                     )
                             );
-                        }));
+                        })));
     }
 
     private Mono<Void> rejectInvalidRequest(String processId, String actor, String issuanceId, String reason,
@@ -261,7 +280,8 @@ public class RevocationWorkflow {
                         RevocationWorkflow::requireRevocable,
                         Mono.empty(),
                         UnaryOperator.identity(),
-                        tenantSource != null && !tenantSource.isBlank() ? Map.of("tenantSource", tenantSource) : Map.of()
+                        tenantSource != null && !tenantSource.isBlank() ? Map.of("tenantSource", tenantSource) : Map.of(),
+                        auditOriginOf(actor)
                 )
         );
     }
@@ -461,6 +481,7 @@ public class RevocationWorkflow {
         String action = path.action();
         Map<String, Object> auditContext = path.auditContext();
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
+        AtomicBoolean statusListFailed = new AtomicBoolean();
         // issuanceId is boundary-validated as a well-formed UUID on the contract route, the alias
         // (the DTO's @Pattern) and the queue (the mapper's UUID.fromString), but not on PATCH, and
         // this method's log statements are a shared sink for all of them. quoteIfNeeded
@@ -470,7 +491,7 @@ public class RevocationWorkflow {
         // RevocationAuditDetails.quoteIfNeeded).
         String safeIssuanceId = RevocationAuditDetails.quoteIfNeeded(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
 
-        return Mono.defer(() -> {
+        Mono<Void> revocation = Mono.defer(() -> {
                     log.info("processId={} action={} status=started issuanceId={}", processId, action, safeIssuanceId);
                     return issuanceService.getIssuanceById(issuanceId)
                             .switchIfEmpty(Mono.defer(() -> {
@@ -497,12 +518,16 @@ public class RevocationWorkflow {
                 })
                 .flatMap(ctx ->
                         statusListProvider.revoke(issuanceId, ctx.token, publicIssuerBaseUrl,
+                                        // The Revocation event commits with the list and the process, or none does.
                                         Mono.defer(() -> issuanceService.updateIssuanceStatusToRevoked(ctx.issuance))
                                                 .doOnSuccess(v -> log.info(
                                                         "processId={} action={} step=issuanceUpdated issuanceId={}",
                                                         processId, action, safeIssuanceId
                                                 ))
+                                                .then(Mono.defer(() -> stageApplied(
+                                                        path.auditOrigin(), issuanceId, reason, ctx.issuance)))
                                 )
+                                .doOnError(e -> statusListFailed.set(!(e instanceof StatusListIndexNotFoundException)))
                                 .onErrorMap(path.markFailure()::apply)
                                 // Only once the list and the process have committed together.
                                 .then(Mono.defer(() -> issuanceService.extractCredentialId(ctx.issuance)
@@ -542,5 +567,63 @@ public class RevocationWorkflow {
                     );
                     safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, auditContext);
                 });
+
+        return auditTrail.stageOnError(revocation, error ->
+                refusalOf(error, path.auditOrigin(), issuanceId, reason, issuanceRef.get(), statusListFailed.get()));
+    }
+
+    /** Only a revocation caused by a wallet notification has an origin in the catalogue besides a request. */
+    private static Optional<Origin> auditOriginOf(String actor) {
+        return ACTOR_OID4VCI_NOTIFICATION.equals(actor) ? Optional.of(Origin.WALLET_NOTIFICATION) : Optional.empty();
+    }
+
+    private Mono<Void> stageApplied(Optional<Origin> auditOrigin, String issuanceId, String reason, Issuance issuance) {
+        return auditOrigin
+                .map(origin -> auditTrail.stage(RevocationAuditEvents.applied(
+                        issuanceId, origin, reason, holderOf(issuance))))
+                .orElseGet(Mono::empty);
+    }
+
+    /**
+     * The catalogue entry for a revocation that was refused, or empty when the failure has no reason in
+     * the catalogue (a persistence error, say): the business failure stands and no reason is invented.
+     */
+    private Optional<AuditEntry> refusalOf(Throwable error, Optional<Origin> auditOrigin, String issuanceId,
+                                           String reason, Issuance issuance, boolean statusListFailed) {
+        return auditOrigin.flatMap(origin -> catalogueReasonOf(error, issuance, statusListFailed)
+                .map(catalogueReason -> RevocationAuditEvents.refused(
+                        issuanceId, origin, catalogueReason, reason, holderOf(issuance))));
+    }
+
+    private Optional<String> catalogueReasonOf(Throwable error, Issuance issuance, boolean statusListFailed) {
+        if (error instanceof IssuanceNotFoundException) {
+            return Optional.of(REASON_ISSUANCE_NOT_FOUND);
+        }
+        if (error instanceof AlreadyRevokedException) {
+            return Optional.of(REASON_ALREADY_REVOKED);
+        }
+        if (error instanceof NotRevocableException) {
+            return Optional.of(REASON_NOT_REVOCABLE);
+        }
+        if (error instanceof InvalidCredentialStatusTransitionException transition) {
+            return Optional.of(transition.getFrom() == CredentialStatusEnum.REVOKED ? REASON_ALREADY_REVOKED : REASON_NOT_REVOCABLE);
+        }
+        if (error instanceof InvalidStatusException) {
+            boolean alreadyRevoked = issuance != null && issuance.getCredentialStatus() == CredentialStatusEnum.REVOKED;
+            return Optional.of(alreadyRevoked ? REASON_ALREADY_REVOKED : REASON_NOT_REVOCABLE);
+        }
+        if (error instanceof InsufficientPermissionException || error instanceof UnauthorizedRoleException
+                || error instanceof TenantMismatchException) {
+            return Optional.of(REASON_POLICY_DENIED);
+        }
+        if (error instanceof StatusListUnavailableException) {
+            return Optional.of(REASON_STATUS_LIST_UNAVAILABLE);
+        }
+        return statusListFailed ? Optional.of(REASON_STATUS_LIST_UNAVAILABLE) : Optional.empty();
+    }
+
+    /** The holder is only reported once the process was resolved; an unknown process has none to give. */
+    private static Holder holderOf(Issuance issuance) {
+        return issuance == null ? null : Holder.ofAttestation(issuance.getSubject(), issuance.getEmail(), issuance.getCredentialDataSet());
     }
 }

@@ -115,11 +115,11 @@ class StatusListWorkflowTest {
     void releaseEntry_whenSuccess_completesAndCallsProvider() {
         String issuanceId = "issuance-123";
 
-        when(statusListProvider.releaseEntry(issuanceId)).thenReturn(Mono.empty());
+        when(statusListProvider.releaseEntry(issuanceId, "https://issuer.example.com")).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.releaseEntry(issuanceId)).verifyComplete();
+        StepVerifier.create(workflow.releaseEntry(issuanceId, "https://issuer.example.com")).verifyComplete();
 
-        verify(statusListProvider).releaseEntry(issuanceId);
+        verify(statusListProvider).releaseEntry(issuanceId, "https://issuer.example.com");
         verifyNoMoreInteractions(statusListProvider);
     }
 
@@ -128,18 +128,18 @@ class StatusListWorkflowTest {
         String issuanceId = "issuance-123";
         RuntimeException ex = new RuntimeException("db down");
 
-        when(statusListProvider.releaseEntry(issuanceId)).thenReturn(Mono.error(ex));
+        when(statusListProvider.releaseEntry(issuanceId, "https://issuer.example.com")).thenReturn(Mono.error(ex));
 
-        StepVerifier.create(workflow.releaseEntry(issuanceId))
+        StepVerifier.create(workflow.releaseEntry(issuanceId, "https://issuer.example.com"))
                 .expectErrorMatches(e -> e instanceof RuntimeException && "db down".equals(e.getMessage()))
                 .verify();
 
-        verify(statusListProvider).releaseEntry(issuanceId);
+        verify(statusListProvider).releaseEntry(issuanceId, "https://issuer.example.com");
     }
 
     @Test
     void releaseEntry_whenIssuanceIdIsNull_throwsAndDoesNotCallProvider() {
-        assertThrows(RuntimeException.class, () -> workflow.releaseEntry(null));
+        assertThrows(RuntimeException.class, () -> workflow.releaseEntry(null, "https://issuer.example.com"));
 
         verifyNoInteractions(statusListProvider);
     }
