@@ -13,41 +13,82 @@ class RequestControlModelTest {
 
     @Test
     void requester_systemsOfAnOrganizationShareTheirCount_personsDoNot() {
-        assertThat(Requester.system("ORG-1").countingScope()).isEqualTo(Requester.system("ORG-1").countingScope());
-        assertThat(Requester.person("ORG-1", "p1").countingScope())
-                .isNotEqualTo(Requester.person("ORG-1", "p2").countingScope())
-                .isNotEqualTo(Requester.system("ORG-1").countingScope());
-        assertThat(Requester.person("ORG-1", "p1").countingScope())
-                .isNotEqualTo(Requester.person("ORG-2", "p1").countingScope());
+        assertThat(Requester.system("t", "ORG-1", "m1").countingScope())
+                .isEqualTo(Requester.system("t", "ORG-1", "m2").countingScope());
+        assertThat(Requester.person("t", "ORG-1", "p1").countingScope())
+                .isNotEqualTo(Requester.person("t", "ORG-1", "p2").countingScope())
+                .isNotEqualTo(Requester.system("t", "ORG-1", "m1").countingScope());
+        assertThat(Requester.person("t", "ORG-1", "p1").countingScope())
+                .isNotEqualTo(Requester.person("t", "ORG-2", "p1").countingScope());
     }
 
     @Test
-    void requester_aPersonNeedsAKey_aSystemMayHaveOne() {
-        assertThatThrownBy(() -> Requester.person("ORG-1", " ")).isInstanceOf(IllegalArgumentException.class);
-        assertThat(new Requester("ORG-1", RequesterKind.SYSTEM, " ").callerKey()).isNull();
-        assertThat(Requester.system("ORG-1", "m1").callerKey()).isEqualTo("m1");
+    void requester_theTenantSeparatesTheCountsAndTheIdempotencyKeys() {
+        assertThat(Requester.person("a", "ORG-1", "p1").countingScope())
+                .isNotEqualTo(Requester.person("b", "ORG-1", "p1").countingScope());
+        assertThat(Requester.person("a", "ORG-1", "p1").idempotencyScope())
+                .isNotEqualTo(Requester.person("b", "ORG-1", "p1").idempotencyScope());
+        assertThatThrownBy(() -> Requester.person(" ", "ORG-1", "p1")).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void requester_theSystemsOfAnOrganizationShareTheCount_butNotTheIdempotencyKeys() {
-        Requester first = Requester.system("ORG-1", "m1");
-        Requester second = Requester.system("ORG-1", "m2");
+        Requester first = Requester.system("t", "ORG-1", "m1");
+        Requester second = Requester.system("t", "ORG-1", "m2");
 
         assertThat(first.countingScope()).isEqualTo(second.countingScope());
-        assertThat(first.idempotencyScope()).isNotEqualTo(second.idempotencyScope());
-        assertThat(Requester.person("ORG-1", "p1").idempotencyScope())
-                .isEqualTo(Requester.person("ORG-1", "p1").countingScope());
+        assertThat(first.idempotencyScope()).isPresent().isNotEqualTo(second.idempotencyScope());
+        assertThat(Requester.person("t", "ORG-1", "m1").idempotencyScope()).isNotEqualTo(first.idempotencyScope());
     }
 
     @Test
-    void idempotencyPolicy_renewsTwicePerLease_andNeverPrintsItsSecret() {
-        IdempotencyPolicy policy = new IdempotencyPolicy(java.time.Duration.ofHours(24),
-                java.time.Duration.ofMinutes(2), "top-secret");
+    void requester_aCallerTheTokenDoesNotName_hasNoIdempotencyScope_butIsCounted() {
+        Requester person = Requester.person("t", "ORG-1", " ");
+        Requester system = Requester.system("t", "ORG-1", null);
 
-        assertThat(policy.renewEvery()).isEqualTo(java.time.Duration.ofMinutes(1));
-        assertThat(policy.toString()).doesNotContain("top-secret").contains("redacted");
-        assertThat(new IdempotencyPolicy(java.time.Duration.ofHours(1), java.time.Duration.ofMinutes(1), null)
-                .serverSecret()).isEmpty();
+        assertThat(person.callerKey()).isNull();
+        assertThat(person.idempotencyScope()).isEmpty();
+        assertThat(system.idempotencyScope()).isEmpty();
+        assertThat(person.countingScope()).isEqualTo(Requester.person("t", "ORG-1", null).countingScope())
+                .isNotEqualTo(Requester.person("t", "ORG-1", "p1").countingScope());
+        assertThat(system.countingScope()).isEqualTo(Requester.system("t", "ORG-1", "m1").countingScope());
+    }
+
+    @Test
+    void idempotencyPolicy_renewsTwicePerLease() {
+        IdempotencyPolicy policy = new IdempotencyPolicy(Duration.ofHours(24), Duration.ofMinutes(2));
+
+        assertThat(policy.renewEvery()).isEqualTo(Duration.ofMinutes(1));
+    }
+
+    @Test
+    void secrets_deriveOneKeyPerPurposeAndSecret_neverPrintTheSecret() {
+        RequestControlSecrets.Secret one = RequestControlSecrets.Secret.of(1, "a".repeat(32));
+        RequestControlSecrets.Secret two = RequestControlSecrets.Secret.of(2, "b".repeat(32));
+
+        assertThat(one.derive("x")).hasSize(32).isEqualTo(one.derive("x")).isNotEqualTo(one.derive("y"))
+                .isNotEqualTo(two.derive("x"));
+        assertThat(one.mac("x", "input")).hasSize(64).isNotEqualTo(one.mac("y", "input"));
+        assertThat(one.toString()).doesNotContain("aaaa").contains("redacted");
+        assertThat(one).isEqualTo(RequestControlSecrets.Secret.of(1, "a".repeat(32)))
+                .hasSameHashCodeAs(RequestControlSecrets.Secret.of(1, "a".repeat(32)));
+    }
+
+    @Test
+    void secrets_rejectShortSecretsIdsOutOfRangeAndTwoSecretsWithOneId() {
+        RequestControlSecrets.Secret one = RequestControlSecrets.Secret.of(1, "a".repeat(32));
+        RequestControlSecrets.Secret sameId = RequestControlSecrets.Secret.of(1, "b".repeat(32));
+        RequestControlSecrets.Secret two = RequestControlSecrets.Secret.of(2, "b".repeat(32));
+
+        assertThatThrownBy(() -> RequestControlSecrets.Secret.of(1, "short")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RequestControlSecrets.Secret.of(0, "a".repeat(32))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RequestControlSecrets.Secret.of(256, "a".repeat(32))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new RequestControlSecrets(one, sameId)).isInstanceOf(IllegalArgumentException.class);
+        RequestControlSecrets rotating = new RequestControlSecrets(two, one);
+        assertThat(rotating.byId(1)).contains(one);
+        assertThat(rotating.byId(2)).contains(two);
+        assertThat(rotating.byId(3)).isEmpty();
+        assertThat(new RequestControlSecrets(one).previousSecret()).isEmpty();
     }
 
     @Test

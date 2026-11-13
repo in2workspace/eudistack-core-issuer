@@ -50,7 +50,19 @@ public final class ApiOperationResolver {
             route(HttpMethod.GET, ISSUANCES_PATH, ApiOperation.READ),
             route(HttpMethod.GET, ISSUANCES_PATH + "/{id}", ApiOperation.READ));
 
+    /** The creation of an issuance process, the only idempotent operation (FR-08 of EUD-254). */
+    private static final Route ISSUANCE_CREATION = ROUTES.getFirst();
+
     private ApiOperationResolver() {
+    }
+
+    /**
+     * Whether the request creates an issuance process ({@code POST /api/v1/issuances}), matched with the same
+     * {@link PathPattern} as the volume limit, so a path with matrix variables ({@code ;x=y}) is matched too.
+     */
+    public static boolean isIssuanceCreation(HttpMethod method, String pathWithinApplication) {
+        return method != null && pathWithinApplication != null
+                && ISSUANCE_CREATION.matches(method, PathContainer.parsePath(pathWithinApplication));
     }
 
     public static Optional<ApiOperation> resolve(HttpMethod method, String pathWithinApplication) {

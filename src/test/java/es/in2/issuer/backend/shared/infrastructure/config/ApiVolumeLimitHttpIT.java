@@ -5,6 +5,7 @@ import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
@@ -21,12 +22,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The volume limits of the management APIs through the real HTTP, authentication and database path (EUD-269):
- * per person, per organization for its systems, raised per organization from the tenant configuration. Low
- * limits so the test sends a handful of requests; the defaults of the PRDs are covered by the unit tests.
+ * per person, per organization for its systems, raised per organization from the tenant configuration, on the
+ * listing, the issuance (AC-08 and AC-20 of EUD-254) and the revocation (AC-09 of EUD-247). Low limits so the
+ * test sends a handful of requests; the defaults of the PRDs are covered by the unit tests. The requests under
+ * the limit need not succeed: every request that reaches the API is counted, and the limit is decided first.
  */
 @TestPropertySource(properties = {
         "issuer.api.volume-limit.read.per-person=3",
-        "issuer.api.volume-limit.read.systems-per-organization=4"
+        "issuer.api.volume-limit.read.systems-per-organization=4",
+        "issuer.api.volume-limit.issuance.per-person=2",
+        "issuer.api.volume-limit.revocation.per-person=2"
 })
 class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
 
@@ -41,6 +46,18 @@ class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
                 .get().uri("/api/v1/issuances")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header(X_TENANT_HEADER, TENANT)
+                .exchange()
+                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .returnResult();
+    }
+
+    private EntityExchangeResult<Map<String, Object>> send(HttpMethod method, String path, String token, String body) {
+        return webTestClient()
+                .method(method).uri(path)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(X_TENANT_HEADER, TENANT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
                 .exchange()
                 .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .returnResult();
@@ -112,5 +129,36 @@ class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
             assertThat(list(system(organization, "machine-1")).getStatus()).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
         }
         assertRateLimited(list(system(organization, "machine-1")));
+    }
+
+    @Test
+    void theIssuanceOfAPerson_overItsLimit_isRateLimited_againstTheSharedCounters() {
+        String ana = person(organization(), "ana@example.org");
+        // An invalid request is still counted: the limit is decided before anything else.
+        String body = "{}";
+
+        for (int i = 0; i < 2; i++) {
+            assertThat(send(HttpMethod.POST, "/api/v1/issuances", ana, body).getStatus())
+                    .isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        }
+        assertRateLimited(send(HttpMethod.POST, "/api/v1/issuances", ana, body));
+        // The renewal of a credential offer counts as an issuance too (EUD-295).
+        assertRateLimited(send(HttpMethod.POST, "/api/v1/issuances/" + UUID.randomUUID() + "/credential-offer", ana, body));
+    }
+
+    @Test
+    void theRevocationsOfAPerson_byEitherRoute_shareItsLimit() {
+        String ana = person(organization(), "ana@example.org");
+        String revocation = "/api/v1/issuances/" + UUID.randomUUID() + "/revocation";
+        String patch = "/api/v1/issuances/" + UUID.randomUUID();
+
+        assertThat(send(HttpMethod.POST, revocation, ana, "{\"reason\":\"x\"}").getStatus())
+                .isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(send(HttpMethod.PATCH, patch, ana, "{\"status\":\"REVOKED\"}").getStatus())
+                .isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertRateLimited(send(HttpMethod.POST, revocation, ana, "{\"reason\":\"x\"}"));
+        assertRateLimited(send(HttpMethod.PATCH, patch, ana, "{\"status\":\"REVOKED\"}"));
+        // The listing has its own count.
+        assertThat(list(ana).getStatus()).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
 }

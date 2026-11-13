@@ -23,14 +23,21 @@ public interface IdempotencyStore {
      *   <li>{@link IdempotencyClaim.KeyReused} when it was used with another body.</li>
      * </ul>
      *
-     * @param scopeKey    the key within its requester (never the raw key of another requester)
-     * @param requestHash digest of the request body
+     * @param scopeKey    HMAC of the key within its requester (never the raw key of another requester)
+     * @param requestHash HMAC of the canonical request body
      * @param ownerId     identifies this request as the holder of the key
      * @param lockedUntil end of the lease of this request
      * @param expiresAt   end of the retention of the key
      */
     Mono<IdempotencyClaim> claim(String scopeKey, String requestHash, String ownerId,
                                  Instant now, Instant lockedUntil, Instant expiresAt);
+
+    /**
+     * Looks a key up without taking it, for a key kept with the previous secret while it is rotated: what
+     * {@link #claim} would answer for it, or empty when the key is not there, has expired or is held by a
+     * request with the same body whose lease ended (then the key is claimed with the current secret).
+     */
+    Mono<IdempotencyClaim> find(String scopeKey, String requestHash, Instant now);
 
     /** Keeps the successful response of the request that holds the key. A no-op if it no longer holds it. */
     Mono<Void> complete(String scopeKey, String ownerId, StoredResponse response);

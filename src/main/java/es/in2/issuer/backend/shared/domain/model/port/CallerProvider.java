@@ -23,4 +23,10 @@ public interface CallerProvider {
      * name somebody else. Empty when the request has no verified access token or it names nobody.
      */
     Mono<String> currentPerson();
+
+    /**
+     * The {@code sub} of the verified access token of the current request; empty when there is none. Names
+     * a system without the id of its attestation (EUD-269), never by an email several systems may share.
+     */
+    Mono<String> currentSubject();
 }

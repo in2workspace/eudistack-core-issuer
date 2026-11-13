@@ -170,4 +170,27 @@ class R2dbcIdempotencyStoreIT extends PostgresIntegrationBase {
                 .assertNext(claim -> assertThat(claim).isInstanceOf(IdempotencyClaim.Acquired.class))
                 .verifyComplete();
     }
+
+    @Test
+    void find_answersWhatAClaimWould_withoutTakingTheKey() {
+        String completed = scope();
+        String inProgress = scope();
+        Instant now = Instant.now();
+        IdempotencyClaim.Acquired done = (IdempotencyClaim.Acquired) claim(store, completed, "h1", now).block();
+        scoped(store.complete(completed, done.ownerId(), response())).block();
+        claim(store, inProgress, "h1", now).block();
+
+        StepVerifier.create(scoped(store.find(completed, "h1", now.plusSeconds(1))))
+                .expectNext(new IdempotencyClaim.Replay(response())).verifyComplete();
+        StepVerifier.create(scoped(store.find(completed, "h2", now.plusSeconds(1))))
+                .expectNext(new IdempotencyClaim.KeyReused()).verifyComplete();
+        StepVerifier.create(scoped(store.find(inProgress, "h1", now.plusSeconds(1))))
+                .expectNext(new IdempotencyClaim.InProgress()).verifyComplete();
+        // Not there, expired, or held by a request whose lease ended: nothing, and nothing is taken.
+        StepVerifier.create(scoped(store.find(scope(), "h1", now))).verifyComplete();
+        StepVerifier.create(scoped(store.find(completed, "h1", now.plus(RETENTION).plusSeconds(1)))).verifyComplete();
+        StepVerifier.create(scoped(store.find(inProgress, "h1", now.plus(LEASE).plusSeconds(1)))).verifyComplete();
+        StepVerifier.create(claim(store, inProgress, "h1", now.plusSeconds(1)))
+                .expectNext(new IdempotencyClaim.InProgress()).verifyComplete();
+    }
 }

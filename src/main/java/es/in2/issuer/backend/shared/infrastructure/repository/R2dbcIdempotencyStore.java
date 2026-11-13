@@ -108,6 +108,11 @@ public class R2dbcIdempotencyStore implements IdempotencyStore {
                                 : Mono.just(new IdempotencyClaim.InProgress())))));
     }
 
+    @Override
+    public Mono<IdempotencyClaim> find(String scopeKey, String requestHash, Instant now) {
+        return read(scopeKey).flatMap(existing -> resolve(existing, requestHash, now));
+    }
+
     /** Why the claim took nothing; empty when the row no longer stops it (the claim is retried). */
     private static Mono<IdempotencyClaim> resolve(ExistingRecord existing, String requestHash, Instant now) {
         if (!existing.expiresAt().isAfter(now)) {

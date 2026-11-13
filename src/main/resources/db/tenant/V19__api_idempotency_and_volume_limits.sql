@@ -6,10 +6,13 @@
 -- =============================================================================
 
 -- Idempotency of POST /api/v1/issuances (FR-08 of EUD-254). The primary key is
--- what makes the claim atomic across instances (INSERT ... ON CONFLICT).
---   scope_key    SHA-256 of the requester and the X-Idempotency-Key: neither the
---                person nor the organization are kept in clear.
---   request_hash SHA-256 of the canonical request body: same key, other body ->
+-- what makes the claim atomic across instances (INSERT ... ON CONFLICT). The
+-- digests are HMAC-SHA256 with keys derived (HKDF) from ISSUER_IDEMPOTENCY_SECRET,
+-- which is not in the database.
+--   scope_key    HMAC of the requester (tenant, organization, person or system)
+--                and the X-Idempotency-Key: neither the person nor the
+--                organization are kept in clear.
+--   request_hash HMAC of the canonical request body: same key, other body ->
 --                idempotency_key_reused.
 --   owner_id     the request that holds the key while it is IN_PROGRESS.
 --   locked_until end of that request's lease; afterwards a retry with the same
@@ -17,6 +20,14 @@
 --   expires_at   end of the 24-hour retention.
 -- Only successful responses are kept (state COMPLETED): a failed request deletes
 -- its row, so a retry is processed again.
+--   response_body           AES-256-GCM of the body: the id of the secret it was
+--                           sealed with (one byte), the nonce, the ciphertext
+--                           and the tag. Its key needs the X-Idempotency-Key,
+--                           which is never stored.
+--   response_status,
+--   response_content_type,
+--   response_location       kept in clear, but authenticated by the encryption
+--                           of the body: a changed value is not replayed.
 CREATE TABLE IF NOT EXISTS api_idempotency_record (
     scope_key              VARCHAR(64)   PRIMARY KEY,
     request_hash           VARCHAR(64)   NOT NULL,
@@ -42,8 +53,9 @@ CREATE INDEX IF NOT EXISTS idx_api_idempotency_record_expires_at
 -- Volume limits (FR-09 of EUD-254, FR-07 of EUD-247, §5 of EUD-255): one row per
 -- counter and bucket of one second (window_start); the limit is decided over the
 -- sum of the buckets of the last minute (sliding window).
---   counter_key  the operation and the SHA-256 of the requester (an organization
---                for its systems, a person within its organization).
+--   counter_key  the operation and the HMAC of the requester (an organization
+--                for its systems, a person within its organization, in the
+--                tenant of the token).
 CREATE TABLE IF NOT EXISTS api_volume_counter (
     counter_key    VARCHAR(100)  NOT NULL,
     window_start   TIMESTAMPTZ   NOT NULL,

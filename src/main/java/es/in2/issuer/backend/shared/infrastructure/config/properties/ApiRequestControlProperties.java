@@ -55,5 +55,23 @@ public class ApiRequestControlProperties {
         private Duration retention = Duration.ofHours(24);
         /** How long a request in progress holds its key before a retry may take it over. */
         private Duration lease = Duration.ofMinutes(2);
+        /**
+         * Secret of the idempotency and the volume counters ({@code ISSUER_IDEMPOTENCY_SECRET}), at least 32
+         * bytes, the same on every instance. Required: the issuer does not start without it.
+         */
+        private String secret;
+        /** Id of {@link #secret}, 1 to 255, kept with every response sealed with it. */
+        private int secretId = 1;
+        /** The secret before the last rotation, kept configured for the retention (24 hours); optional. */
+        private String previousSecret;
+        /** Id of {@link #previousSecret}; different from {@link #secretId}. */
+        private int previousSecretId;
+
+        /** The secrets are never printed. */
+        @Override
+        public String toString() {
+            return "Idempotency[retention=" + retention + ", lease=" + lease + ", secretId=" + secretId
+                    + ", previousSecretId=" + previousSecretId + "]";
+        }
     }
 }

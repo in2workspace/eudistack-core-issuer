@@ -11,7 +11,7 @@ public sealed interface IdempotencyClaim {
     /**
      * The request holds the key and is processed; its owner completes or releases it.
      *
-     * @param scopeKey    the stored key (a digest of the requester and the idempotency key)
+     * @param scopeKey    the stored key (an HMAC of the requester and the idempotency key)
      * @param ownerId     the request that holds it
      * @param responseKey key that encrypts the response to keep, derived from the idempotency key, which is
      *                    never stored; {@code null} until the service derives it

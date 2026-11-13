@@ -71,11 +71,28 @@ public abstract class PostgresIntegrationBase {
 
     @DynamicPropertySource
     static void registerPostgresProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.r2dbc.url", () -> "r2dbc:postgresql://" + POSTGRES.getHost()
-                + ":" + POSTGRES.getFirstMappedPort() + "/" + POSTGRES.getDatabaseName());
+        registry.add("spring.r2dbc.url", PostgresIntegrationBase::postgresR2dbcUrl);
         registry.add("spring.r2dbc.username", POSTGRES::getUsername);
         registry.add("spring.r2dbc.password", POSTGRES::getPassword);
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
+    }
+
+    /** The shared database, for an IT that starts a second application on it (another issuer instance). */
+    protected static String postgresR2dbcUrl() {
+        return "r2dbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getFirstMappedPort() + "/"
+                + POSTGRES.getDatabaseName();
+    }
+
+    protected static String postgresJdbcUrl() {
+        return POSTGRES.getJdbcUrl();
+    }
+
+    protected static String postgresUsername() {
+        return POSTGRES.getUsername();
+    }
+
+    protected static String postgresPassword() {
+        return POSTGRES.getPassword();
     }
 
     @LocalServerPort

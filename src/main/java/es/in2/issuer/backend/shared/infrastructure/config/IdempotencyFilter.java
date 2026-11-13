@@ -13,7 +13,6 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -33,8 +32,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
-
 /**
  * Idempotency of {@code POST /api/v1/issuances} (EUD-269, FR-08 of EUD-254), with the {@code X-Idempotency-Key}
  * kept in a store shared by every instance for 24 hours:
@@ -45,10 +42,11 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUAN
  *   <li>an error response is not stored: a retry after it is processed again.</li>
  * </ul>
  *
- * <p>The key is scoped to its requester (the organization for its systems, the person within it), read from
- * the verified access token, so no requester can receive another one's response -- which may be a signed
- * credential delivered directly (EUD-167). A request whose requester cannot be read is not handled here: it
- * is rejected downstream on its own merits.
+ * <p>The key is scoped to its caller (each person, and each system on its own, within its organization and
+ * the tenant of its token), read from the verified access token, so no requester can receive another one's
+ * response -- which may be a signed credential delivered directly (EUD-167). A request whose requester cannot
+ * be read, among them a token of another tenant, is not handled here: it is rejected downstream on its own
+ * merits (403 {@code tenant_mismatch}). A key from a caller the token does not name is answered 400.
  *
  * <p>The body is read up to {@code issuer.api.max-payload-size}, the limit of {@link PayloadSizeLimitFilter},
  * and a larger one is answered 413 {@code payload_too_large} (also without {@code Content-Length}, EUD-277).
@@ -93,8 +91,8 @@ public class IdempotencyFilter implements WebFilter, Ordered {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
-        if (!HttpMethod.POST.equals(request.getMethod())
-                || !ISSUANCES_PATH.equals(request.getPath().pathWithinApplication().value())) {
+        if (!ApiOperationResolver.isIssuanceCreation(request.getMethod(),
+                request.getPath().pathWithinApplication().value())) {
             return chain.filter(exchange);
         }
         String key = request.getHeaders().getFirst(IDEMPOTENCY_HEADER);
@@ -110,12 +108,30 @@ public class IdempotencyFilter implements WebFilter, Ordered {
         return requesterResolver.current()
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty())
-                .flatMap(requester -> requester.isEmpty()
-                        ? chain.filter(exchange)
-                        // An empty body means it was larger than the payload limit.
-                        : readBody(request).flatMap(body -> body
-                                .map(bytes -> handle(exchange, chain, requester.get(), key, bytes))
-                                .orElseGet(() -> payloadTooLarge(exchange))));
+                .flatMap(requester -> {
+                    if (requester.isEmpty()) {
+                        return chain.filter(exchange);
+                    }
+                    if (requester.get().idempotencyScope().isEmpty()) {
+                        return unidentifiedCaller(exchange);
+                    }
+                    // An empty body means it was larger than the payload limit.
+                    return readBody(request).flatMap(body -> body
+                            .map(bytes -> handle(exchange, chain, requester.get(), key, bytes))
+                            .orElseGet(() -> payloadTooLarge(exchange)));
+                });
+    }
+
+    /**
+     * A key from a caller its token does not name would share its responses with every other such caller of
+     * the organization: it is refused rather than honoured in a shared scope, or silently ignored.
+     */
+    private Mono<Void> unidentifiedCaller(ServerWebExchange exchange) {
+        log.warn("X-Idempotency-Key refused: the access token names no caller to keep it for");
+        return problemWriter.write(exchange, HttpStatus.BAD_REQUEST, GlobalErrorTypes.BAD_REQUEST.getCode(),
+                "Bad request", "The X-Idempotency-Key cannot be kept: the access token names no caller", null,
+                List.of(new GlobalErrorMessage.FieldViolation(IDEMPOTENCY_HEADER,
+                        "requires an access token that names its caller")));
     }
 
     private Mono<Void> handle(ServerWebExchange exchange, WebFilterChain chain, Requester requester,
@@ -151,7 +167,8 @@ public class IdempotencyFilter implements WebFilter, Ordered {
                             }))
                     .contextWrite(context)
                     .subscribe();
-            return chain.filter(exchange.mutate().response(response).build())
+            // Deferred, so a failure assembling the chain is an error signal that stops the renewal below.
+            return Mono.defer(() -> chain.filter(exchange.mutate().response(response).build()))
                     // A response written without a body (or not written at all) is settled here.
                     .then(Mono.defer(() -> response.settle(new byte[0])))
                     // The error is answered after this filter, by the exception handlers: it is not stored.

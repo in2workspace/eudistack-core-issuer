@@ -49,7 +49,7 @@ class IdempotencyFilterTest {
     private static final String KEY = "retry-key-1";
     private static final String REQUEST_BODY = "{\"credential_configuration_id\":\"x\"}";
     private static final String RESPONSE_BODY = "{\"responses\":[{\"channel\":\"ui\",\"status\":200}]}";
-    private static final Requester REQUESTER = Requester.system("ORG-1");
+    private static final Requester REQUESTER = Requester.system("sandbox", "ORG-1", "m1");
     private static final int MAX_BODY_BYTES = 1024;
     private static final IdempotencyClaim.Acquired ACQUIRED = new IdempotencyClaim.Acquired("scope", "owner");
 
@@ -263,6 +263,55 @@ class IdempotencyFilterTest {
 
         assertThat(calls).hasValue(3);
         verify(idempotencyService, never()).claim(any(), anyString(), any());
+    }
+
+    @Test
+    void aPathWithMatrixVariables_isStillTheIssuanceCreation() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(new IdempotencyClaim.InProgress()));
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/issuer" + ISSUANCES_PATH + ";x=y").contextPath("/issuer")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(IdempotencyFilter.IDEMPOTENCY_HEADER, KEY)
+                .body(REQUEST_BODY));
+
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void aKeyFromACallerTheTokenDoesNotName_isRefused_neverKeptInAScopeSharedWithOthers() throws Exception {
+        when(requesterResolver.current()).thenReturn(Mono.just(Requester.person("sandbox", "ORG-1", null)));
+        AtomicInteger calls = new AtomicInteger();
+        MockServerWebExchange exchange = issuance(KEY);
+
+        StepVerifier.create(filter.filter(exchange, controller(HttpStatus.OK, calls, new AtomicReference<>())))
+                .verifyComplete();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(problem(exchange).path("violations").get(0).path("field").asText())
+                .isEqualTo(IdempotencyFilter.IDEMPOTENCY_HEADER);
+        assertThat(calls).hasValue(0);
+        verify(idempotencyService, never()).claim(any(), anyString(), any());
+    }
+
+    @Test
+    void aChainThatFailsWhileBeingAssembled_stillStopsTheRenewalAndFreesTheKey() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(ACQUIRED));
+        when(idempotencyService.renewEvery()).thenReturn(Duration.ofMillis(5));
+
+        StepVerifier.create(filter.filter(issuance(KEY), ex -> {
+                    throw new IllegalStateException("assembly failed");
+                }))
+                .verifyError(IllegalStateException.class);
+
+        verify(idempotencyService).release(ACQUIRED);
+        int renewals = org.mockito.Mockito.mockingDetails(idempotencyService).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("renew")).toList().size();
+        StepVerifier.create(Mono.delay(Duration.ofMillis(50))).expectNextCount(1).verifyComplete();
+        long renewalsLater = org.mockito.Mockito.mockingDetails(idempotencyService).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("renew")).count();
+        assertThat(renewalsLater).isEqualTo(renewals);
     }
 
     @Test

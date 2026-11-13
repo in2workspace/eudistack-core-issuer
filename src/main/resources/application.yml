@@ -258,6 +258,13 @@ issuer:
     idempotency:
       retention: ${ISSUER_API_IDEMPOTENCY_RETENTION:24h}
       lease: ${ISSUER_API_IDEMPOTENCY_LEASE:2m}
+      # Own secret of the idempotency keys and the volume counters (at least 32 bytes, the same on every
+      # instance, from the secrets manager). No default: the issuer does not start without it. To rotate it,
+      # move the current one to previous-secret (with its id) for the 24 hours of the retention.
+      secret: ${ISSUER_IDEMPOTENCY_SECRET:}
+      secret-id: ${ISSUER_IDEMPOTENCY_SECRET_ID:1}
+      previous-secret: ${ISSUER_IDEMPOTENCY_PREVIOUS_SECRET:}
+      previous-secret-id: ${ISSUER_IDEMPOTENCY_PREVIOUS_SECRET_ID:0}
     volume-limit:
       window: 1m
       issuance: { systems-per-organization: 300, per-person: 30 }

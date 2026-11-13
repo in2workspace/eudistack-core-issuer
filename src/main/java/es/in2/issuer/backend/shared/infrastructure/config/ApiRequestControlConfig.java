@@ -3,13 +3,12 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.requestcontrol.ApiOperation;
 import es.in2.issuer.backend.shared.domain.model.requestcontrol.IdempotencyPolicy;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.RequestControlSecrets;
 import es.in2.issuer.backend.shared.domain.model.requestcontrol.SlidingWindow;
 import es.in2.issuer.backend.shared.domain.model.requestcontrol.VolumeLimitPolicy;
 import es.in2.issuer.backend.shared.domain.service.IdempotencyService;
 import es.in2.issuer.backend.shared.domain.service.VolumeLimitService;
-import es.in2.issuer.backend.shared.domain.util.Sha256;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.ApiRequestControlProperties;
-import es.in2.issuer.backend.shared.infrastructure.crypto.CryptoConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -22,8 +21,6 @@ import java.util.Map;
 @Configuration
 public class ApiRequestControlConfig {
 
-    private static final String SERVER_SECRET_LABEL = "eudistack-issuer-idempotency-secret|";
-
     @Bean
     public VolumeLimitPolicy volumeLimitPolicy(ApiRequestControlProperties properties) {
         ApiRequestControlProperties.VolumeLimit volume = properties.getVolumeLimit();
@@ -34,22 +31,35 @@ public class ApiRequestControlConfig {
                 ApiOperation.READ, limits(volume.getRead())));
     }
 
+    @Bean
+    public IdempotencyPolicy idempotencyPolicy(ApiRequestControlProperties properties) {
+        return new IdempotencyPolicy(properties.getIdempotency().getRetention(), properties.getIdempotency().getLease());
+    }
+
     /**
-     * The server secret of the idempotency is derived from the issuer identity key, which every instance of a
-     * deployment shares and which is kept as a secret in every environment. Without it (a local run with an
-     * ephemeral key, which would differ per instance) the stored keys depend on the client's key alone.
+     * The secret of the idempotency and the volume counters: its own ({@code ISSUER_IDEMPOTENCY_SECRET}), not
+     * derived from any other key, and required in every environment (local-env sets one for the local stack).
+     * Without it the stored keys would depend on the client's input alone, so the issuer does not start.
      */
     @Bean
-    public IdempotencyPolicy idempotencyPolicy(ApiRequestControlProperties properties, CryptoConfig cryptoConfig) {
-        String identityKey = cryptoConfig.getPrivateKey();
-        String serverSecret = "";
-        if (identityKey == null) {
-            log.warn("No issuer identity key configured: the idempotency records are not bound to a server secret");
-        } else {
-            serverSecret = Sha256.hex(SERVER_SECRET_LABEL + identityKey);
+    public RequestControlSecrets requestControlSecrets(ApiRequestControlProperties properties) {
+        ApiRequestControlProperties.Idempotency idempotency = properties.getIdempotency();
+        String secret = idempotency.getSecret();
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("issuer.api.idempotency.secret (ISSUER_IDEMPOTENCY_SECRET) is required: "
+                    + "the idempotency keys and the volume counters are kept with it");
         }
-        return new IdempotencyPolicy(properties.getIdempotency().getRetention(), properties.getIdempotency().getLease(),
-                serverSecret);
+        String previous = idempotency.getPreviousSecret();
+        RequestControlSecrets.Secret previousSecret = previous == null || previous.isBlank()
+                ? null
+                : RequestControlSecrets.Secret.of(idempotency.getPreviousSecretId(), previous);
+        RequestControlSecrets secrets = new RequestControlSecrets(
+                RequestControlSecrets.Secret.of(idempotency.getSecretId(), secret), previousSecret);
+        if (previousSecret != null) {
+            log.info("Idempotency secret {} in use; keys kept with the previous secret {} are still found",
+                    idempotency.getSecretId(), idempotency.getPreviousSecretId());
+        }
+        return secrets;
     }
 
     /*

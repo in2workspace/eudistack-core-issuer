@@ -2,3 +2,9 @@
 # EMAIL_ASSETS_BASE_URL has no default in the main config, so the Spring Boot tests set it here.
 email-branding:
   assets-base-url: https://assets.test.example/assets/tenants
+
+# EUD-269: the idempotency secret has no default in the main config either.
+issuer:
+  api:
+    idempotency:
+      secret: test-idempotency-secret-of-at-least-32-bytes
