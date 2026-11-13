@@ -328,10 +328,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return deliveryEligibilityResolver.resolveEligibleModes(configId)
                 .flatMap(eligible -> eligible.contains(mode)
                         ? Mono.just(mode)
-                        : Mono.error(new DeliveryModeNotEligibleException(
-                                "Delivery mode '" + mode.value + "' is not eligible for credential type '"
-                                        + configId + "'. Eligible modes: "
-                                        + (eligible.isEmpty() ? "none" : DeliveryMode.toCanonicalCsv(eligible)))));
+                        : Mono.error(notEligible(configId, mode, eligible)));
+    }
+
+    private static DeliveryModeNotEligibleException notEligible(String configId, DeliveryMode mode,
+                                                                Set<DeliveryMode> eligible) {
+        String eligibleModes = eligible.isEmpty() ? "none" : DeliveryMode.toCanonicalCsv(eligible);
+        return new DeliveryModeNotEligibleException("Delivery mode '" + mode.value
+                + "' is not eligible for credential type '" + configId + "'. Eligible modes: " + eligibleModes);
     }
 
     /**
@@ -350,8 +354,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                          String publicIssuerBaseUrl, Map<String, Object> cnf,
                                                          CredentialTerms terms) {
         String configId = request.credentialConfigurationId();
-        return performDirectIssuance(processId, request, bearerToken, publicIssuerBaseUrl,
-                        DeliveryMode.DIRECT.value, cnf, terms)
+        return performDirectIssuance(processId, request, bearerToken, publicIssuerBaseUrl, cnf, terms)
                 .doOnNext(issued -> credentialIssuedLogger.logIssued(configId))
                 .map(issued -> IssuanceResponse.builder()
                         .signedCredential(issued.signedCredential())
@@ -396,7 +399,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * cnf-mandatee.id invariant the wallet leg already does from a key proof (F2).
      */
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,
-                                                          String publicIssuerBaseUrl, String originalDelivery,
+                                                          String publicIssuerBaseUrl,
                                                           Map<String, Object> cnf, CredentialTerms terms) {
         UUID issuanceId = UUID.randomUUID();
 
@@ -404,11 +407,11 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         // between, the scope runs issueDirectly again with the same issuanceId: a failure before the save
         // releases the status list entry, and the credential built the first time never left the Issuer.
         return SigningConfigScope.run(() ->
-                issueDirectly(processId, request, token, publicIssuerBaseUrl, originalDelivery, cnf, terms, issuanceId));
+                issueDirectly(processId, request, token, publicIssuerBaseUrl, cnf, terms, issuanceId));
     }
 
     private Mono<IssuanceResponse> issueDirectly(String processId, IssuanceRequest request, String token,
-                                                 String publicIssuerBaseUrl, String originalDelivery,
+                                                 String publicIssuerBaseUrl,
                                                  Map<String, Object> cnf, CredentialTerms terms, UUID issuanceId) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
@@ -448,7 +451,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                 Issuance issuance = buildDirectIssuanceEntity(
                                                                         issuanceId, configId, credentialFormat,
                                                                         buildResult, enrichedWithStatus, organizationOf(request),
-                                                                        request.email(), originalDelivery, finalStatus, cnf);
+                                                                        request.email(), DeliveryMode.DIRECT.value, finalStatus, cnf);
                                                                 return issuanceService.saveIssuance(issuance)
                                                                         .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                                                                         .doOnSuccess(saved -> log.debug(
