@@ -9,6 +9,8 @@ public record IssuanceProperties(
         @DefaultValue("0 0 2 * * *") String cleanupCron,
         @DefaultValue("60") int deliveryTimeoutMinutes,
         @DefaultValue("0 */5 * * * ?") String deliveryTimeoutCron,
+        // Time limit of the email/ui delivery flow. The name predates the single delivery mode (EUD-268)
+        // and is kept so deployed configuration keeps applying.
         @DefaultValue("30") int hybridWalletTimeoutSeconds
 ) {
 }

@@ -13,11 +13,11 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li><b>direct</b> → {@link #DIRECT} ({@code "direct"})</li>
  *   <li><b>wallet</b> → {@link #EMAIL} ({@code "email"}) or {@link #UI} ({@code "ui"}, QR/OID4VCI channel)</li>
- *   <li><b>hybrid</b> → a set of ≥2 modes, e.g. {@code "direct,email"} — it is not an enum value</li>
  * </ul>
  *
- * <p>The HTTP request uses CSV in {@code delivery} (e.g. {@code "direct,email"}).
- * Duplicates are normalized into a {@link Set} without repetition (EC-02).
+ * <p>An issuance request carries exactly one mode ({@link #fromValue}; EUD-254). The CSV form read by
+ * {@link #parse} is the tenant configuration's set of eligible modes, not a request: duplicates are
+ * normalized into a {@link Set} without repetition (EC-02).
  */
 public enum DeliveryMode {
 

@@ -6,11 +6,18 @@ import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorRespons
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
-import lombok.RequiredArgsConstructor;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -19,11 +26,21 @@ import reactor.core.publisher.Mono;
 
 @Slf4j
 @RestControllerAdvice
-@RequiredArgsConstructor
 @Order(2)
 public class IssuanceExceptionHandler {
 
     private final ErrorResponseFactory errors;
+    /** {@code Retry-After} of a delivery that failed because a dependency was temporarily unavailable. */
+    private final int deliveryRetryAfterSeconds;
+
+    // A plain property rather than IssuanceProperties: every @WebFluxTest slice loads this advice, and
+    // the slices do not bind configuration properties.
+    public IssuanceExceptionHandler(
+            ErrorResponseFactory errors,
+            @Value("${issuance.delivery-retry-after-seconds:5}") int deliveryRetryAfterSeconds) {
+        this.errors = errors;
+        this.deliveryRetryAfterSeconds = deliveryRetryAfterSeconds;
+    }
 
     @ExceptionHandler(InvalidStatusException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
@@ -48,10 +65,10 @@ public class IssuanceExceptionHandler {
     ) {
         return errors.handleWith(
                 ex, request,
-                GlobalErrorTypes.INVALID_REQUEST.getCode(),
-                "Invalid request",
+                GlobalErrorTypes.INVALID_DELIVERY_MODE.getCode(),
+                "Invalid delivery mode",
                 HttpStatus.BAD_REQUEST,
-                "The delivery mode is missing, blank or unknown"
+                "delivery must be one of: email, ui, direct"
         );
     }
 
@@ -74,6 +91,61 @@ public class IssuanceExceptionHandler {
                 HttpStatus.CONFLICT,
                 "The declared delivery mode is not eligible for this credential type"
         );
+    }
+
+    @ExceptionHandler(InvalidGrantTypeException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidGrantType(
+            InvalidGrantTypeException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_GRANT_TYPE.getCode(),
+                "Invalid grant type",
+                HttpStatus.BAD_REQUEST,
+                "grant_type must be one of: authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code"
+        );
+    }
+
+    @ExceptionHandler(InvalidValidityException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidValidity(
+            InvalidValidityException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_VALIDITY.getCode(),
+                "Invalid validity",
+                HttpStatus.BAD_REQUEST,
+                "The requested validity is not allowed for this attestation type"
+        );
+    }
+
+    /**
+     * EUD-254 AC-03: a valid request whose delivery could not be completed. A dependency that is
+     * temporarily unavailable is 503 with {@code Retry-After} -- the client retries with the same
+     * {@code X-Idempotency-Key} -- and any other failure is 500. The detail is fixed: the cause's
+     * message never reaches the client.
+     */
+    @ExceptionHandler(DeliveryFailedException.class)
+    public Mono<ResponseEntity<GlobalErrorMessage>> handleDeliveryFailed(
+            DeliveryFailedException ex,
+            ServerHttpRequest request
+    ) {
+        DeliveryErrorCode code = ex.code();
+        HttpStatus status = code.retryable() ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.INTERNAL_SERVER_ERROR;
+        String detail = code.retryable()
+                ? "The issuance could not be completed. Retry later."
+                : "The issuance could not be completed.";
+        GlobalErrorMessage problem = errors.problemOf(ex, request, code.value(), code.title(), status, detail, null);
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON);
+        if (code.retryable()) {
+            response.header(HttpHeaders.RETRY_AFTER, String.valueOf(deliveryRetryAfterSeconds));
+        }
+        return Mono.just(response.body(problem));
     }
 
     @ExceptionHandler(InvalidHolderKeyException.class)

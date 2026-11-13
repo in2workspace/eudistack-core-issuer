@@ -107,6 +107,9 @@ class DirectDeliveryCeilingTest {
         // Rejection happens before the direct leg ever runs (the ceiling check is upstream of
         // performIssuanceFlow), so this collaborator is never exercised by these tests.
         HolderDidFallbackAuditor holderDidFallbackAuditor = mock(HolderDidFallbackAuditor.class);
+        // The type is enabled in the tenant: the rejection under test is the ceiling's, which comes after.
+        TenantCredentialProfileService tenantCredentialProfileService = mock(TenantCredentialProfileService.class);
+        when(tenantCredentialProfileService.isProfileAllowed(any())).thenReturn(Mono.just(true));
 
         // The two gates the ceiling check runs after: both must clear for the request to reach
         // SchemaDeliveryCeiling at all. Real objects have nothing to say here -- they are the
@@ -133,7 +136,7 @@ class DirectDeliveryCeilingTest {
                 issuanceProperties,
                 schemaDeliveryCeiling,
                 holderDidFallbackAuditor,
-                mock(TenantCredentialProfileService.class)
+                tenantCredentialProfileService
         );
 
         UrlResolver urlResolver = mock(UrlResolver.class);
@@ -155,7 +158,7 @@ class DirectDeliveryCeilingTest {
                 chain.filter(exchange).contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
 
         webTestClient = WebTestClient.bindToController(controller)
-                .controllerAdvice(new IssuanceExceptionHandler(new ErrorResponseFactory()))
+                .controllerAdvice(new IssuanceExceptionHandler(new ErrorResponseFactory(), 5))
                 .webFilter(tenantContextFilter)
                 .build();
     }
@@ -215,18 +218,13 @@ class DirectDeliveryCeilingTest {
     }
 
     /**
-     * ES-01: an unknown delivery mode is rejected as a 400 {@code invalid_request} before the ceiling
-     * (or any other business rule) is even evaluated -- {@code DeliveryMode.parse} fails first.
-     *
-     * <p>Fixture is letters-only (no hyphen): this test targets {@code DeliveryMode.parse}'s rejection
-     * specifically, not the DTO-level {@code @Pattern} added for TD-06 -- a hyphenated value like the
-     * previous {@code "carrier-pigeon"} would now be rejected one layer earlier by Bean Validation,
-     * which this hand-wired {@code bindToController} harness (no default WebFlux exception handling,
-     * unlike the full app context) has no handler for.
+     * ES-01, EUD-268: an unknown delivery mode is rejected as a 400 {@code invalid_delivery_mode} before
+     * the ceiling (or any other business rule) is even evaluated. The detail is fixed: it never echoes
+     * the value sent.
      */
     @Test
-    void createIssuance_InvalidDeliveryMode_Returns400InvalidRequest() throws JsonProcessingException {
-        IssuanceRequest request = buildIssuanceRequest(BOUND_CONFIG_ID, "carrierpigeon");
+    void createIssuance_InvalidDeliveryMode_Returns400InvalidDeliveryMode() throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest(BOUND_CONFIG_ID, "carrier-pigeon");
 
         webTestClient.post()
                 .uri(ISSUANCES_PATH)
@@ -236,9 +234,9 @@ class DirectDeliveryCeilingTest {
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.type").isEqualTo("invalid_request")
+                .jsonPath("$.type").isEqualTo("invalid_delivery_mode")
                 .jsonPath("$.status").isEqualTo(400)
-                .jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("carrierpigeon"));
+                .jsonPath("$.detail").isEqualTo("delivery must be one of: email, ui, direct");
 
         verifyNoInteractions(credentialSignerWorkflow);
         verifyNoInteractions(statusListWorkflow);

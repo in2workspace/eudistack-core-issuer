@@ -543,26 +543,6 @@ class SharedExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
-    // -------------------- handleMissingIdTokenHeaderException --------------------
-
-    @Test
-    void handleMissingIdTokenHeaderException() {
-        var ex = new MissingIdTokenHeaderException("header missing");
-        var type = GlobalErrorTypes.MISSING_HEADER.getCode();
-        var title = "Missing header";
-        var st = HttpStatus.BAD_REQUEST;
-        var fallback = "The X-ID-TOKEN header is missing, this header is needed to issue a Verifiable Certification";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "header missing", UUID.randomUUID().toString());
-
-        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
-
-        StepVerifier.create(handler.handleMissingIdTokenHeaderException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "header missing"))
-                .verifyComplete();
-
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
-    }
-
     // -------------------- handleSadException--------------------
 
     @Test

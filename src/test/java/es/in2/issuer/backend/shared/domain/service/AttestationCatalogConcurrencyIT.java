@@ -140,7 +140,7 @@ class AttestationCatalogConcurrencyIT extends PostgresIntegrationBase {
 
         assertThat(disabled.enabled()).isFalse();
         assertThat(advertisedConfigurations()).doesNotContain(DOCTORID);
-        // What issuance checks (PowerAuthorizationService, credential_type_not_enabled).
+        // What issuance checks before the schema (unsupported_credential_type, EUD-254 §3).
         assertThat(isAllowedToIssue(DOCTORID)).isFalse();
         assertThat(inTenant(service.list(true).collectList()).block()).isEmpty();
         assertThat(inTenant(service.get(DOCTORID)).block().enabled()).as("the entry is kept").isFalse();

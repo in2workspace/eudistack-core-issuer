@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (EUD-268, breaking)
+
+- **EUD-268 — One delivery mode per issuance.** `delivery` of `POST /api/v1/issuances` takes exactly `email`, `ui` or `direct` (default `email`). A list of modes (`email,ui`), an unknown value, an empty one or one with spaces is `400 invalid_delivery_mode`; before, a comma-separated list was accepted and other values were `400 BAD_REQUEST`. The bootstrap issuance still takes only `email` or `ui`. Deploy with the `eudistack-mfe-credential-manager` that sends a single mode.
+- **EUD-268 — One delivery flow, answered with `200` or a problem.** The issuance runs the requested mode only: the hybrid issuance (`direct` plus a wallet mode) and the per-mode isolation are gone. A successful issuance is always `200` with `Location` and one `responses` entry; `207 Multi-Status`, the empty `202`, the `500` with a per-channel envelope and `responses[].error` no longer exist. A bounced offer email is a failed delivery, not a failed mode next to a delivered one.
+- **EUD-268 — A failed delivery is an `application/problem+json` error.** `503` with `Retry-After` when a dependency did not answer: `signing_failed`, `status_list_unavailable`, `wallet_delivery_timeout` (the email/ui flow exceeded `issuance.hybrid-wallet-timeout-seconds`, which keeps its name); `500` otherwise: `persistence_failed`, `delivery_failed` (a bounced email or a failed credential offer). The `detail` is fixed and the `instance` is the request path; the cause is only logged. `Retry-After` is `issuance.delivery-retry-after-seconds` (`ISSUANCE_DELIVERY_RETRY_AFTER_SECONDS`, default `5`); the issuer does not retry by itself. A draft process stored before a failed offer stays until the cleanup job removes it (`issuance.draft-max-age-days`).
+- **EUD-268 — A type not enabled in the tenant is `400 unsupported_credential_type`**, like an unknown type, checked before the payload schema and the permission (EUD-254 §3). It was `403 insufficient_permission` with `reason: credential_type_not_enabled`, from the decision point, which now decides powers only: the reason code `credential_type_not_enabled` is removed (deploy with the matching `eudistack-mfe-credential-manager`) and the case is no longer traced as `authorization.deny`. The bootstrap issuance keeps its `409 credential_configuration_not_enabled`.
+- **EUD-268 — `grant_type` takes its two values only**: `authorization_code` or `urn:ietf:params:oauth:grant-type:pre-authorized_code`. Any other value is `400 invalid_grant_type`, checked after the delivery mode; it was a `400 BAD_REQUEST`. With `direct`, a valid value is ignored.
+
+### Added (EUD-268)
+
+- **EUD-268 — Requested validity.** The payload's `validFrom` / `validUntil` (ISO 8601 date-times) are applied when the tenant's catalog entry has `requester_can_set_dates`: the start defaults to now and the end to the start plus `default_days`. An end not after the start, a duration above `max_days` (or `default_days` without it), or a date that is not ISO 8601 is `400 invalid_validity`, checked after `grant_type`. Otherwise they are ignored, as before. They are taken out of the payload before the schema validation. This replaces the EUD-266 behaviour of always ignoring them.
+- **EUD-268 — `violations` in every `400 BAD_REQUEST` on a request body.** Each invalid field is named as in the JSON (`credential_configuration_id`, not the Java name); a field of the wrong type or a body that cannot be read names the field with `is missing or has an invalid format`. The `detail` is fixed and the rejected values are never echoed.
+
+### Removed (EUD-268)
+
+- **EUD-268 — `MissingIdTokenHeaderException` and its `MISSING_HEADER` error type**, which nothing threw since EUD-272 stopped requiring `X-Id-Token`.
+
 ### Added (EUD-277)
 
 - **EUD-277 — `Location` on issuance creation.** `POST /api/v1/issuances` answers `200` and `207` with `Location: <public issuer URL>/api/v1/issuances/<id>` of the created process (absolute, because the API lives under `/issuer` and a relative reference would resolve without it). In a hybrid issuance (`direct` plus `ui` or `email`) it points to the OID4VCI process when that leg succeeded, and to the direct one otherwise. No `Location` on errors nor on the empty `202`. The JSON body does not change.

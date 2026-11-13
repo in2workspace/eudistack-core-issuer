@@ -2,14 +2,20 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import reactor.core.publisher.Mono;
@@ -22,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class IssuanceExceptionHandlerTest {
 
+    private static final int RETRY_AFTER_SECONDS = 7;
+
     private ErrorResponseFactory errors;
     private IssuanceExceptionHandler handler;
     private ServerHttpRequest request;
@@ -29,7 +37,7 @@ class IssuanceExceptionHandlerTest {
     @BeforeEach
     void setUp() {
         errors = mock(ErrorResponseFactory.class);
-        handler = new IssuanceExceptionHandler(errors);
+        handler = new IssuanceExceptionHandler(errors, RETRY_AFTER_SECONDS);
         request = MockServerHttpRequest.get("/any").build();
     }
 
@@ -95,16 +103,59 @@ class IssuanceExceptionHandlerTest {
         verify(errors).handleWith(exBlank, request, type, title, st, fallback);
     }
 
+    // ------------------- InvalidGrantTypeException (EUD-268) -------------------
+
+    @Test
+    void handleInvalidGrantType_isA400WithTheContractCode() {
+        var ex = new InvalidGrantTypeException(
+                "grant_type must be one of: authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code");
+
+        String type   = GlobalErrorTypes.INVALID_GRANT_TYPE.getCode();
+        String title  = "Invalid grant type";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "grant_type must be one of: authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code";
+
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidGrantType(ex, request))
+                .assertNext(gem -> assertGem(gem, "invalid_grant_type", title, st, ex.getMessage()))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // ------------------- InvalidValidityException (EUD-268) -------------------
+
+    @Test
+    void handleInvalidValidity_isA400WithTheContractCode() {
+        var ex = new InvalidValidityException("The validity must be at most 365 days");
+
+        String type   = GlobalErrorTypes.INVALID_VALIDITY.getCode();
+        String title  = "Invalid validity";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "The requested validity is not allowed for this attestation type";
+
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidValidity(ex, request))
+                .assertNext(gem -> assertGem(gem, "invalid_validity", title, st, ex.getMessage()))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
     // ------------------- InvalidDeliveryModeException (ES-01) -------------------
 
     @Test
     void handleInvalidDeliveryMode_usesExceptionMessage_whenPresent() {
         var ex = new InvalidDeliveryModeException("Unknown delivery mode: carrier-pigeon");
 
-        String type   = GlobalErrorTypes.INVALID_REQUEST.getCode();
-        String title  = "Invalid request";
+        String type   = GlobalErrorTypes.INVALID_DELIVERY_MODE.getCode();
+        String title  = "Invalid delivery mode";
         HttpStatus st = HttpStatus.BAD_REQUEST;
-        String fallback = "The delivery mode is missing, blank or unknown";
+        String fallback = "delivery must be one of: email, ui, direct";
 
         var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
         when(errors.handleWith(ex, request, type, title, st, fallback))
@@ -122,10 +173,10 @@ class IssuanceExceptionHandlerTest {
         var exNull  = new InvalidDeliveryModeException(null);
         var exBlank = new InvalidDeliveryModeException("");
 
-        String type   = GlobalErrorTypes.INVALID_REQUEST.getCode();
-        String title  = "Invalid request";
+        String type   = GlobalErrorTypes.INVALID_DELIVERY_MODE.getCode();
+        String title  = "Invalid delivery mode";
         HttpStatus st = HttpStatus.BAD_REQUEST;
-        String fallback = "The delivery mode is missing, blank or unknown";
+        String fallback = "delivery must be one of: email, ui, direct";
 
         var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
         var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
@@ -247,6 +298,56 @@ class IssuanceExceptionHandlerTest {
 
         verify(errors).handleWith(exNull,  request, type, title, st, fallback);
         verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+    }
+
+    // --- EUD-268 task 7: a failed delivery is a problem, 503 with Retry-After or 500 ---
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = DeliveryErrorCode.class,
+            names = {"SIGNING_FAILED", "STATUS_LIST_UNAVAILABLE", "WALLET_DELIVERY_TIMEOUT"})
+    void deliveryFailedWithATemporarilyUnavailableDependencyIs503WithRetryAfter(DeliveryErrorCode code) {
+        IssuanceExceptionHandler realHandler = new IssuanceExceptionHandler(new ErrorResponseFactory(), RETRY_AFTER_SECONDS);
+        ServerHttpRequest post = MockServerHttpRequest.post("/api/v1/issuances").build();
+        DeliveryFailedException ex = new DeliveryFailedException(code,
+                new IllegalStateException("https://qtsp.internal/sign failed for schema tenant_a"));
+
+        StepVerifier.create(realHandler.handleDeliveryFailed(ex, post))
+                .assertNext(response -> {
+                    assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
+                    assertEquals("7", response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
+                    assertEquals(MediaType.APPLICATION_PROBLEM_JSON, response.getHeaders().getContentType());
+                    GlobalErrorMessage problem = response.getBody();
+                    assertNotNull(problem);
+                    assertEquals(code.value(), problem.type());
+                    assertEquals(code.title(), problem.title());
+                    assertEquals(503, problem.status());
+                    assertEquals("The issuance could not be completed. Retry later.", problem.detail());
+                    assertEquals("/api/v1/issuances", problem.instance());
+                })
+                .verifyComplete();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = DeliveryErrorCode.class,
+            names = {"PERSISTENCE_FAILED", "DELIVERY_FAILED"})
+    void deliveryFailedForAnotherReasonIs500WithoutRetryAfter(DeliveryErrorCode code) {
+        IssuanceExceptionHandler realHandler = new IssuanceExceptionHandler(new ErrorResponseFactory(), RETRY_AFTER_SECONDS);
+        ServerHttpRequest post = MockServerHttpRequest.post("/api/v1/issuances").build();
+        DeliveryFailedException ex = new DeliveryFailedException(code,
+                new IllegalStateException("relation tenant_a.issuance does not exist"));
+
+        StepVerifier.create(realHandler.handleDeliveryFailed(ex, post))
+                .assertNext(response -> {
+                    assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+                    assertNull(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
+                    GlobalErrorMessage problem = response.getBody();
+                    assertNotNull(problem);
+                    assertEquals(code.value(), problem.type());
+                    assertEquals(500, problem.status());
+                    assertEquals("The issuance could not be completed.", problem.detail());
+                    assertFalse(problem.detail().contains("tenant_a"));
+                })
+                .verifyComplete();
     }
 
 }
