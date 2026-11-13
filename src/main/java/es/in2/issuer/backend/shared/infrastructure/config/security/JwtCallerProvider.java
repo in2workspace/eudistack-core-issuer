@@ -70,6 +70,15 @@ public class JwtCallerProvider implements CallerProvider {
                 .mapNotNull(auth -> personOf(((JwtAuthenticationToken) auth).getToken().getClaims()));
     }
 
+    @Override
+    public Mono<String> currentSubject() {
+        return ReactiveSecurityContextHolder.getContext()
+                .mapNotNull(ctx -> ctx.getAuthentication())
+                .filter(JwtAuthenticationToken.class::isInstance)
+                .mapNotNull(auth -> ((JwtAuthenticationToken) auth).getToken().getClaims().get("sub")
+                        instanceof String sub ? nonBlank(sub) : null);
+    }
+
     /** Only the claims read here are converted: the others include {@code Instant}s ({@code iat}, {@code exp}). */
     private String personOf(Map<String, Object> claims) {
         JsonNode vc = objectMapper.valueToTree(claims.get("vc"));

@@ -1,365 +1,306 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
-import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.IdempotencyClaim;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.Requester;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.StoredResponse;
+import es.in2.issuer.backend.shared.domain.service.IdempotencyService;
+import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
+import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.annotation.Order;
+import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
-import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.Sinks;
+import reactor.core.Disposable;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
-import java.util.Arrays;
-import java.util.HexFormat;
-import java.util.Objects;
+import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-
-import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
-import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Idempotency of {@code POST /api/v1/issuances} by {@code X-Idempotency-Key} (per instance; sharing it
- * across instances is EUD-254). The entry is scoped to tenant, organization and caller subject, and
- * remembers a SHA-256 of the request body: the same key with another body is a conflict (422), never a
- * replay. While the first request is in flight a duplicate waits for it and gets the same response; if
- * the first does not end in a cacheable 2xx, the waiters go through the chain again.
+ * Idempotency of {@code POST /api/v1/issuances} (EUD-269, FR-08 of EUD-254), with the {@code X-Idempotency-Key}
+ * kept in a store shared by every instance for 24 hours:
+ * <ul>
+ *   <li>same key and same body: the stored successful response, without creating another process;</li>
+ *   <li>same key, other body: 422 {@code idempotency_key_reused};</li>
+ *   <li>same key while another request with it is in progress: 409 {@code idempotency_in_progress};</li>
+ *   <li>an error response is not stored: a retry after it is processed again.</li>
+ * </ul>
+ *
+ * <p>The key is scoped to its caller (each person, and each system on its own, within its organization and
+ * the tenant of its token), read from the verified access token, so no requester can receive another one's
+ * response -- which may be a signed credential delivered directly (EUD-167). A request whose requester cannot
+ * be read, among them a token of another tenant, is not handled here: it is rejected downstream on its own
+ * merits (403 {@code tenant_mismatch}). A key from a caller the token does not name is answered 400.
+ *
+ * <p>The body is read up to {@code issuer.api.max-payload-size}, the limit of {@link PayloadSizeLimitFilter},
+ * and a larger one is answered 413 {@code payload_too_large} (also without {@code Content-Length}, EUD-277).
+ * The 409 carries {@code Retry-After: 1}: the request in progress usually ends within seconds.
+ *
+ * <p>The successful response is stored before it is sent, so once the client has it a retry is answered with
+ * it, never as in progress. Runs after authentication and after {@link TenantDomainWebFilter}, on the path
+ * within the application (without the {@code /issuer} base path). Registered as a bean in
+ * {@link ApiRequestControlConfig}, so the {@code @WebFluxTest} slices do not load it.
  */
 @Slf4j
-@Component
-@Order(1)
-public class IdempotencyFilter implements WebFilter {
+public class IdempotencyFilter implements WebFilter, Ordered {
 
-    static final String KEY_REUSED_TYPE = "idempotency_key_reused";
-    static final String IN_PROGRESS_TYPE = "idempotency_in_progress";
+    public static final int ORDER = ApiVolumeLimitFilter.ORDER + 10;
+    static final String IDEMPOTENCY_HEADER = "X-Idempotency-Key";
+    /** Maximum length of the key (the {@code IdempotencyKey} parameter of the issuance API contract). */
+    static final int MAX_KEY_LENGTH = 255;
     static final String PAYLOAD_TOO_LARGE_TYPE = "payload_too_large";
+    /** Seconds a client is told to wait after a 409, while the request with the same key is in progress. */
+    static final long IN_PROGRESS_RETRY_AFTER_SECONDS = 1;
 
-    private static final String IDEMPOTENCY_HEADER = "X-Idempotency-Key";
-
+    private final RequesterResolver requesterResolver;
+    private final IdempotencyService idempotencyService;
+    private final FilterProblemWriter problemWriter;
     private final IssuanceMetrics issuanceMetrics;
-    private final AccessTokenService accessTokenService;
-    private final ErrorResponseFactory errors;
-    private final ObjectMapper objectMapper;
-    private final Duration waitTimeout;
     private final int maxBodyBytes;
-    private final Cache<String, CachedResponse> cache;
-    private final ConcurrentMap<String, InFlight> inFlight = new ConcurrentHashMap<>();
 
-    public IdempotencyFilter(
-            @Value("${issuer.api.idempotency-ttl-seconds:3600}") long ttlSeconds,
-            @Value("${issuer.api.idempotency-wait-timeout:30s}") Duration waitTimeout,
-            @Value("${issuer.api.max-payload-size:262144}") long maxPayloadBytes,
-            IssuanceMetrics issuanceMetrics,
-            AccessTokenService accessTokenService,
-            ErrorResponseFactory errors,
-            ObjectMapper objectMapper) {
-        this.waitTimeout = waitTimeout;
-        this.maxBodyBytes = (int) Math.min(maxPayloadBytes, Integer.MAX_VALUE);
+    public IdempotencyFilter(RequesterResolver requesterResolver, IdempotencyService idempotencyService,
+                             FilterProblemWriter problemWriter, IssuanceMetrics issuanceMetrics, long maxBodyBytes) {
+        this.requesterResolver = requesterResolver;
+        this.idempotencyService = idempotencyService;
+        this.problemWriter = problemWriter;
         this.issuanceMetrics = issuanceMetrics;
-        this.accessTokenService = accessTokenService;
-        this.errors = errors;
-        this.objectMapper = objectMapper;
-        this.cache = Caffeine.newBuilder()
-                .expireAfterWrite(Duration.ofSeconds(ttlSeconds))
-                .maximumSize(10_000)
-                .build();
+        this.maxBodyBytes = (int) Math.min(maxBodyBytes, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public int getOrder() {
+        return ORDER;
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        // The path within the application: the request path carries the context path
-        // (spring.webflux.base-path, /issuer), which ISSUANCES_PATH does not.
-        String path = exchange.getRequest().getPath().pathWithinApplication().value();
-        if (!HttpMethod.POST.equals(exchange.getRequest().getMethod()) || !ISSUANCES_PATH.equals(path)) {
+        ServerHttpRequest request = exchange.getRequest();
+        if (!ApiOperationResolver.isIssuanceCreation(request.getMethod(),
+                request.getPath().pathWithinApplication().value())) {
             return chain.filter(exchange);
         }
-
-        String idempotencyKey = exchange.getRequest().getHeaders().getFirst(IDEMPOTENCY_HEADER);
-        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+        String key = request.getHeaders().getFirst(IDEMPOTENCY_HEADER);
+        if (key == null || key.isBlank()) {
             return chain.filter(exchange);
         }
-
-        String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
-        String tenantScope = (tenantHeader == null || tenantHeader.isBlank())
-                ? exchange.getRequest().getURI().getHost()
-                : tenantHeader;
-
-        // The cache key binds to the caller's own identity (tenant, organization and subject):
-        // scoping by tenant alone lets another caller collide on a shared or predictable key and
-        // receive someone else's cached response -- including a directly-delivered signed credential
-        // (EUD-167), which exists nowhere else. Both are read from the already-authenticated
-        // SecurityContext, never from a fresh parse of the raw Authorization header, so a forged
-        // token can never influence the key. A caller that cannot be resolved skips idempotency
-        // caching entirely; it is rejected downstream on its own merits.
-        String keyFingerprint = sha256Hex(idempotencyKey).substring(0, 8);
-        return Mono.zip(accessTokenService.getOrganizationIdFromCurrentSession(),
-                        accessTokenService.getSubjectFromCurrentSession())
-                .map(caller -> Optional.of(sha256Hex(String.join("\u0000",
-                        tenantScope, caller.getT1(), caller.getT2(), idempotencyKey))))
-                .onErrorResume(ex -> {
-                    log.warn("Could not resolve caller for idempotency scoping, skipping cache: {}", ex.toString());
-                    return Mono.just(Optional.empty());
-                })
-                .flatMap(scopedKey -> scopedKey.isEmpty()
-                        ? chain.filter(exchange)
-                        : handleBody(exchange, chain, scopedKey.get(), keyFingerprint));
-    }
-
-    private Mono<Void> handleBody(ServerWebExchange exchange, WebFilterChain chain, String scopedKey,
-                                  String keyFingerprint) {
-        return readBody(exchange).flatMap(body -> body.isEmpty()
-                ? payloadTooLarge(exchange)
-                : handle(exchange, chain,
-                        new Attempt(scopedKey, keyFingerprint, sha256Hex(body.get()), deadline()), body.get()));
-    }
-
-    /** The instant, on the {@link System#nanoTime()} clock, after which a waiter answers 409. */
-    private long deadline() {
-        return System.nanoTime() + waitTimeout.toNanos();
-    }
-
-    /** The body bytes, or empty when the body exceeds the API payload limit. */
-    private Mono<Optional<byte[]>> readBody(ServerWebExchange exchange) {
-        return DataBufferUtils.join(exchange.getRequest().getBody(), maxBodyBytes)
-                .map(dataBuffer -> {
-                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                    dataBuffer.read(bytes);
-                    DataBufferUtils.release(dataBuffer);
-                    return Optional.of(bytes);
-                })
-                .defaultIfEmpty(Optional.of(new byte[0]))
-                .onErrorResume(DataBufferLimitException.class, ex -> Mono.just(Optional.empty()));
-    }
-
-    private Mono<Void> handle(ServerWebExchange exchange, WebFilterChain chain, Attempt attempt, byte[] bodyBytes) {
-        CachedResponse cached = cache.getIfPresent(attempt.scopedKey());
-        if (cached != null) {
-            return replayOrConflict(exchange, cached, attempt.bodyHash(), attempt.keyFingerprint());
+        if (key.length() > MAX_KEY_LENGTH) {
+            return problemWriter.write(exchange, HttpStatus.BAD_REQUEST, GlobalErrorTypes.BAD_REQUEST.getCode(),
+                    "Bad request", "The X-Idempotency-Key is longer than " + MAX_KEY_LENGTH + " characters", null,
+                    List.of(new GlobalErrorMessage.FieldViolation(IDEMPOTENCY_HEADER,
+                            "must be at most " + MAX_KEY_LENGTH + " characters")));
         }
-
-        InFlight mine = new InFlight(attempt.bodyHash());
-        InFlight existing = inFlight.putIfAbsent(attempt.scopedKey(), mine);
-        if (existing != null) {
-            return waitFor(exchange, chain, existing, attempt, bodyBytes);
-        }
-
-        // The previous owner may have finished between the lookup above and the reservation.
-        cached = cache.getIfPresent(attempt.scopedKey());
-        if (cached != null) {
-            release(attempt.scopedKey(), mine, Optional.of(cached));
-            return replayOrConflict(exchange, cached, attempt.bodyHash(), attempt.keyFingerprint());
-        }
-        return execute(exchange, chain, attempt.scopedKey(), mine, bodyBytes);
-    }
-
-    private Mono<Void> execute(ServerWebExchange exchange, WebFilterChain chain, String scopedKey,
-                               InFlight mine, byte[] bodyBytes) {
-        CapturingResponseDecorator decorator = new CapturingResponseDecorator(exchange);
-        ServerHttpRequestDecorator requestDecorator = new ServerHttpRequestDecorator(exchange.getRequest()) {
-            @Override
-            public Flux<DataBuffer> getBody() {
-                return Flux.defer(() -> Flux.just(exchange.getResponse().bufferFactory().wrap(bodyBytes)));
-            }
-        };
-        return chain.filter(exchange.mutate().request(requestDecorator).response(decorator).build())
-                .doOnSuccess(ignored -> {
-                    HttpStatusCode status = exchange.getResponse().getStatusCode();
-                    String location = exchange.getResponse().getHeaders().getFirst("Location");
-                    if (status != null && status.is2xxSuccessful()) {
-                        CachedResponse response = new CachedResponse(mine.bodyHash, status, location,
-                                decorator.capturedBody, decorator.capturedContentType);
-                        cache.put(scopedKey, response);
-                        release(scopedKey, mine, Optional.of(response));
+        return requesterResolver.current()
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(requester -> {
+                    if (requester.isEmpty()) {
+                        return chain.filter(exchange);
                     }
-                })
-                .doFinally(signal -> release(scopedKey, mine, Optional.empty()));
+                    if (requester.get().idempotencyScope().isEmpty()) {
+                        return unidentifiedCaller(exchange);
+                    }
+                    // An empty body means it was larger than the payload limit.
+                    return readBody(request).flatMap(body -> body
+                            .map(bytes -> handle(exchange, chain, requester.get(), key, bytes))
+                            .orElseGet(() -> payloadTooLarge(exchange)));
+                });
     }
 
     /**
-     * Frees the reservation and then publishes the outcome to the waiters (a second publication has no
-     * effect). The order matters: a waiter that gets an empty outcome re-enters {@code handle}
-     * synchronously and must not find the finished reservation still in the map.
+     * A key from a caller its token does not name would share its responses with every other such caller of
+     * the organization: it is refused rather than honoured in a shared scope, or silently ignored.
      */
-    private void release(String scopedKey, InFlight mine, Optional<CachedResponse> outcome) {
-        inFlight.remove(scopedKey, mine);
-        mine.outcome.tryEmitValue(outcome);
+    private Mono<Void> unidentifiedCaller(ServerWebExchange exchange) {
+        log.warn("X-Idempotency-Key refused: the access token names no caller to keep it for");
+        return problemWriter.write(exchange, HttpStatus.BAD_REQUEST, GlobalErrorTypes.BAD_REQUEST.getCode(),
+                "Bad request", "The X-Idempotency-Key cannot be kept: the access token names no caller", null,
+                List.of(new GlobalErrorMessage.FieldViolation(IDEMPOTENCY_HEADER,
+                        "requires an access token that names its caller")));
     }
 
-    private Mono<Void> waitFor(ServerWebExchange exchange, WebFilterChain chain, InFlight existing,
-                               Attempt attempt, byte[] bodyBytes) {
-        if (!existing.bodyHash.equals(attempt.bodyHash())) {
-            return keyReused(exchange, attempt.keyFingerprint());
-        }
-        log.info("Idempotency key {} in flight, waiting for the first request", attempt.keyFingerprint());
-        // The deadline is fixed when the request arrives and travels through every re-entry, so the
-        // total wait never exceeds the configured timeout.
-        Duration remaining = Duration.ofNanos(attempt.deadlineNanos() - System.nanoTime());
-        if (remaining.isNegative() || remaining.isZero()) {
-            return inProgress(exchange, attempt.keyFingerprint());
-        }
-        return existing.outcome.asMono()
-                .timeout(remaining,
-                        Mono.defer(() -> inProgress(exchange, attempt.keyFingerprint())).then(Mono.empty()))
-                .flatMap(outcome -> outcome.isPresent()
-                        ? replayOrConflict(exchange, outcome.get(), attempt.bodyHash(), attempt.keyFingerprint())
-                        : handle(exchange, chain, attempt, bodyBytes));
+    private Mono<Void> handle(ServerWebExchange exchange, WebFilterChain chain, Requester requester,
+                              String key, byte[] body) {
+        ServerWebExchange replayable = exchange.mutate().request(new CachedBodyRequest(exchange, body)).build();
+        return idempotencyService.claim(requester, key, body)
+                .flatMap(claim -> switch (claim) {
+                    case IdempotencyClaim.Acquired acquired -> process(replayable, chain, acquired);
+                    case IdempotencyClaim.Replay(StoredResponse stored) -> replay(exchange, stored);
+                    case IdempotencyClaim.InProgress _ -> problemWriter.write(exchange, HttpStatus.CONFLICT,
+                            GlobalErrorTypes.IDEMPOTENCY_IN_PROGRESS.getCode(), "Idempotency key in progress",
+                            "Another request with the same X-Idempotency-Key is in progress",
+                            IN_PROGRESS_RETRY_AFTER_SECONDS);
+                    case IdempotencyClaim.KeyReused _ -> problemWriter.write(exchange,
+                            HttpStatus.UNPROCESSABLE_ENTITY, GlobalErrorTypes.IDEMPOTENCY_KEY_REUSED.getCode(),
+                            "Idempotency key reused",
+                            "The same X-Idempotency-Key was sent with a different body", null);
+                });
     }
 
-    private Mono<Void> replayOrConflict(ServerWebExchange exchange, CachedResponse cached, String bodyHash,
-                                        String keyFingerprint) {
-        if (!cached.bodyHash.equals(bodyHash)) {
-            return keyReused(exchange, keyFingerprint);
-        }
-        log.info("Idempotency key {} already processed, returning cached status {}", keyFingerprint, cached.status);
+    private Mono<Void> process(ServerWebExchange exchange, WebFilterChain chain, IdempotencyClaim.Acquired claim) {
+        return Mono.deferContextual(context -> {
+            RecordingResponse response = new RecordingResponse(exchange.getResponse(), claim);
+            // While the request runs its lease is renewed, so a slow issuance (a remote signature) is never
+            // taken over by a retry. If the client goes away the request is cancelled and the renewal stops,
+            // but the key is not freed: whether the process was created is unknown, so a retry is answered
+            // 409 until the lease ends, and only then processed again.
+            Disposable renewal = Flux.interval(idempotencyService.renewEvery())
+                    .concatMap(tick -> idempotencyService.renew(claim)
+                            .onErrorResume(e -> {
+                                log.warn("Could not renew the lease of an idempotency key: {}", e.toString());
+                                return Mono.empty();
+                            }))
+                    .contextWrite(context)
+                    .subscribe();
+            // Deferred, so a failure assembling the chain is an error signal that stops the renewal below.
+            return Mono.defer(() -> chain.filter(exchange.mutate().response(response).build()))
+                    // A response written without a body (or not written at all) is settled here.
+                    .then(Mono.defer(() -> response.settle(new byte[0])))
+                    // The error is answered after this filter, by the exception handlers: it is not stored.
+                    .onErrorResume(error -> response.release().then(Mono.error(error)))
+                    .doFinally(signal -> renewal.dispose());
+        });
+    }
+
+    private Mono<Void> replay(ServerWebExchange exchange, StoredResponse stored) {
+        log.info("Idempotency key already processed, returning the stored status {}", stored.status());
         issuanceMetrics.recordIdempotencyCacheHit();
-        exchange.getResponse().setStatusCode(cached.status);
-        if (cached.locationHeader != null) {
-            exchange.getResponse().getHeaders().setLocation(URI.create(cached.locationHeader));
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatusCode.valueOf(stored.status()));
+        if (stored.location() != null) {
+            response.getHeaders().setLocation(URI.create(stored.location()));
         }
-        if (cached.body != null && cached.body.length > 0) {
-            if (cached.contentType != null) {
-                exchange.getResponse().getHeaders().setContentType(cached.contentType);
-            }
-            DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(cached.body);
-            return exchange.getResponse().writeWith(Mono.just(buffer));
+        if (stored.contentType() != null) {
+            response.getHeaders().setContentType(MediaType.parseMediaType(stored.contentType()));
         }
-        return exchange.getResponse().setComplete();
+        byte[] body = stored.body();
+        return body.length == 0
+                ? response.setComplete()
+                : response.writeWith(Mono.just(response.bufferFactory().wrap(body)));
     }
 
-    private Mono<Void> keyReused(ServerWebExchange exchange, String keyFingerprint) {
-        log.warn("Idempotency key {} reused with a different request body", keyFingerprint);
-        return problem(exchange, HttpStatus.UNPROCESSABLE_ENTITY, KEY_REUSED_TYPE, "Idempotency key reused",
-                "The idempotency key was already used with a different request body");
-    }
-
-    private Mono<Void> inProgress(ServerWebExchange exchange, String keyFingerprint) {
-        log.warn("Idempotency key {} still in progress after {}", keyFingerprint, waitTimeout);
-        exchange.getResponse().getHeaders().set("Retry-After", "1");
-        return problem(exchange, HttpStatus.CONFLICT, IN_PROGRESS_TYPE, "Request in progress",
-                "A request with the same idempotency key is still being processed");
+    /** The body, or empty when it is larger than the API payload limit. */
+    private Mono<Optional<byte[]>> readBody(ServerHttpRequest request) {
+        return DataBufferUtils.join(request.getBody(), maxBodyBytes)
+                .map(buffer -> {
+                    byte[] bytes = new byte[buffer.readableByteCount()];
+                    buffer.read(bytes);
+                    DataBufferUtils.release(buffer);
+                    return Optional.of(bytes);
+                })
+                .defaultIfEmpty(Optional.of(new byte[0]))
+                .onErrorResume(DataBufferLimitException.class, e -> Mono.just(Optional.empty()));
     }
 
     private Mono<Void> payloadTooLarge(ServerWebExchange exchange) {
         log.warn("Issuance request body exceeds the payload limit of {} bytes", maxBodyBytes);
-        return problem(exchange, HttpStatus.PAYLOAD_TOO_LARGE, PAYLOAD_TOO_LARGE_TYPE, "Payload too large",
-                "The request body exceeds the maximum allowed size");
+        return problemWriter.write(exchange, HttpStatus.PAYLOAD_TOO_LARGE, PAYLOAD_TOO_LARGE_TYPE,
+                "Payload too large", "The request body exceeds the maximum allowed size", null);
     }
 
-    private Mono<Void> problem(ServerWebExchange exchange, HttpStatus status, String type, String title,
-                               String detail) {
-        var response = exchange.getResponse();
-        response.setStatusCode(status);
-        response.getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
-        var body = errors.handleWithNow(new IllegalStateException(detail), exchange.getRequest(),
-                type, title, status, detail);
-        try {
-            byte[] bytes = objectMapper.writeValueAsBytes(body);
-            return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
-        } catch (Exception _) {
-            return response.setComplete();
+    /** The request with its body already read, so the controller can read it again. */
+    private static final class CachedBodyRequest extends ServerHttpRequestDecorator {
+
+        private final ServerWebExchange exchange;
+        private final byte[] body;
+
+        private CachedBodyRequest(ServerWebExchange exchange, byte[] body) {
+            super(exchange.getRequest());
+            this.exchange = exchange;
+            this.body = body;
+        }
+
+        @Override
+        public Flux<DataBuffer> getBody() {
+            return Flux.defer(() -> Flux.just(exchange.getResponse().bufferFactory().wrap(body)));
         }
     }
 
-    private static String sha256Hex(String value) {
-        return sha256Hex(value.getBytes(StandardCharsets.UTF_8));
-    }
+    /**
+     * Settles the claim with the response before sending it: a successful one is stored, any other frees the
+     * key. Settled once, whichever way the response ends.
+     */
+    private final class RecordingResponse extends ServerHttpResponseDecorator {
 
-    private static String sha256Hex(byte[] value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
-        }
-    }
+        private final IdempotencyClaim.Acquired claim;
+        private final AtomicBoolean settled = new AtomicBoolean(false);
 
-    private static final class InFlight {
-        private final String bodyHash;
-        private final Sinks.One<Optional<CachedResponse>> outcome = Sinks.one();
-
-        private InFlight(String bodyHash) {
-            this.bodyHash = bodyHash;
-        }
-    }
-
-    private static final class CapturingResponseDecorator extends ServerHttpResponseDecorator {
-
-        private byte[] capturedBody;
-        private MediaType capturedContentType;
-
-        private CapturingResponseDecorator(ServerWebExchange exchange) {
-            super(exchange.getResponse());
+        private RecordingResponse(ServerHttpResponse delegate, IdempotencyClaim.Acquired claim) {
+            super(delegate);
+            this.claim = claim;
         }
 
         @Override
         public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
-            return DataBufferUtils.join(body)
-                    .flatMap(dataBuffer -> {
-                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                        dataBuffer.read(bytes);
-                        DataBufferUtils.release(dataBuffer);
-                        this.capturedBody = bytes;
-                        this.capturedContentType = getHeaders().getContentType();
-                        return super.writeWith(Mono.just(bufferFactory().wrap(bytes)));
+            return DataBufferUtils.join(Flux.from(body))
+                    .map(buffer -> {
+                        byte[] bytes = new byte[buffer.readableByteCount()];
+                        buffer.read(bytes);
+                        DataBufferUtils.release(buffer);
+                        return bytes;
+                    })
+                    .defaultIfEmpty(new byte[0])
+                    .flatMap(bytes -> settle(bytes)
+                            .then(Mono.defer(() -> super.writeWith(Mono.just(bufferFactory().wrap(bytes))))));
+        }
+
+        @Override
+        public Mono<Void> writeAndFlushWith(Publisher<? extends Publisher<? extends DataBuffer>> body) {
+            return writeWith(Flux.from(body).concatMap(Flux::from));
+        }
+
+        @Override
+        public Mono<Void> setComplete() {
+            return settle(new byte[0]).then(Mono.defer(super::setComplete));
+        }
+
+        Mono<Void> settle(byte[] body) {
+            if (!settled.compareAndSet(false, true)) {
+                return Mono.empty();
+            }
+            HttpStatusCode status = getStatusCode();
+            if (status == null || !status.is2xxSuccessful()) {
+                return releaseOnce();
+            }
+            HttpHeaders headers = getHeaders();
+            MediaType contentType = headers.getContentType();
+            StoredResponse stored = new StoredResponse(status.value(),
+                    contentType != null ? contentType.toString() : null,
+                    headers.getFirst(HttpHeaders.LOCATION), body);
+            return idempotencyService.complete(claim, stored)
+                    // The response is still sent. The key stays held until its lease ends: a retry is answered
+                    // 409 until then, and afterwards processed again.
+                    .onErrorResume(e -> {
+                        log.error("Could not store the response of an idempotency key: {}", e.toString());
+                        return Mono.empty();
                     });
         }
-    }
 
-    /**
-     * One idempotent request through the filter: its scoped cache key, the key's fingerprint for the logs,
-     * the hash of its body and the instant (on {@link System#nanoTime()}) after which a waiter answers 409.
-     */
-    private record Attempt(String scopedKey, String keyFingerprint, String bodyHash, long deadlineNanos) {}
-
-    /**
-     * A cached response. The body is compared by content and never printed: it may hold a credential
-     * offer or a directly-delivered signed credential.
-     */
-    private record CachedResponse(String bodyHash, HttpStatusCode status, String locationHeader, byte[] body,
-                                  MediaType contentType) {
-
-        @Override
-        public boolean equals(Object other) {
-            return other instanceof CachedResponse(var thatHash, var thatStatus, var thatLocation, var thatBody,
-                                                   var thatContentType)
-                    && Objects.equals(bodyHash, thatHash)
-                    && Objects.equals(status, thatStatus)
-                    && Objects.equals(locationHeader, thatLocation)
-                    && Arrays.equals(body, thatBody)
-                    && Objects.equals(contentType, thatContentType);
+        Mono<Void> release() {
+            return settled.compareAndSet(false, true) ? releaseOnce() : Mono.empty();
         }
 
-        @Override
-        public int hashCode() {
-            return 31 * Objects.hash(bodyHash, status, locationHeader, contentType) + Arrays.hashCode(body);
-        }
-
-        @Override
-        public String toString() {
-            return "CachedResponse[status=" + status + ", body=" + (body == null ? 0 : body.length)
-                    + " bytes, redacted]";
+        private Mono<Void> releaseOnce() {
+            return idempotencyService.release(claim)
+                    .onErrorResume(e -> {
+                        log.warn("Could not free an idempotency key: {}", e.toString());
+                        return Mono.empty();
+                    });
         }
     }
 }

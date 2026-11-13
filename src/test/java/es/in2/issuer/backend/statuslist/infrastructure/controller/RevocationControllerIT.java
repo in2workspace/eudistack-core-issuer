@@ -130,6 +130,10 @@ class RevocationControllerIT {
         registry.add("spring.r2dbc.password", POSTGRES::getPassword);
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("credential.profiles.path", () -> "classpath:test-credential-profiles");
+        // EUD-269: these tests send more than 30 revocations of one person within a minute, and test the
+        // revocation, not its volume limit (ApiVolumeLimitHttpIT does).
+        registry.add("issuer.api.volume-limit.revocation.per-person", () -> "1000000");
+        registry.add("issuer.api.volume-limit.revocation.systems-per-organization", () -> "1000000");
     }
 
     private static Connection jdbc() throws SQLException {

@@ -54,6 +54,16 @@ public class IssuanceMetrics {
                 .increment();
     }
 
+    /** A request rejected by the volume limit of its operation (EUD-269); the requester kind, never who. */
+    public void recordVolumeLimitRejection(String operation, String requesterKind) {
+        Counter.builder("api.volume_limit.rejections")
+                .tag(TAG_TENANT, currentTenant())
+                .tag("operation", operation)
+                .tag("requester_kind", requesterKind)
+                .register(meterRegistry)
+                .increment();
+    }
+
     public void recordTokenRequest(String grantType, String outcome) {
         Counter.builder("oid4vci.token.requests")
                 .tag(TAG_TENANT, currentTenant())
