@@ -104,6 +104,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return requireResolvedTenant()
                 .then(Mono.defer(() -> validateRequest(request)))
+                .then(Mono.defer(() -> requireTypeEnabled(configId)))
                 .then(Mono.fromSupplier(() -> prepared(request)))
                 .flatMap(prepared -> payloadSchemaValidator.validate(configId, prepared.request().payload())
                         .then(Mono.defer(() -> powerAuthorizationService.authorizeIssuance(processId, configId,
@@ -230,6 +231,20 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     "Unknown credential_configuration_id: " + request.credentialConfigurationId()));
         }
         return Mono.empty();
+    }
+
+    /**
+     * EUD-254 FR-07 and §3: a type the tenant has not enabled is unsupported, like an unknown one, and is
+     * rejected before the schema and the permission. It is the catalog that decides which types a tenant
+     * issues, not the caller's powers (EUD-253 1.0.0 retired its AC-15). Bootstrap issuance keeps its own
+     * check, the 409 of the eligible delivery modes.
+     */
+    private Mono<Void> requireTypeEnabled(String configId) {
+        return tenantCredentialProfileService.isProfileAllowed(configId)
+                .flatMap(enabled -> Boolean.TRUE.equals(enabled)
+                        ? Mono.<Void>empty()
+                        : Mono.error(new CredentialTypeUnsupportedException(
+                                "credential_configuration_id is not enabled in the tenant: " + configId)));
     }
 
     /**

@@ -20,7 +20,6 @@ import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
@@ -62,7 +61,6 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
 
     private final AuthorizationMatrixProvider matrixProvider;
     private final CallerProvider callerProvider;
-    private final TenantCredentialProfileService tenantCredentialProfileService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
@@ -169,11 +167,10 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         }
         trace.action(String.join(",", actionIds));
 
-        return requireTypeEnabled(credentialConfigurationId, trace)
-                .then(Mono.fromSupplier(() -> {
-                    permit(trace);
-                    return new IssuanceAuthorization(recognized, organization, actionIds);
-                }));
+        // Whether the tenant issues the type is the catalog's decision, checked by the issuance before
+        // the schema and this decision (EUD-254 §3; EUD-253 1.0.0 retired its AC-15).
+        permit(trace);
+        return Mono.just(new IssuanceAuthorization(recognized, organization, actionIds));
     }
 
     /**
@@ -354,18 +351,6 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             throw new TenantMismatchException("Token tenant '" + tokenTenant
                     + "' does not match tenant header '" + tenant + "'");
         }
-    }
-
-    /** FR-07: only the types enabled in the tenant are issued. */
-    private Mono<Void> requireTypeEnabled(String credentialConfigurationId, Trace trace) {
-        return tenantCredentialProfileService.isProfileAllowed(credentialConfigurationId)
-                .flatMap(allowed -> {
-                    if (Boolean.TRUE.equals(allowed)) {
-                        return Mono.empty();
-                    }
-                    return Mono.error(deny(trace, Reason.CREDENTIAL_TYPE_NOT_ENABLED,
-                            "credential type " + credentialConfigurationId + " is not enabled in the tenant"));
-                });
     }
 
     /** The tenant of the request, set from {@code X-Tenant} by {@code TenantDomainWebFilter} (FR-01). */

@@ -107,6 +107,9 @@ class DirectDeliveryCeilingTest {
         // Rejection happens before the direct leg ever runs (the ceiling check is upstream of
         // performIssuanceFlow), so this collaborator is never exercised by these tests.
         HolderDidFallbackAuditor holderDidFallbackAuditor = mock(HolderDidFallbackAuditor.class);
+        // The type is enabled in the tenant: the rejection under test is the ceiling's, which comes after.
+        TenantCredentialProfileService tenantCredentialProfileService = mock(TenantCredentialProfileService.class);
+        when(tenantCredentialProfileService.isProfileAllowed(any())).thenReturn(Mono.just(true));
 
         // The two gates the ceiling check runs after: both must clear for the request to reach
         // SchemaDeliveryCeiling at all. Real objects have nothing to say here -- they are the
@@ -133,7 +136,7 @@ class DirectDeliveryCeilingTest {
                 issuanceProperties,
                 schemaDeliveryCeiling,
                 holderDidFallbackAuditor,
-                mock(TenantCredentialProfileService.class)
+                tenantCredentialProfileService
         );
 
         UrlResolver urlResolver = mock(UrlResolver.class);

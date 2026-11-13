@@ -14,7 +14,6 @@ import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.policy.service.impl.PowerAuthorizationServiceImpl;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
 import es.in2.issuer.backend.shared.infrastructure.config.security.JwtCallerProvider;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
@@ -71,7 +70,7 @@ class AccessTokenServiceImplBranchesTest {
         // The real decision point with the bundled matrix: role resolution is the matrix's recognition.
         PowerAuthorizationServiceImpl pdp = new PowerAuthorizationServiceImpl(
                 new FileAuthorizationMatrixProvider("", mock(AuditService.class)), callerProvider,
-                mock(TenantCredentialProfileService.class), mock(AuditService.class), objectMapper);
+                mock(AuditService.class), objectMapper);
         service = new AccessTokenServiceImpl(objectMapper, appConfig, tenantRegistryService, callerProvider, pdp);
     }
 
