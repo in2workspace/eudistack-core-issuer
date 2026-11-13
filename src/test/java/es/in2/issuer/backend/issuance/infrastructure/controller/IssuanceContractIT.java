@@ -64,7 +64,6 @@ class IssuanceContractIT extends PostgresIntegrationBase {
     private static final String OTHER_ORGANIZATION = "VATES-B22222222";
     private static final String ISSUANCES = "/api/v1/issuances";
     private static final String CATALOG = "/api/v1/attestation-catalog";
-    private static final String DOCTORID = "doctorid.sd.1";
 
     /** The tenant's DoctorID entry: email and ui, dates settable by the requester up to 365 days. */
     private static final String DOCTORID_ENTRY = """
