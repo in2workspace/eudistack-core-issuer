@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.util.TenantIdentifiers;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -44,7 +45,15 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.PROMET
  */
 @Slf4j
 @Component
+@Order(TenantDomainWebFilter.ORDER)
 public class TenantDomainWebFilter implements WebFilter {
+
+    /**
+     * Explicit, after Spring Security's chain (-100) as before, so the web filters that read the tenant's
+     * schema -- the volume limit and the idempotency of the management APIs (EUD-269) -- can be ordered
+     * after it. Without an order it ran last, and its position against them was undefined.
+     */
+    public static final int ORDER = 0;
 
     static final Pattern TENANT_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
 
