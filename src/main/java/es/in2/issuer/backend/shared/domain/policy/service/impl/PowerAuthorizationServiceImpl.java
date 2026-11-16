@@ -462,7 +462,23 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             return with("securityAction", recognized.securityAction());
         }
 
-        /** What a refusal is called in the catalogue; empty for one that is not a decision by powers. */        private static Optional<String> catalogueReasonOf(String code) {            if ("tenant_mismatch".equals(code)) {                return Optional.of(AuthorizationAuditEvents.REASON_TENANT_MISMATCH);            }            if (RESOURCE_OUT_OF_SCOPE.equals(code)) {                return Optional.of(AuthorizationAuditEvents.REASON_OUT_OF_SCOPE);            }            if (Reason.PLATFORM_TENANT_READ_ONLY.getCode().equals(code)) {                return Optional.of(AuthorizationAuditEvents.REASON_PLATFORM_TENANT_READ_ONLY);            }            if (POWER_ALIAS_CONFLICT.equals(code) || Reason.AUTHORIZATION_RULE_MISSING.getCode().equals(code)                    || Reason.CREDENTIAL_TYPE_NOT_ENABLED.getCode().equals(code)) {                return Optional.empty();            }            return Optional.of(AuthorizationAuditEvents.REASON_POWER_MISSING);        }
+        /** What a refusal is called in the catalogue; empty for one that is not a decision by powers. */
+        private static Optional<String> catalogueReasonOf(String code) {
+            if ("tenant_mismatch".equals(code)) {
+                return Optional.of(AuthorizationAuditEvents.REASON_TENANT_MISMATCH);
+            }
+            if (RESOURCE_OUT_OF_SCOPE.equals(code)) {
+                return Optional.of(AuthorizationAuditEvents.REASON_OUT_OF_SCOPE);
+            }
+            if (Reason.PLATFORM_TENANT_READ_ONLY.getCode().equals(code)) {
+                return Optional.of(AuthorizationAuditEvents.REASON_PLATFORM_TENANT_READ_ONLY);
+            }
+            if (POWER_ALIAS_CONFLICT.equals(code) || Reason.AUTHORIZATION_RULE_MISSING.getCode().equals(code)
+                    || Reason.CREDENTIAL_TYPE_NOT_ENABLED.getCode().equals(code)) {
+                return Optional.empty();
+            }
+            return Optional.of(AuthorizationAuditEvents.REASON_POWER_MISSING);
+        }
 
         void denied(String code) {
             this.deniedWith = code;
