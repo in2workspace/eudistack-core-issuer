@@ -279,8 +279,13 @@ public class BitstringStatusListProvider implements StatusListProvider {
                         "No seal obtained for statusListId=" + row.id())))
                 .onErrorResume(error -> stagePublicationFailure(row.id(), listUri, REASON_SIGNING_FAILED)
                         .then(Mono.<String>error(error)))
-                .flatMap(signedJwt -> commitSealedList(row, updatedRow, listUri, idx, issuanceId, signedJwt,
-                        statusChange, notTheList));
+                .flatMap(signedJwt -> commitSealedList(
+                        new SealedList(row, updatedRow, listUri, idx, issuanceId, signedJwt), statusChange, notTheList));
+    }
+
+    /** What is committed once the new version of the list is sealed. */
+    private record SealedList(StatusList row, StatusList updatedRow, String listUri, Integer idx, String issuanceId,
+                              String signedJwt) {
     }
 
     /**
@@ -288,9 +293,13 @@ public class BitstringStatusListProvider implements StatusListProvider {
      * the event goes in a transaction of its own, and asking for a second connection while the first is held
      * could exhaust the pool when many revocations fail together.
      */
-    private Mono<Void> commitSealedList(StatusList row, StatusList updatedRow, String listUri, Integer idx,
-                                        String issuanceId, String signedJwt, Mono<Void> statusChange,
-                                        AtomicBoolean notTheList) {
+    private Mono<Void> commitSealedList(SealedList sealed, Mono<Void> statusChange, AtomicBoolean notTheList) {
+        StatusList row = sealed.row();
+        StatusList updatedRow = sealed.updatedRow();
+        String listUri = sealed.listUri();
+        Integer idx = sealed.idx();
+        String issuanceId = sealed.issuanceId();
+        String signedJwt = sealed.signedJwt();
         AtomicBoolean updateFailed = new AtomicBoolean();
         return transactionalOperator.transactional(
                         statusListRepository.updateSignedAndEncodedIfUnchanged(

@@ -603,9 +603,29 @@ public class RevocationWorkflow {
     }
 
     private Optional<String> catalogueReasonOf(Throwable error, Issuance issuance, boolean statusListFailed) {
+        Optional<String> refusal = refusalReasonOf(error, issuance);
+        if (refusal.isPresent()) {
+            return refusal;
+        }
+        // A StatusListUnavailableException is also what a failure of the process update is reported as to the
+        // caller: only the list's own failure counts.
+        return statusListFailed ? Optional.of(REASON_STATUS_LIST_UNAVAILABLE) : Optional.empty();
+    }
+
+    /** The catalogue reason of a refusal of the request itself, as opposed to a failure while carrying it out. */
+    private static Optional<String> refusalReasonOf(Throwable error, Issuance issuance) {
         if (error instanceof IssuanceNotFoundException) {
             return Optional.of(REASON_ISSUANCE_NOT_FOUND);
         }
+        if (error instanceof InsufficientPermissionException || error instanceof UnauthorizedRoleException
+                || error instanceof TenantMismatchException) {
+            return Optional.of(REASON_POLICY_DENIED);
+        }
+        return statusRefusalReasonOf(error, issuance);
+    }
+
+    /** A process that is already revoked or is not in a status that can be revoked. */
+    private static Optional<String> statusRefusalReasonOf(Throwable error, Issuance issuance) {
         if (error instanceof AlreadyRevokedException) {
             return Optional.of(REASON_ALREADY_REVOKED);
         }
@@ -619,15 +639,7 @@ public class RevocationWorkflow {
             boolean alreadyRevoked = issuance != null && issuance.getCredentialStatus() == CredentialStatusEnum.REVOKED;
             return Optional.of(alreadyRevoked ? REASON_ALREADY_REVOKED : REASON_NOT_REVOCABLE);
         }
-        if (error instanceof InsufficientPermissionException || error instanceof UnauthorizedRoleException
-                || error instanceof TenantMismatchException) {
-            return Optional.of(REASON_POLICY_DENIED);
-        }
-        if (error instanceof StatusListUnavailableException) {
-            // Also what a failure of the process update is reported as to the caller: only the list's own failure counts.
-            return statusListFailed ? Optional.of(REASON_STATUS_LIST_UNAVAILABLE) : Optional.empty();
-        }
-        return statusListFailed ? Optional.of(REASON_STATUS_LIST_UNAVAILABLE) : Optional.empty();
+        return Optional.empty();
     }
 
     /** The holder is only reported once the process was resolved; an unknown process has none to give. */

@@ -39,7 +39,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
         return this;
     }
 
-    private Mono<Void> record(List<AuditEntry> target, AuditEntry entry) {
+    private Mono<Void> capture(List<AuditEntry> target, AuditEntry entry) {
         return Mono.deferContextual(ctx -> requireContext && !ctx.hasKey(SCOPE_KEY)
                 ? Mono.error(new IllegalStateException("NO_CONTEXT"))
                 : Mono.fromRunnable(() -> target.add(entry)));
@@ -55,7 +55,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
         if (failOnStage) {
             return Mono.error(new IllegalStateException("outbox unavailable"));
         }
-        return record(staged, entry);
+        return capture(staged, entry);
     }
 
     @Override
@@ -63,7 +63,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
         if (failOnNewTransaction) {
             return Mono.error(new IllegalStateException("outbox unavailable"));
         }
-        return record(stagedInNewTransaction, entry);
+        return capture(stagedInNewTransaction, entry);
     }
 
     @Override
