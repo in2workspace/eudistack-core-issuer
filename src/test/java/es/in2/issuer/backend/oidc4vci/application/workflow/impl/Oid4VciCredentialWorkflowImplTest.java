@@ -428,19 +428,23 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     @Test
-    void createCredentialResponse_signatureWithoutAJwsHeader_stagesNoCompletionAndStillAnswers() {
+    void createCredentialResponse_signatureWithoutAJwsHeader_stagesTheCompletionWithoutTheCertificateAndStillAnswers() {
         // Arrange
         Issuance issuance = buildProcedure(JWT_VC_JSON);
 
         // Act
         StepVerifier.create(credentialRequestFor(issuance)).expectNextCount(1).verifyComplete();
 
-        // Assert
-        assertThat(auditTrail.all()).isEmpty();
+        // Assert: the delivery is reported; what cannot be learned from a signature that is not a JWS is left out
+        assertThat(auditTrail.all()).hasSize(1);
+        AuditEntry entry = auditTrail.all().getFirst();
+        assertThat(entry.type()).isEqualTo(AuditEventType.ISSUANCE_COMPLETED);
+        assertThat(entry.details()).doesNotContainKeys("signing_certificate", "signature_algorithm")
+                .containsKey("attestation_hash");
     }
 
     @Test
-    void createCredentialResponse_issuerOrganizationUnknown_stagesNoCompletionAndStillAnswers() {
+    void createCredentialResponse_issuerOrganizationUnknown_stagesTheCompletionWithoutTheProviderAndStillAnswers() {
         // Arrange
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         lenient().when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
@@ -451,8 +455,12 @@ class Oid4VciCredentialWorkflowImplTest {
         // Act
         StepVerifier.create(credentialRequestFor(issuance)).expectNextCount(1).verifyComplete();
 
-        // Assert
-        assertThat(auditTrail.all()).isEmpty();
+        // Assert: the delivery is reported without the provider the Issuer could not learn
+        assertThat(auditTrail.all()).hasSize(1);
+        AuditEntry entry = auditTrail.all().getFirst();
+        assertThat(entry.type()).isEqualTo(AuditEventType.ISSUANCE_COMPLETED);
+        assertThat(entry.details()).doesNotContainKeys("provider_legal_name", "provider_registration_id")
+                .containsKey("signing_certificate");
     }
 
     private static String signedJws() {

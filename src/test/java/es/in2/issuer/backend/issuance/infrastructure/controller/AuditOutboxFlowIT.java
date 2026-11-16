@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.infrastructure.audit;
+package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;

@@ -118,6 +118,8 @@ class Oid4VciCredentialWorkflowImplBranchesTest {
                 new HolderDidFallbackAuditor(auditService), auditService, new NoOpAuditTrailAdapter(),
                 new IssuanceCompletionRecorder(new NoOpAuditTrailAdapter(), tenantSigningConfigService, issuerCertificateService),
                 passThroughTransactions());
+        // The completion is always reported now, so the recorder looks the provider up: none here
+        lenient().when(tenantSigningConfigService.getActiveSigningConfig()).thenReturn(Mono.empty());
         lenient().when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL))
                 .thenReturn(Mono.just(metadataWithProofTypes(Map.of("jwt",
                         CredentialProfile.ProofTypeConfig.builder()
