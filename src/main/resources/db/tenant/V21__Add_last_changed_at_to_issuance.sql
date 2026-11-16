@@ -1,5 +1,5 @@
 -- =============================================================================
--- V20__Add_last_changed_at_to_issuance.sql
+-- V21__Add_last_changed_at_to_issuance.sql
 -- EUD-255 design 1.1, AD-2 and §5: the issuance process gets its own "last
 -- change" -- its creation or its last change of state -- which the query API
 -- orders and paginates by, and returns as `updated`. updated_at is not reused:

@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * EUD-255 AD-2 against a real Postgres: {@code V20__Add_last_changed_at_to_issuance.sql} backfills
+ * EUD-255 AD-2 against a real Postgres: {@code V21__Add_last_changed_at_to_issuance.sql} backfills
  * existing rows and makes the column mandatory with its two indexes, and the application sets it on
  * creation and on every change of state, but not on a technical write.
  */

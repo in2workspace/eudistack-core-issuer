@@ -66,7 +66,7 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
 
     /**
      * Keyset pagination (EUD-255 AD-1) with the row comparison {@code (last_changed_at, issuance_id) <
-     * cursor}, which the indexes of V20 serve in the order of the {@code ORDER BY}. Every value is a
+     * cursor}, which the indexes of V21 serve in the order of the {@code ORDER BY}. Every value is a
      * bind parameter; only the shape of the statement depends on which filters are present.
      */
     @Override
