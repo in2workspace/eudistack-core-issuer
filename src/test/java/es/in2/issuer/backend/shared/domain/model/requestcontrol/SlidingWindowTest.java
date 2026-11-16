@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,7 +22,7 @@ class SlidingWindowTest {
     }
 
     @Test
-    void buckets_areOneSecond_andTheWindowReadsTheLastMinutePlusTheCurrentBucket() {
+    void buckets_areOneSecond_andTheWindowReadsFromTheBucketLeavingIt() {
         assertThat(MINUTE.bucket()).isEqualTo(Duration.ofSeconds(1));
         assertThat(MINUTE.currentBucket(NOW)).isEqualTo(second(30));
         assertThat(MINUTE.oldestCountedBucket(NOW)).isEqualTo(second(-30));
@@ -41,8 +42,8 @@ class SlidingWindowTest {
 
         assertThat(decision.allowed()).isFalse();
         assertThat(decision.limit()).isEqualTo(300);
-        // The bucket [30 s, 31 s) stops counting at 91 s: 60.5 s from now.
-        assertThat(decision.retryAfterSeconds()).isEqualTo(61);
+        // The 300 of [30 s, 31 s) leave the window during [90 s, 91 s); at 90.001 s only 299 remain: 59.5 s from now.
+        assertThat(decision.retryAfterSeconds()).isEqualTo(60);
     }
 
     @Test
@@ -53,9 +54,38 @@ class SlidingWindowTest {
         VolumeLimitDecision decision = MINUTE.decide(buckets, 300, NOW);
 
         assertThat(decision.allowed()).isFalse();
-        // When the bucket of -10 s leaves the window (at 51 s), 151 remain: 20.5 s from now.
-        assertThat(decision.retryAfterSeconds()).isEqualTo(21);
+        // The bucket of -10 s leaves the window during [50 s, 51 s): at 50.001 s, 149 of it and 150 remain.
+        assertThat(decision.retryAfterSeconds()).isEqualTo(20);
         assertThat(MINUTE.decide(Map.of(second(-10), 150L, second(20), 150L), 300, NOW).allowed()).isTrue();
+    }
+
+    @Test
+    void decide_theWindowIsSixtySecondsNotSixtyOne_soASteadyFlowAtTheLimitIsNeverRejected() {
+        // 5 per second (300 a minute) at 0.1, 0.3, 0.5, 0.7 and 0.9 of each second, for three minutes.
+        Map<Instant, Long> buckets = new HashMap<>();
+        int rejected = 0;
+        for (int second = 0; second < 180; second++) {
+            for (int i = 0; i < 5; i++) {
+                Instant at = MINUTE_START.plusMillis(second * 1000L + 100 + i * 200L);
+                Instant bucket = MINUTE.currentBucket(at);
+                buckets.merge(bucket, 1L, Long::sum);
+                if (!MINUTE.decide(buckets, 300, at).allowed()) {
+                    rejected++;
+                    buckets.merge(bucket, -1L, Long::sum);
+                }
+            }
+        }
+
+        assertThat(rejected).isZero();
+    }
+
+    @Test
+    void decide_theOutgoingBucket_countsByThePartStillInsideTheWindow() {
+        // At 30.5 s the bucket of -30 s is half inside the window (-29.5 s, 30.5 s].
+        Map<Instant, Long> buckets = Map.of(second(-30), 100L, second(0), 250L, second(30), 1L);
+
+        assertThat(MINUTE.decide(buckets, 301, NOW).allowed()).isTrue();
+        assertThat(MINUTE.decide(buckets, 300, NOW).allowed()).isFalse();
     }
 
     @Test

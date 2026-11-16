@@ -127,6 +127,19 @@ class VolumeLimitServiceImplTest {
     }
 
     @Test
+    void check_aRejectionStands_whenItCannotBeTakenBackFromTheCounter() {
+        counted(31);
+        when(counterStore.undo(anyString(), any())).thenReturn(Mono.error(new IllegalStateException("db down")));
+
+        StepVerifier.create(check(ApiOperation.ISSUANCE, Requester.person("sandbox", ORG, "pseudonym")))
+                .assertNext(decision -> {
+                    assertThat(decision.allowed()).isFalse();
+                    assertThat(decision.retryAfterSeconds()).isPositive();
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void check_theSystemsOfAnOrganization_haveTheOrganizationLimit() {
         counted(300);
         when(tenantConfigService.getString(OVERRIDE_KEY)).thenReturn(Mono.empty());
@@ -211,7 +224,8 @@ class VolumeLimitServiceImplTest {
 
     @Test
     void check_aCounterOverItsLimit_isRejectedFromMemoryUntilItsRetryAfter_withoutTouchingTheDatabase() {
-        // 31 in the current second over a limit of 30: one more fits when this second leaves the window.
+        // 31 in the second that has just started, over a limit of 30: one more fits once 1 of its 30 has left the
+        // window, just after the second starts leaving it (60.001 s from now).
         counted(31);
         Requester ana = Requester.person("sandbox", ORG, "pseudonym");
         StepVerifier.create(check(ApiOperation.ISSUANCE, ana))

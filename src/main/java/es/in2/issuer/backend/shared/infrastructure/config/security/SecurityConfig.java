@@ -2,7 +2,6 @@ package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import es.in2.issuer.backend.apiclient.infrastructure.security.IntakeCallerAuthorizationFilter;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.infrastructure.config.RateLimitFilter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -15,7 +14,6 @@ import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.authentication.AuthenticationWebFilter;
-import org.springframework.security.web.server.authentication.WebFilterChainServerAuthenticationSuccessHandler;
 import org.springframework.security.web.server.authentication.ServerAuthenticationEntryPointFailureHandler;
 import org.springframework.security.web.server.header.ReferrerPolicyServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.XFrameOptionsServerHttpHeadersWriter;
@@ -65,13 +63,6 @@ public class SecurityConfig {
         );
 
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
-        // EUD-269: marks the exchange as authenticated, so RateLimitFilter counts per address only the requests
-        // that end without a verified credential, whatever their status.
-        WebFilterChainServerAuthenticationSuccessHandler continueChain = new WebFilterChainServerAuthenticationSuccessHandler();
-        authenticationWebFilter.setAuthenticationSuccessHandler((webFilterExchange, authentication) -> {
-            webFilterExchange.getExchange().getAttributes().put(RateLimitFilter.AUTHENTICATED_ATTRIBUTE, Boolean.TRUE);
-            return continueChain.onAuthenticationSuccess(webFilterExchange, authentication);
-        });
         authenticationWebFilter.setAuthenticationFailureHandler(new ServerAuthenticationEntryPointFailureHandler(entryPoint));
         return authenticationWebFilter;
     }

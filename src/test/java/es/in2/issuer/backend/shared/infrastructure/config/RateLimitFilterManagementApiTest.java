@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
@@ -15,13 +16,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * EUD-269: the issuance, revocation and query APIs have the volume limit of their requester instead of the
- * per-address one; there only the requests that end without a verified credential are limited per address.
- * Every other route keeps the per-address limit.
+ * per-address one; there every request the volume limit did not count is limited per address. Every other route
+ * keeps the per-address limit.
  */
 class RateLimitFilterManagementApiTest {
 
-    private static final WebFilterChain AUTHENTICATED = exchange -> {
-        exchange.getAttributes().put(RateLimitFilter.AUTHENTICATED_ATTRIBUTE, Boolean.TRUE);
+    /** A valid token counted in the volume limit of its requester. */
+    private static final WebFilterChain COUNTED = exchange -> {
+        exchange.getAttributes().put(ApiVolumeLimitFilter.COUNTED_ATTRIBUTE, Boolean.TRUE);
+        return Mono.empty();
+    };
+
+    /** A valid token with no requester (another tenant in X-Tenant): the decision point answers 403. */
+    private static final WebFilterChain AUTHENTICATED_NOT_COUNTED = exchange -> {
+        exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
         return Mono.empty();
     };
 
@@ -35,9 +43,16 @@ class RateLimitFilterManagementApiTest {
     }
 
     private static MockServerWebExchange post(String path, String bearer, String forwardedFor) {
-        MockServerHttpRequest.BodyBuilder request = MockServerHttpRequest.post("/issuer" + path).contextPath("/issuer")
+        return request(HttpMethod.POST, path, bearer, forwardedFor, "a");
+    }
+
+    private static MockServerWebExchange request(HttpMethod method, String path, String bearer, String forwardedFor,
+                                                 String tenant) {
+        MockServerHttpRequest.BodyBuilder request = MockServerHttpRequest.method(method, "/issuer" + path)
+                .contextPath("/issuer")
                 .remoteAddress(new java.net.InetSocketAddress("10.0.0.1", 1234))
-                .header("X-Forwarded-For", forwardedFor);
+                .header("X-Forwarded-For", forwardedFor)
+                .header("X-Tenant", tenant);
         if (bearer != null) {
             request.header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer);
         }
@@ -45,12 +60,12 @@ class RateLimitFilterManagementApiTest {
     }
 
     @Test
-    void theManagementApis_doNotLimitByAddressTheAuthenticatedRequests() {
+    void theManagementApis_doNotLimitByAddressTheRequestsCountedByTheirRequester() {
         RateLimitFilter filter = new RateLimitFilter(1);
         AtomicInteger calls = new AtomicInteger();
         WebFilterChain chain = exchange -> {
             calls.incrementAndGet();
-            return AUTHENTICATED.filter(exchange);
+            return COUNTED.filter(exchange);
         };
 
         for (int i = 0; i < 3; i++) {
@@ -101,7 +116,7 @@ class RateLimitFilterManagementApiTest {
     void aFloodOfInvalidTokensNamingAnotherAddress_doesNotLockOutACredentialThatAlreadyAuthenticated() {
         RateLimitFilter filter = new RateLimitFilter(2);
         String victim = "203.0.113.7";
-        StepVerifier.create(filter.filter(post("/api/v1/issuances", "valid-token", victim), AUTHENTICATED))
+        StepVerifier.create(filter.filter(post("/api/v1/issuances", "valid-token", victim), COUNTED))
                 .verifyComplete();
 
         for (int i = 0; i < 3; i++) {
@@ -110,11 +125,44 @@ class RateLimitFilterManagementApiTest {
         }
         MockServerWebExchange stillValid = post("/api/v1/issuances", "valid-token", victim);
         MockServerWebExchange forged = post("/api/v1/issuances", "forged-9", victim);
-        StepVerifier.create(filter.filter(stillValid, AUTHENTICATED)).verifyComplete();
+        StepVerifier.create(filter.filter(stillValid, COUNTED)).verifyComplete();
         StepVerifier.create(filter.filter(forged, UNAUTHENTICATED)).verifyComplete();
 
         assertThat(stillValid.getResponse().getStatusCode()).isNull();
         assertThat(forged.getResponse().getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    void aValidTokenOfAnotherTenant_isLimitedByAddress() {
+        RateLimitFilter filter = new RateLimitFilter(100);
+        // Counted once for its own tenant: that does not let it through for another one.
+        StepVerifier.create(filter.filter(request(HttpMethod.POST, "/api/v1/issuances", "token-a", "10.0.0.9", "a"),
+                COUNTED)).verifyComplete();
+
+        for (int i = 0; i < 100; i++) {
+            MockServerWebExchange exchange = request(HttpMethod.POST, "/api/v1/issuances", "token-a", "10.0.0.9", "b");
+            StepVerifier.create(filter.filter(exchange, AUTHENTICATED_NOT_COUNTED)).verifyComplete();
+            assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        }
+        MockServerWebExchange over = request(HttpMethod.POST, "/api/v1/issuances", "token-a", "10.0.0.9", "b");
+        StepVerifier.create(filter.filter(over, AUTHENTICATED_NOT_COUNTED)).verifyComplete();
+
+        assertThat(over.getResponse().getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    void aRouteWithoutOperation_isLimitedByAddress_evenWithAValidToken() {
+        RateLimitFilter filter = new RateLimitFilter(2);
+        WebFilterChain served = exchange -> Mono.empty();
+
+        for (HttpMethod method : new HttpMethod[] {HttpMethod.PUT, HttpMethod.DELETE}) {
+            StepVerifier.create(filter.filter(request(method, "/api/v1/issuances/abc", "token-a", "10.0.0.8", "a"),
+                    served)).verifyComplete();
+        }
+        MockServerWebExchange third = request(HttpMethod.PUT, "/api/v1/issuances/abc", "token-a", "10.0.0.8", "a");
+        StepVerifier.create(filter.filter(third, served)).verifyComplete();
+
+        assertThat(third.getResponse().getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
 
     @Test

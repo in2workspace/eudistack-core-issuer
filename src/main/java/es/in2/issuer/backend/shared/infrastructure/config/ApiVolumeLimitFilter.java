@@ -25,7 +25,8 @@ import java.util.Optional;
  *
  * <p>Runs after authentication, since the limit depends on who sends the request, and after
  * {@link TenantDomainWebFilter}, since the counters live in the tenant's schema. A request that names no
- * organization is not counted: it is rejected downstream on its own merits. If the counters cannot be
+ * organization is not counted here: it is rejected downstream on its own merits, and {@link RateLimitFilter}
+ * counts it per address ({@link #COUNTED_ATTRIBUTE}). If the counters cannot be
  * read, the request goes on (fail open) and the failure is logged: the limit protects the API, it must not
  * take it down.
  *
@@ -37,6 +38,14 @@ public class ApiVolumeLimitFilter implements WebFilter, Ordered {
 
     /** After {@link TenantDomainWebFilter}, before {@link IdempotencyFilter}: a replay is counted too. */
     public static final int ORDER = TenantDomainWebFilter.ORDER + 10;
+
+    /**
+     * Exchange attribute set when the request was counted in the volume limit of its requester, allowed or not.
+     * {@link RateLimitFilter} counts per address every request of the management APIs without it: one without a
+     * verified token, but also one with a valid token and no requester (another tenant in {@code X-Tenant}, a
+     * token that names no organization), one of a route with no operation, or one the counters could not take.
+     */
+    public static final String COUNTED_ATTRIBUTE = ApiVolumeLimitFilter.class.getName() + ".counted";
 
     private final RequesterResolver requesterResolver;
     private final VolumeLimitService volumeLimitService;
@@ -68,6 +77,7 @@ public class ApiVolumeLimitFilter implements WebFilter, Ordered {
         return requesterResolver.current()
                 .flatMap(requester -> volumeLimitService.check(operation.get(), requester)
                         .map(decision -> new Outcome(requester, decision)))
+                .doOnNext(counted -> exchange.getAttributes().put(COUNTED_ATTRIBUTE, Boolean.TRUE))
                 .onErrorResume(e -> {
                     log.warn("Volume limit not applied to {}: the counters are unavailable: {}",
                             operation.get().key(), e.toString());
