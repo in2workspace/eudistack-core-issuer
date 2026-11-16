@@ -1,11 +1,13 @@
 package es.in2.issuer.backend.shared.infrastructure.service;
 
 import com.eudistack.auditoria.application.ReactiveAuditPublisher;
+import com.eudistack.auditoria.context.ReactorAuditContextAccessor;
 import com.eudistack.auditoria.context.ReactorAuditContexts;
 import com.eudistack.auditoria.domain.AuditActor;
 import com.eudistack.auditoria.domain.AuditContext;
 import com.eudistack.auditoria.domain.AuditDraft;
 import com.eudistack.auditoria.domain.AuditFact;
+import com.eudistack.auditoria.port.ReactiveAuditContextAccessor;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +18,8 @@ import org.springframework.transaction.ReactiveTransactionManager;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 import reactor.core.publisher.Mono;
+
+import java.util.Optional;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW;
@@ -35,6 +39,7 @@ public class StarterAuditTrailAdapter implements AuditTrailPort {
 
     private final ReactiveAuditPublisher publisher;
     private final TransactionalOperator ownTransaction;
+    private final ReactiveAuditContextAccessor contexts = new ReactorAuditContextAccessor();
 
     public StarterAuditTrailAdapter(ReactiveAuditPublisher publisher, ReactiveTransactionManager transactionManager) {
         this.publisher = publisher;
@@ -70,6 +75,18 @@ public class StarterAuditTrailAdapter implements AuditTrailPort {
             String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
             return tenant.isBlank() ? flow : asSystem(tenant, actorId, flow);
         });
+    }
+
+    @Override
+    public <T> Mono<T> inTenant(String tenant, Mono<T> flow) {
+        // Optional, not switchIfEmpty: a flow that completes empty (a staging) must not run twice.
+        return contexts.current()
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(current -> current
+                        .map(context -> flow.contextWrite(ReactorAuditContexts.with(new AuditContext(
+                                tenant, context.organization(), context.correlationId(), context.actor()))))
+                        .orElse(flow));
     }
 
     @Override

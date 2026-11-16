@@ -46,6 +46,15 @@ public interface AuditTrailPort {
     <T> Mono<T> asSystem(String actorId, Mono<T> flow);
 
     /**
+     * Runs {@code flow} with the audit context of the request but acting on {@code tenant}: the actor, the
+     * organization and the correlation id stay, only the tenant changes. For the one fact that belongs to a
+     * tenant other than the request's, a platform administrator reading a process of a tenant: the tenant that
+     * owns the data sees who read it. The actor is never replaced by the system; with no context to start from,
+     * the flow runs as it is.
+     */
+    <T> Mono<T> inTenant(String tenant, Mono<T> flow);
+
+    /**
      * Runs {@code flow} for the holder of the issuance, in the tenant of the request and under the issuance
      * id as correlation id: for the steps of the holder's exchange that carry no authenticated caller.
      */

@@ -17,6 +17,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
     private final List<String> correlationIds = new ArrayList<>();
     private final List<String> systemScopes = new ArrayList<>();
     private final List<String> holderScopes = new ArrayList<>();
+    private final List<String> tenantScopes = new ArrayList<>();
     private boolean failOnNewTransaction;
     private boolean failOnStage;
     private boolean requireContext;
@@ -76,6 +77,16 @@ public class RecordingAuditTrail implements AuditTrailPort {
             systemScopes.add(actorId);
             return flow.contextWrite(ctx -> ctx.put(SCOPE_KEY, true));
         });
+    }
+
+    @Override
+    public <T> Mono<T> inTenant(String tenant, Mono<T> flow) {
+        return Mono.fromRunnable(() -> tenantScopes.add(tenant)).then(flow);
+    }
+
+    /** The tenant of every {@code inTenant} scope opened, in order. */
+    public List<String> tenantScopes() {
+        return List.copyOf(tenantScopes);
     }
 
     @Override

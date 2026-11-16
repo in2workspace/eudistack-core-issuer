@@ -1,6 +1,10 @@
 package es.in2.issuer.backend.shared.infrastructure.service;
 
 import com.eudistack.auditoria.application.ReactiveAuditPublisher;
+import com.eudistack.auditoria.context.ReactorAuditContextAccessor;
+import com.eudistack.auditoria.context.ReactorAuditContexts;
+import com.eudistack.auditoria.domain.AuditActor;
+import com.eudistack.auditoria.domain.AuditContext;
 import com.eudistack.auditoria.domain.AuditDraft;
 import com.eudistack.auditoria.domain.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
@@ -15,6 +19,8 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -107,5 +113,39 @@ class StarterAuditTrailAdapterTest {
 
         // Act & Assert
         StepVerifier.create(adapter.asHolder("issuance-1", flow)).expectNext("result").verifyComplete();
+    }
+
+    @Test
+    void inTenant_changesOnlyTheTenantOfTheContext_andKeepsTheActorAndTheCorrelation() {
+        // Arrange: a request of the platform administrator, whose context the publisher reads when it stages
+        AuditContext requestContext = new AuditContext("platform", "VATES-ADMIN", "op-1", AuditActor.person("admin-1", "Admin", "admin@example.com"));
+        AtomicReference<AuditContext> seen = new AtomicReference<>();
+        when(publisher.stage(any())).thenReturn(new ReactorAuditContextAccessor().current()
+                .doOnNext(seen::set).then());
+        AuditEntry entry = AuditEntry.success(AuditEventType.ISSUANCE_DETAIL_ACCESSED, "issuance:1", Map.of());
+
+        // Act
+        StepVerifier.create(adapter.inTenant("sandbox", adapter.stageBestEffort(entry))
+                        .contextWrite(ReactorAuditContexts.with(requestContext)))
+                .verifyComplete();
+
+        // Assert
+        assertEquals("sandbox", seen.get().tenant());
+        assertEquals(requestContext.actor(), seen.get().actor());
+        assertEquals("VATES-ADMIN", seen.get().organization());
+        assertEquals("op-1", seen.get().correlationId());
+    }
+
+    @Test
+    void inTenant_withoutAContext_runsTheFlowOnceAsItIs() {
+        // Arrange
+        AtomicInteger runs = new AtomicInteger();
+        Mono<Void> flow = Mono.fromRunnable(runs::incrementAndGet);
+
+        // Act
+        StepVerifier.create(adapter.inTenant("sandbox", flow)).verifyComplete();
+
+        // Assert: a flow that completes empty is not run again as a fallback
+        assertEquals(1, runs.get());
     }
 }

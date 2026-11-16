@@ -159,6 +159,37 @@ class AuditOutboxFlowIT extends PostgresIntegrationBase {
                 .fetch().one().block(Duration.ofSeconds(10))).containsEntry("result", "Denied");
     }
 
+    @Test
+    void platformAdministratorReadsAProcessOfATenant_stagesTheAccessOnceUnderThatTenantAsTheAdministrator() {
+        // Given: a process of the tenant e2e-tenant-a, with its holder in the data set
+        UUID issuanceId = seedIssuance(CredentialStatusEnum.VALID);
+        String adminToken = mintUserAccessToken("platform", "VATES-PLATFORM-ADMIN", List.of(Map.of(
+                        "type", "organization", "domain", "EUDISTACK", "function", "System", "action", List.of("Administration"))),
+                "platform.admin@example.com");
+
+        // When: the administrator reads it from the platform tenant
+        webTestClient().get().uri("/api/v1/issuances/{id}", issuanceId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .header(X_TENANT_HEADER, "platform")
+                .exchange()
+                .expectStatus().isOk();
+
+        // Then: one access, in the tenant that owns the process, never in platform
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(rowsPerType()).containsEntry(DETAIL_ACCESSED, 1L));
+        Map<String, Object> access = databaseClient.sql("SELECT tenant, payload->'actor'->>'id' AS actor_id, "
+                        + "payload->'actor'->>'kind' AS actor_kind, payload->'details'->'holder'->>'email' AS holder_email "
+                        + "FROM public.audit_outbox WHERE event_type = 'IssuanceDetailAccessed'")
+                .fetch().one().block(Duration.ofSeconds(10));
+        assertThat(access).containsEntry("tenant", TENANT)
+                .containsEntry("actor_id", "platform.admin@example.com")
+                .containsEntry("actor_kind", "Person")
+                .containsEntry("holder_email", "holder@example.com");
+        assertThat(databaseClient.sql("SELECT count(*) AS n FROM public.audit_outbox "
+                        + "WHERE event_type = 'IssuanceDetailAccessed' AND tenant = 'platform'")
+                .fetch().one().block(Duration.ofSeconds(10))).containsEntry("n", 0L);
+    }
+
     private void assertOnePerType(Map<String, Long> perType) {
         assertThat(perType.values()).as("an operation never queues two rows of the same type: %s", perType)
                 .allMatch(count -> count == 1L);

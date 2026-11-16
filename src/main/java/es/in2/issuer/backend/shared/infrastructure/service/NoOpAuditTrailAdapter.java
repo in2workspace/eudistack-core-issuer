@@ -40,6 +40,11 @@ public class NoOpAuditTrailAdapter implements AuditTrailPort {
     }
 
     @Override
+    public <T> Mono<T> inTenant(String tenant, Mono<T> flow) {
+        return flow;
+    }
+
+    @Override
     public <T> Mono<T> asHolder(String issuanceId, Mono<T> flow) {
         return flow;
     }
