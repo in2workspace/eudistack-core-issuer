@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.domain.policy;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Who is calling, as its verified access token says: the organization its attestation represents
@@ -32,5 +33,15 @@ public record Caller(
     public Caller(String organizationIdentifier, List<Power> powers, String tokenTenant, String credentialType,
                   String tokenId) {
         this(organizationIdentifier, powers, tokenTenant, credentialType, tokenId, null);
+    }
+
+    /**
+     * A system authenticates with a LEAR machine attestation, a person with an employee one. The access
+     * token names it by its W3C type ({@code LEARCredentialMachine}) or its configuration id
+     * ({@code learcredential.machine.*}).
+     */
+    public boolean isSystem() {
+        String type = credentialType == null ? "" : credentialType.toLowerCase(Locale.ROOT);
+        return type.equals("learcredentialmachine") || type.startsWith("learcredential.machine.");
     }
 }

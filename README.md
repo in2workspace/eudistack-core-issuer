@@ -79,6 +79,10 @@ The Server application of the Issuer needs key environment variables to be confi
 - API_EXTERNAL_DOMAIN
 - API_CACHE_LIFETIME_CREDENTIAL_OFFER: duration in minutes of the Credential Offer
 - REMOTE_SIGNATURE_EXTERNAL_DOMAIN: 
+##### Idempotency and volume limits (EUD-269)
+- ISSUER_IDEMPOTENCY_SECRET: required, at least 32 bytes, the same on every instance (in AWS from SSM, `/eudistack/<env>/config/apps/issuer-core/ISSUER_IDEMPOTENCY_SECRET`). The idempotency keys and volume counters are kept with it; the issuer does not start without it.
+- ISSUER_IDEMPOTENCY_SECRET_ID: id of that secret, 1 to 255 (default 1)
+- ISSUER_IDEMPOTENCY_PREVIOUS_SECRET / ISSUER_IDEMPOTENCY_PREVIOUS_SECRET_ID: optional, the secret before a rotation, kept for the 24 hours of the retention
 #### Example of a typical configuration:
 ```bash
 docker run -d \
@@ -104,6 +108,7 @@ docker run -d \
   -e AUTH_SERVER_CLIENT_PASSWORD=user \
   -e ISSUER_UI_EXTERNAL_DOMAIN=http://localhost:4201 \
   -e REMOTE_SIGNATURE_EXTERNAL_DOMAIN=http://remote-dss.com \
+  -e ISSUER_IDEMPOTENCY_SECRET="$(openssl rand -base64 48)" \
   -p 8081:8080 \
   in2workspace/issuer-api:v1.1.0-SNAPSHOT
 ```
