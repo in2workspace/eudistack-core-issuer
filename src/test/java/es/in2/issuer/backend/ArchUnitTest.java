@@ -44,6 +44,8 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.FlywayConfig",
                     // EUD-272: wires the domain decision point as a bean (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.config.PowerAuthorizationConfig",
+                    // EUD-269: wires the idempotency and volume-limit policies and web filters as beans
+                    BASE_PACKAGE + ".shared.infrastructure.config.ApiRequestControlConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.IdempotencyFilter",
                     // Environment label (email-ui-refactor): WebFilter discovered via component scanning
                     BASE_PACKAGE + ".shared.infrastructure.config.EnvironmentLabelWebFilter",

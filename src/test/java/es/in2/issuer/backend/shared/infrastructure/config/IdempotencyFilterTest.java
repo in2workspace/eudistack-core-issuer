@@ -1,13 +1,17 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
-import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.IdempotencyClaim;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.Requester;
+import es.in2.issuer.backend.shared.domain.model.requestcontrol.StoredResponse;
+import es.in2.issuer.backend.shared.domain.service.IdempotencyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpStatus;
@@ -18,573 +22,309 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
-import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
-import org.slf4j.LoggerFactory;
-import reactor.core.Disposable;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Sinks;
-
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class IdempotencyFilterTest {
 
-    private static final String IDEMPOTENCY_HEADER = "X-Idempotency-Key";
-    private static final String TENANT_HEADER = "X-Tenant";
-    private static final String BODY = "{\"signed_credential\":\"signed-jwt\"}";
+    private static final String KEY = "retry-key-1";
+    private static final String REQUEST_BODY = "{\"credential_configuration_id\":\"x\"}";
+    private static final String RESPONSE_BODY = "{\"responses\":[{\"channel\":\"ui\",\"status\":200}]}";
+    private static final Requester REQUESTER = Requester.system("sandbox", "ORG-1", "m1");
+    private static final int MAX_BODY_BYTES = 1024;
+    private static final IdempotencyClaim.Acquired ACQUIRED = new IdempotencyClaim.Acquired("scope", "owner");
 
+    @Mock
+    private RequesterResolver requesterResolver;
+    @Mock
+    private IdempotencyService idempotencyService;
     @Mock
     private IssuanceMetrics issuanceMetrics;
 
-    @Mock
-    private AccessTokenService accessTokenService;
-
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private IdempotencyFilter filter;
 
     @BeforeEach
     void setUp() {
-        filter = newFilter(Duration.ofSeconds(30));
-        // Default: caller resolves to a single organization and subject from the authenticated
-        // SecurityContext. Tests exercising scoping or failure override this.
-        lenient().when(accessTokenService.getOrganizationIdFromCurrentSession())
-                .thenReturn(Mono.just("org-a"));
-        lenient().when(accessTokenService.getSubjectFromCurrentSession())
-                .thenReturn(Mono.just("sub-a"));
+        filter = new IdempotencyFilter(requesterResolver, idempotencyService, new FilterProblemWriter(objectMapper),
+                issuanceMetrics, MAX_BODY_BYTES);
+        lenient().when(requesterResolver.current()).thenReturn(Mono.just(REQUESTER));
+        lenient().when(idempotencyService.complete(any(), any())).thenReturn(Mono.empty());
+        lenient().when(idempotencyService.release(any())).thenReturn(Mono.empty());
+        lenient().when(idempotencyService.renew(any())).thenReturn(Mono.empty());
+        lenient().when(idempotencyService.renewEvery()).thenReturn(Duration.ofMinutes(1));
     }
 
-    private IdempotencyFilter newFilter(Duration waitTimeout) {
-        return newFilter(waitTimeout, 262144);
+    private static MockServerWebExchange issuance(String key) {
+        MockServerHttpRequest.BodyBuilder request = MockServerHttpRequest.post("/issuer" + ISSUANCES_PATH)
+                .contextPath("/issuer")
+                .contentType(MediaType.APPLICATION_JSON);
+        if (key != null) {
+            request.header(IdempotencyFilter.IDEMPOTENCY_HEADER, key);
+        }
+        return MockServerWebExchange.from(request.body(REQUEST_BODY));
     }
 
-    private IdempotencyFilter newFilter(Duration waitTimeout, long maxPayloadBytes) {
-        return new IdempotencyFilter(3600, waitTimeout, maxPayloadBytes, issuanceMetrics, accessTokenService,
-                new ErrorResponseFactory(), new ObjectMapper());
+    /** A controller that reads the request body and answers with {@code status}. */
+    private static WebFilterChain controller(HttpStatus status, AtomicInteger calls, AtomicReference<String> bodyRead) {
+        return exchange -> DataBufferUtils.join(exchange.getRequest().getBody())
+                .map(buffer -> buffer.toString(StandardCharsets.UTF_8))
+                .defaultIfEmpty("")
+                .flatMap(body -> {
+                    calls.incrementAndGet();
+                    bodyRead.set(body);
+                    exchange.getResponse().setStatusCode(status);
+                    exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                    exchange.getResponse().getHeaders().setLocation(URI.create("/api/v1/issuances/42"));
+                    return exchange.getResponse().writeWith(Mono.just(
+                            new DefaultDataBufferFactory().wrap(RESPONSE_BODY.getBytes(StandardCharsets.UTF_8))));
+                });
     }
 
-    private static MockServerWebExchange post(String key, String body) {
-        return MockServerWebExchange.from(MockServerHttpRequest.post(ISSUANCES_PATH)
-                .header(IDEMPOTENCY_HEADER, key)
-                .body(body));
-    }
-
-    /** Chain whose first invocation waits for the gate; answers with a Location and the fixed body. */
-    private WebFilterChain gatedChain(AtomicInteger invocations, Sinks.Empty<Void> gate, HttpStatus firstStatus) {
-        return exchange -> {
-            int n = invocations.incrementAndGet();
-            Mono<Void> wait = n == 1 ? gate.asMono() : Mono.empty();
-            return wait.then(Mono.defer(() -> {
-                exchange.getResponse().setStatusCode(n == 1 ? firstStatus : HttpStatus.OK);
-                exchange.getResponse().getHeaders().setLocation(URI.create("https://issuer.example.com/p/1"));
-                exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
-                DataBuffer buffer = new DefaultDataBufferFactory().wrap(BODY.getBytes(StandardCharsets.UTF_8));
-                return exchange.getResponse().writeWith(Mono.just(buffer));
-            }));
-        };
-    }
-
-    /** Chain that writes a fixed JSON body once and counts how many times it runs. */
-    private WebFilterChain writingChain(AtomicInteger invocations) {
-        return exchange -> {
-            invocations.incrementAndGet();
-            exchange.getResponse().setStatusCode(HttpStatus.OK);
-            exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
-            DataBuffer buffer = new DefaultDataBufferFactory().wrap(BODY.getBytes(StandardCharsets.UTF_8));
-            return exchange.getResponse().writeWith(Mono.just(buffer));
-        };
-    }
-
-    private String readBody(MockServerWebExchange exchange) {
-        return exchange.getResponse().getBodyAsString().block();
+    private JsonNode problem(MockServerWebExchange exchange) throws Exception {
+        assertThat(exchange.getResponse().getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+        return objectMapper.readTree(exchange.getResponse().getBodyAsString().block());
     }
 
     @Test
-    void replayWithSameKey_returnsCachedBody_andInvokesChainOnce() {
-        String key = "idem-key-1";
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
+    void firstRequest_isProcessed_andItsSuccessfulResponseIsStoredBeforeItIsSent() {
+        when(idempotencyService.claim(REQUESTER, KEY, REQUEST_BODY.getBytes(StandardCharsets.UTF_8)))
+                .thenReturn(Mono.just(ACQUIRED));
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<String> bodyRead = new AtomicReference<>();
+        MockServerWebExchange exchange = issuance(KEY);
 
-        MockServerWebExchange first = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, key)
-                        .build());
-        StepVerifier.create(filter.filter(first, chain)).verifyComplete();
-        assertEquals(BODY, readBody(first));
+        StepVerifier.create(filter.filter(exchange, controller(HttpStatus.OK, calls, bodyRead))).verifyComplete();
 
-        MockServerWebExchange second = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, key)
-                        .build());
-        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
+        assertThat(calls).hasValue(1);
+        assertThat(bodyRead.get()).isEqualTo(REQUEST_BODY);
+        assertThat(exchange.getResponse().getBodyAsString().block()).isEqualTo(RESPONSE_BODY);
+        ArgumentCaptor<StoredResponse> stored = ArgumentCaptor.forClass(StoredResponse.class);
+        verify(idempotencyService).complete(eq(ACQUIRED), stored.capture());
+        assertThat(stored.getValue().status()).isEqualTo(200);
+        assertThat(stored.getValue().location()).isEqualTo("/api/v1/issuances/42");
+        assertThat(stored.getValue().contentType()).isEqualTo("application/json");
+        assertThat(new String(stored.getValue().body(), StandardCharsets.UTF_8)).isEqualTo(RESPONSE_BODY);
+        verify(idempotencyService, never()).release(any());
+    }
 
-        assertEquals(BODY, readBody(second));
-        assertEquals(HttpStatus.OK, second.getResponse().getStatusCode());
-        assertEquals(MediaType.APPLICATION_JSON, second.getResponse().getHeaders().getContentType());
-        assertEquals(1, invocations.get());
+    @Test
+    void errorResponse_isNotStored_theKeyIsFreed() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(ACQUIRED));
+        MockServerWebExchange exchange = issuance(KEY);
+
+        StepVerifier.create(filter.filter(exchange,
+                controller(HttpStatus.SERVICE_UNAVAILABLE, new AtomicInteger(), new AtomicReference<>()))).verifyComplete();
+
+        verify(idempotencyService).release(ACQUIRED);
+        verify(idempotencyService, never()).complete(any(), any());
+    }
+
+    @Test
+    void exceptionInTheChain_freesTheKeyAndPropagates() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(ACQUIRED));
+
+        StepVerifier.create(filter.filter(issuance(KEY), ex -> Mono.error(new IllegalStateException("boom"))))
+                .verifyError(IllegalStateException.class);
+
+        verify(idempotencyService).release(ACQUIRED);
+    }
+
+    @Test
+    void aSlowRequest_renewsItsLeaseWhileItRuns_andStopsWhenItEnds() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(ACQUIRED));
+        when(idempotencyService.renewEvery()).thenReturn(Duration.ofMillis(20));
+        AtomicInteger calls = new AtomicInteger();
+        WebFilterChain slow = exchange -> Mono.delay(Duration.ofMillis(150))
+                .then(controller(HttpStatus.OK, calls, new AtomicReference<>()).filter(exchange));
+
+        StepVerifier.create(filter.filter(issuance(KEY), slow)).verifyComplete();
+
+        verify(idempotencyService, atLeast(2)).renew(ACQUIRED);
+        int renewals = mockingDetails(idempotencyService).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("renew")).toList().size();
+        Mono.delay(Duration.ofMillis(100)).block();
+        verify(idempotencyService, times(renewals)).renew(ACQUIRED);
+    }
+
+    @Test
+    void theClientGoesAway_theKeyIsNotFreed() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(ACQUIRED));
+
+        StepVerifier.create(filter.filter(issuance(KEY), exchange -> Mono.never()))
+                .thenAwait(Duration.ofMillis(50))
+                .thenCancel()
+                .verify();
+
+        verify(idempotencyService, never()).release(any());
+        verify(idempotencyService, never()).complete(any(), any());
+    }
+
+    @Test
+    void sameKeyAndBody_returnsTheStoredResponseWithoutProcessingAgain() {
+        StoredResponse stored = new StoredResponse(200, "application/json", "/api/v1/issuances/42",
+                RESPONSE_BODY.getBytes(StandardCharsets.UTF_8));
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(new IdempotencyClaim.Replay(stored)));
+        AtomicInteger calls = new AtomicInteger();
+        MockServerWebExchange exchange = issuance(KEY);
+
+        StepVerifier.create(filter.filter(exchange, controller(HttpStatus.OK, calls, new AtomicReference<>()))).verifyComplete();
+
+        assertThat(calls).hasValue(0);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(exchange.getResponse().getHeaders().getLocation()).hasToString("/api/v1/issuances/42");
+        assertThat(exchange.getResponse().getBodyAsString().block()).isEqualTo(RESPONSE_BODY);
         verify(issuanceMetrics).recordIdempotencyCacheHit();
     }
 
     @Test
-    void requestUnderTheContextPath_isCachedAndReplaysStatusBodyAndLocation() {
-        String key = "idem-key-context-path";
-        AtomicInteger invocations = new AtomicInteger();
-        String location = "https://issuer.example.com/issuer" + ISSUANCES_PATH + "/abc";
-        WebFilterChain chain = exchange -> {
-            exchange.getResponse().getHeaders().setLocation(URI.create(location));
-            return writingChain(invocations).filter(exchange);
-        };
+    void sameKeyWhileInProgress_is409IdempotencyInProgress() throws Exception {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(new IdempotencyClaim.InProgress()));
+        MockServerWebExchange exchange = issuance(KEY);
 
-        MockServerWebExchange first = MockServerWebExchange.from(
-                MockServerHttpRequest.post("/issuer" + ISSUANCES_PATH)
-                        .contextPath("/issuer")
-                        .header(IDEMPOTENCY_HEADER, key)
-                        .build());
-        StepVerifier.create(filter.filter(first, chain)).verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.error(new AssertionError("must not run")))).verifyComplete();
 
-        MockServerWebExchange second = MockServerWebExchange.from(
-                MockServerHttpRequest.post("/issuer" + ISSUANCES_PATH)
-                        .contextPath("/issuer")
-                        .header(IDEMPOTENCY_HEADER, key)
-                        .build());
-        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
-
-        assertEquals(1, invocations.get());
-        assertEquals(HttpStatus.OK, second.getResponse().getStatusCode());
-        assertEquals(BODY, readBody(second));
-        assertEquals(location, second.getResponse().getHeaders().getFirst("Location"));
-        verify(issuanceMetrics).recordIdempotencyCacheHit();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(problem(exchange).path("type").asText()).isEqualTo("idempotency_in_progress");
+        assertThat(exchange.getResponse().getHeaders().getFirst("Retry-After")).isEqualTo("1");
     }
 
     @Test
-    void getWithTheKey_isNotCached() {
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
+    void bodyOverThePayloadLimit_is413_withoutClaimingTheKey() throws Exception {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/issuer" + ISSUANCES_PATH).contextPath("/issuer")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(IdempotencyFilter.IDEMPOTENCY_HEADER, KEY)
+                .body("{\"x\":\"" + "a".repeat(MAX_BODY_BYTES) + "\"}"));
 
-        for (int i = 0; i < 2; i++) {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.get(ISSUANCES_PATH)
-                            .header(IDEMPOTENCY_HEADER, "idem-key-get")
-                            .build());
-            StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
-        }
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.error(new AssertionError("must not run")))).verifyComplete();
 
-        assertEquals(2, invocations.get());
-        verify(issuanceMetrics, never()).recordIdempotencyCacheHit();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(problem(exchange).path("type").asText()).isEqualTo("payload_too_large");
+        verifyNoInteractions(idempotencyService);
     }
 
     @Test
-    void sameKeyDifferentTenants_doesNotCollide() {
-        String sharedKey = "shared-idem-key";
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
+    void sameKeyOtherBody_is422IdempotencyKeyReused() throws Exception {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(new IdempotencyClaim.KeyReused()));
+        MockServerWebExchange exchange = issuance(KEY);
 
-        MockServerWebExchange tenantA = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, sharedKey)
-                        .header("X-Tenant", "tenant-a")
-                        .build());
-        StepVerifier.create(filter.filter(tenantA, chain)).verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.error(new AssertionError("must not run")))).verifyComplete();
 
-        MockServerWebExchange tenantB = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, sharedKey)
-                        .header("X-Tenant", "tenant-b")
-                        .build());
-        StepVerifier.create(filter.filter(tenantB, chain)).verifyComplete();
-
-        // Different tenants reusing the same idempotency key (same organization) must NOT share the cache entry.
-        assertEquals(2, invocations.get());
-        assertEquals(BODY, readBody(tenantB));
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        JsonNode problem = problem(exchange);
+        assertThat(problem.path("type").asText()).isEqualTo("idempotency_key_reused");
+        assertThat(problem.path("status").asInt()).isEqualTo(422);
+        assertThat(problem.path("instance").asText()).isEqualTo("/issuer" + ISSUANCES_PATH);
     }
 
     @Test
-    void sameKeyDifferentOrganizationsSameTenant_doesNotCollide() {
-        // Regression test for H2: same tenant, same idempotency key, but two different
-        // organizations -- reusing a key across organizations of the same tenant must not
-        // return one organization's cached response (e.g. a signed credential) to the other.
-        String sharedKey = "shared-idem-key";
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
-        when(accessTokenService.getOrganizationIdFromCurrentSession())
-                .thenReturn(Mono.just("org-a"), Mono.just("org-b"));
+    void keyLongerThanTheContractAllows_is400() throws Exception {
+        MockServerWebExchange exchange = issuance("k".repeat(IdempotencyFilter.MAX_KEY_LENGTH + 1));
 
-        MockServerWebExchange orgA = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, sharedKey)
-                        .header(TENANT_HEADER, "tenant-a")
-                        .build());
-        StepVerifier.create(filter.filter(orgA, chain)).verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.error(new AssertionError("must not run")))).verifyComplete();
 
-        MockServerWebExchange orgB = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, sharedKey)
-                        .header(TENANT_HEADER, "tenant-a")
-                        .build());
-        StepVerifier.create(filter.filter(orgB, chain)).verifyComplete();
-
-        assertEquals(2, invocations.get());
-        assertEquals(BODY, readBody(orgB));
-        verify(issuanceMetrics, never()).recordIdempotencyCacheHit();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode problem = problem(exchange);
+        assertThat(problem.path("type").asText()).isEqualTo("BAD_REQUEST");
+        assertThat(problem.path("violations").get(0).path("field").asText()).isEqualTo("X-Idempotency-Key");
+        verifyNoInteractions(idempotencyService);
     }
 
     @Test
-    void unresolvableSession_bypassesCacheGracefully() {
-        // Covers both a missing/anonymous SecurityContext and a session whose token cannot be
-        // resolved (W3, code-review): the organization now comes from the already-authenticated
-        // SecurityContext rather than a fresh, unverified parse of the Authorization header, so
-        // both cases collapse into the same "cannot resolve caller organization" fallback.
-        String key = "unresolvable-session-key";
-        when(accessTokenService.getOrganizationIdFromCurrentSession())
-                .thenReturn(Mono.error(new InvalidTokenException()));
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
+    void withoutKey_otherRouteOrMethod_orWithoutRequester_isNotHandled() {
+        AtomicInteger calls = new AtomicInteger();
+        WebFilterChain chain = controller(HttpStatus.OK, calls, new AtomicReference<>());
 
-        MockServerWebExchange first = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, key)
-                        .build());
-        StepVerifier.create(filter.filter(first, chain)).verifyComplete();
+        StepVerifier.create(filter.filter(issuance(null), chain)).verifyComplete();
+        StepVerifier.create(filter.filter(MockServerWebExchange.from(MockServerHttpRequest.get("/issuer" + ISSUANCES_PATH)
+                .contextPath("/issuer").header(IdempotencyFilter.IDEMPOTENCY_HEADER, KEY).build()), chain)).verifyComplete();
+        when(requesterResolver.current()).thenReturn(Mono.empty());
+        StepVerifier.create(filter.filter(issuance(KEY), chain)).verifyComplete();
 
-        MockServerWebExchange second = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, key)
-                        .build());
-        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
-
-        // A session that cannot be resolved must not crash the request nor be cached under a wrong key.
-        assertEquals(2, invocations.get());
+        assertThat(calls).hasValue(3);
+        verify(idempotencyService, never()).claim(any(), anyString(), any());
     }
 
     @Test
-    void differentKeys_invokeChainEachTime() {
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
+    void aPathWithMatrixVariables_isStillTheIssuanceCreation() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(new IdempotencyClaim.InProgress()));
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/issuer" + ISSUANCES_PATH + ";x=y").contextPath("/issuer")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(IdempotencyFilter.IDEMPOTENCY_HEADER, KEY)
+                .body(REQUEST_BODY));
 
-        MockServerWebExchange first = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH).header(IDEMPOTENCY_HEADER, "key-a").build());
-        StepVerifier.create(filter.filter(first, chain)).verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
-        MockServerWebExchange second = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH).header(IDEMPOTENCY_HEADER, "key-b").build());
-        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
-
-        assertEquals(2, invocations.get());
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
     @Test
-    void sameKeyDifferentTenants_invokeChainEachTime() {
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
+    void aKeyFromACallerTheTokenDoesNotName_isRefused_neverKeptInAScopeSharedWithOthers() throws Exception {
+        when(requesterResolver.current()).thenReturn(Mono.just(Requester.person("sandbox", "ORG-1", null)));
+        AtomicInteger calls = new AtomicInteger();
+        MockServerWebExchange exchange = issuance(KEY);
 
-        MockServerWebExchange first = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, "same-key")
-                        .header(TENANT_HEADER, "tenant-a")
-                        .build());
-        StepVerifier.create(filter.filter(first, chain)).verifyComplete();
+        StepVerifier.create(filter.filter(exchange, controller(HttpStatus.OK, calls, new AtomicReference<>())))
+                .verifyComplete();
 
-        MockServerWebExchange second = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH)
-                        .header(IDEMPOTENCY_HEADER, "same-key")
-                        .header(TENANT_HEADER, "tenant-b")
-                        .build());
-        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
-
-        assertEquals(2, invocations.get());
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(problem(exchange).path("violations").get(0).path("field").asText())
+                .isEqualTo(IdempotencyFilter.IDEMPOTENCY_HEADER);
+        assertThat(calls).hasValue(0);
+        verify(idempotencyService, never()).claim(any(), anyString(), any());
     }
 
     @Test
-    void sameKeyDifferentSubjectSameTenantAndOrganization_isNotReplayed() {
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
-        when(accessTokenService.getSubjectFromCurrentSession())
-                .thenReturn(Mono.just("sub-a"), Mono.just("sub-b"));
+    void aChainThatFailsWhileBeingAssembled_stillStopsTheRenewalAndFreesTheKey() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(ACQUIRED));
+        when(idempotencyService.renewEvery()).thenReturn(Duration.ofMillis(5));
 
-        StepVerifier.create(filter.filter(post("shared-key", BODY), chain)).verifyComplete();
-        StepVerifier.create(filter.filter(post("shared-key", BODY), chain)).verifyComplete();
+        StepVerifier.create(filter.filter(issuance(KEY), ex -> {
+                    throw new IllegalStateException("assembly failed");
+                }))
+                .verifyError(IllegalStateException.class);
 
-        assertEquals(2, invocations.get());
-        verify(issuanceMetrics, never()).recordIdempotencyCacheHit();
+        verify(idempotencyService).release(ACQUIRED);
+        int renewals = org.mockito.Mockito.mockingDetails(idempotencyService).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("renew")).toList().size();
+        StepVerifier.create(Mono.delay(Duration.ofMillis(50))).expectNextCount(1).verifyComplete();
+        long renewalsLater = org.mockito.Mockito.mockingDetails(idempotencyService).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("renew")).count();
+        assertThat(renewalsLater).isEqualTo(renewals);
     }
 
     @Test
-    void sameKeyDifferentBody_answers422Problem_andDoesNotReachTheChain() {
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
+    void pathIsMatchedWithinTheApplication_soTheBasePathDoesNotDisableIt() {
+        when(idempotencyService.claim(any(), anyString(), any())).thenReturn(Mono.just(new IdempotencyClaim.InProgress()));
+        MockServerWebExchange exchange = issuance(KEY);
 
-        StepVerifier.create(filter.filter(post("key-body", "{\"a\":1}"), chain)).verifyComplete();
-        MockServerWebExchange second = post("key-body", "{\"a\":2}");
-        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
-        assertEquals(1, invocations.get());
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, second.getResponse().getStatusCode());
-        assertEquals(MediaType.APPLICATION_PROBLEM_JSON, second.getResponse().getHeaders().getContentType());
-        assertTrue(readBody(second).contains("\"type\":\"idempotency_key_reused\""));
-    }
-
-    @Test
-    void theRawKeyIsNeverLogged() {
-        String rawKey = "super-secret-idempotency-key";
-        Logger logger = (Logger) LoggerFactory.getLogger(IdempotencyFilter.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
-        try {
-            WebFilterChain chain = writingChain(new AtomicInteger());
-            StepVerifier.create(filter.filter(post(rawKey, "{\"a\":1}"), chain)).verifyComplete();
-            StepVerifier.create(filter.filter(post(rawKey, "{\"a\":1}"), chain)).verifyComplete();
-            StepVerifier.create(filter.filter(post(rawKey, "{\"a\":2}"), chain)).verifyComplete();
-
-            assertFalse(appender.list.isEmpty());
-            assertTrue(appender.list.stream().noneMatch(e -> e.getFormattedMessage().contains(rawKey)));
-        } finally {
-            logger.detachAppender(appender);
-        }
-    }
-
-    @Test
-    void concurrentDuplicate_waitsForTheFirst_andGetsTheSameResponse() throws Exception {
-        AtomicInteger invocations = new AtomicInteger();
-        Sinks.Empty<Void> gate = Sinks.empty();
-        WebFilterChain chain = gatedChain(invocations, gate, HttpStatus.OK);
-        MockServerWebExchange first = post("key-conc", BODY);
-        MockServerWebExchange second = post("key-conc", BODY);
-
-        CompletableFuture<Void> f1 = filter.filter(first, chain).toFuture();
-        CompletableFuture<Void> f2 = filter.filter(second, chain).toFuture();
-        assertEquals(1, invocations.get());
-        assertFalse(f2.isDone());
-        gate.tryEmitEmpty();
-        f1.get(5, TimeUnit.SECONDS);
-        f2.get(5, TimeUnit.SECONDS);
-
-        assertEquals(1, invocations.get());
-        assertEquals(HttpStatus.OK, second.getResponse().getStatusCode());
-        assertEquals(readBody(first), readBody(second));
-        assertEquals("https://issuer.example.com/p/1", first.getResponse().getHeaders().getFirst("Location"));
-        assertEquals(first.getResponse().getHeaders().getFirst("Location"),
-                second.getResponse().getHeaders().getFirst("Location"));
-    }
-
-    @Test
-    void concurrentDuplicateWithDifferentBody_answers422_withoutWaiting() {
-        AtomicInteger invocations = new AtomicInteger();
-        Sinks.Empty<Void> gate = Sinks.empty();
-        WebFilterChain chain = gatedChain(invocations, gate, HttpStatus.OK);
-
-        CompletableFuture<Void> f1 = filter.filter(post("key-conc-body", "{\"a\":1}"), chain).toFuture();
-        MockServerWebExchange second = post("key-conc-body", "{\"a\":2}");
-        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
-
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, second.getResponse().getStatusCode());
-        assertEquals(1, invocations.get());
-        gate.tryEmitEmpty();
-        assertTrue(f1.isDone());
-    }
-
-    @Test
-    void firstFails_theWaiterProceedsThroughTheChain() throws Exception {
-        AtomicInteger invocations = new AtomicInteger();
-        Sinks.Empty<Void> gate = Sinks.empty();
-        WebFilterChain chain = gatedChain(invocations, gate, HttpStatus.INTERNAL_SERVER_ERROR);
-        MockServerWebExchange first = post("key-fail", BODY);
-        MockServerWebExchange second = post("key-fail", BODY);
-
-        CompletableFuture<Void> f1 = filter.filter(first, chain).toFuture();
-        CompletableFuture<Void> f2 = filter.filter(second, chain).toFuture();
-        gate.tryEmitEmpty();
-        f1.get(5, TimeUnit.SECONDS);
-        f2.get(5, TimeUnit.SECONDS);
-
-        assertEquals(2, invocations.get());
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, first.getResponse().getStatusCode());
-        assertEquals(HttpStatus.OK, second.getResponse().getStatusCode());
-        verify(issuanceMetrics, never()).recordIdempotencyCacheHit();
-    }
-
-    @Test
-    void waitTimeout_answers409WithRetryAfter() throws Exception {
-        filter = newFilter(Duration.ofMillis(50));
-        AtomicInteger invocations = new AtomicInteger();
-        Sinks.Empty<Void> gate = Sinks.empty();
-        WebFilterChain chain = gatedChain(invocations, gate, HttpStatus.OK);
-
-        CompletableFuture<Void> f1 = filter.filter(post("key-timeout", BODY), chain).toFuture();
-        MockServerWebExchange second = post("key-timeout", BODY);
-        filter.filter(second, chain).toFuture().get(5, TimeUnit.SECONDS);
-
-        assertEquals(HttpStatus.CONFLICT, second.getResponse().getStatusCode());
-        assertEquals("1", second.getResponse().getHeaders().getFirst("Retry-After"));
-        assertEquals(MediaType.APPLICATION_PROBLEM_JSON, second.getResponse().getHeaders().getContentType());
-        assertTrue(readBody(second).contains("\"type\":\"idempotency_in_progress\""));
-        assertEquals(1, invocations.get());
-        gate.tryEmitEmpty();
-        f1.get(5, TimeUnit.SECONDS);
-    }
-
-    @Test
-    void noIdempotencyKey_bypassesCache() {
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
-
-        MockServerWebExchange first = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH).build());
-        StepVerifier.create(filter.filter(first, chain)).verifyComplete();
-
-        MockServerWebExchange second = MockServerWebExchange.from(
-                MockServerHttpRequest.post(ISSUANCES_PATH).build());
-        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
-
-        assertEquals(2, invocations.get());
-    }
-
-    /** Chain that reads the request body into {@code seen}; the first run waits for the gate. */
-    private WebFilterChain bodyReadingChain(AtomicInteger invocations, Sinks.Empty<Void> gate,
-                                            List<byte[]> seen, HttpStatus firstStatus) {
-        return exchange -> {
-            int n = invocations.incrementAndGet();
-            return DataBufferUtils.join(exchange.getRequest().getBody())
-                    .map(buffer -> {
-                        byte[] bytes = new byte[buffer.readableByteCount()];
-                        buffer.read(bytes);
-                        DataBufferUtils.release(buffer);
-                        return bytes;
-                    })
-                    .doOnNext(seen::add)
-                    .then(n == 1 ? gate.asMono() : Mono.<Void>empty())
-                    .then(Mono.defer(() -> {
-                        exchange.getResponse().setStatusCode(n == 1 ? firstStatus : HttpStatus.OK);
-                        return exchange.getResponse().setComplete();
-                    }));
-        };
-    }
-
-    private static MockServerWebExchange postChunked(String key, byte[]... chunks) {
-        DefaultDataBufferFactory factory = new DefaultDataBufferFactory();
-        Flux<DataBuffer> body = Flux.fromArray(chunks).map(factory::wrap);
-        return MockServerWebExchange.from(MockServerHttpRequest.post(ISSUANCES_PATH)
-                .header(IDEMPOTENCY_HEADER, key)
-                .body(body));
-    }
-
-    @Test
-    void theChainReadsTheOriginalBody_onTheFirstExecution() {
-        List<byte[]> seen = new CopyOnWriteArrayList<>();
-        Sinks.Empty<Void> openGate = Sinks.empty();
-        openGate.tryEmitEmpty();
-        WebFilterChain chain = bodyReadingChain(new AtomicInteger(), openGate, seen, HttpStatus.OK);
-        byte[] original = BODY.getBytes(StandardCharsets.UTF_8);
-
-        StepVerifier.create(filter.filter(
-                postChunked("key-body-first", original), chain)).verifyComplete();
-
-        assertEquals(1, seen.size());
-        assertArrayEquals(original, seen.get(0));
-    }
-
-    @Test
-    void theChainReadsTheOriginalBody_whenAWaiterReentersAfterTheFirstFailed() throws Exception {
-        AtomicInteger invocations = new AtomicInteger();
-        Sinks.Empty<Void> gate = Sinks.empty();
-        List<byte[]> seen = new CopyOnWriteArrayList<>();
-        WebFilterChain chain = bodyReadingChain(invocations, gate, seen, HttpStatus.INTERNAL_SERVER_ERROR);
-        byte[] original = BODY.getBytes(StandardCharsets.UTF_8);
-
-        CompletableFuture<Void> f1 = filter.filter(postChunked("key-body-reenter", original), chain).toFuture();
-        CompletableFuture<Void> f2 = filter.filter(postChunked("key-body-reenter", original), chain).toFuture();
-        gate.tryEmitEmpty();
-        f1.get(5, TimeUnit.SECONDS);
-        f2.get(5, TimeUnit.SECONDS);
-
-        assertEquals(2, invocations.get());
-        assertEquals(2, seen.size());
-        assertArrayEquals(original, seen.get(0));
-        assertArrayEquals(original, seen.get(1));
-    }
-
-    @Test
-    void bodyOverTheLimit_answers413ProblemJson_andDoesNotCallTheChain() {
-        filter = newFilter(Duration.ofSeconds(30), 16);
-        AtomicInteger invocations = new AtomicInteger();
-        WebFilterChain chain = writingChain(invocations);
-        // Two chunks and no Content-Length: only the filter's own limit can trigger.
-        MockServerWebExchange exchange = postChunked("key-too-large",
-                "0123456789".getBytes(StandardCharsets.UTF_8), "0123456789".getBytes(StandardCharsets.UTF_8));
-
-        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
-
-        assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, exchange.getResponse().getStatusCode());
-        assertEquals(MediaType.APPLICATION_PROBLEM_JSON, exchange.getResponse().getHeaders().getContentType());
-        assertTrue(readBody(exchange).contains("\"type\":\"payload_too_large\""));
-        assertEquals(0, invocations.get());
-    }
-
-    @Test
-    void cancellingTheFirstRequest_releasesTheReservation() throws Exception {
-        AtomicInteger invocations = new AtomicInteger();
-        Sinks.Empty<Void> gate = Sinks.empty();
-        WebFilterChain chain = gatedChain(invocations, gate, HttpStatus.OK);
-
-        Disposable first = filter.filter(post("key-cancel", BODY), chain).subscribe();
-        assertEquals(1, invocations.get());
-        first.dispose();
-
-        MockServerWebExchange second = post("key-cancel", BODY);
-        filter.filter(second, chain).toFuture().get(5, TimeUnit.SECONDS);
-
-        assertEquals(2, invocations.get());
-        assertEquals(HttpStatus.OK, second.getResponse().getStatusCode());
-    }
-
-    @Test
-    void theTotalWaitNeverExceedsTheTimeout_whenAWaiterReentersAndWaitsAgain() throws Exception {
-        filter = newFilter(Duration.ofMillis(600));
-        AtomicInteger invocations = new AtomicInteger();
-        Sinks.Empty<Void> firstGate = Sinks.empty();
-        // The 1st run fails after its gate; the 2nd run (the first waiter re-entering) never ends.
-        WebFilterChain chain = exchange -> {
-            int n = invocations.incrementAndGet();
-            if (n == 2) {
-                return Mono.never();
-            }
-            return firstGate.asMono().then(Mono.defer(() -> {
-                exchange.getResponse().setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
-                return exchange.getResponse().setComplete();
-            }));
-        };
-
-        long start = System.nanoTime();
-        CompletableFuture<Void> f1 = filter.filter(post("key-deadline", BODY), chain).toFuture();
-        filter.filter(post("key-deadline", BODY), chain).subscribe();
-        MockServerWebExchange third = post("key-deadline", BODY);
-        CompletableFuture<Void> f3 = filter.filter(third, chain).toFuture();
-        Mono.delay(Duration.ofMillis(400)).subscribe(t -> firstGate.tryEmitEmpty());
-        f1.get(5, TimeUnit.SECONDS);
-        f3.get(5, TimeUnit.SECONDS);
-        long elapsedMillis = Duration.ofNanos(System.nanoTime() - start).toMillis();
-
-        assertEquals(HttpStatus.CONFLICT, third.getResponse().getStatusCode());
-        // Without a shared deadline the third request would wait 400 ms + 600 ms again.
-        assertTrue(elapsedMillis < 900, "waited " + elapsedMillis + " ms");
+        // TD-03 of EUD-254: comparing the full path ("/issuer/api/v1/issuances") never matched.
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(List.of(filter.getOrder())).containsExactly(IdempotencyFilter.ORDER);
+        assertThat(IdempotencyFilter.ORDER).isGreaterThan(ApiVolumeLimitFilter.ORDER)
+                .isGreaterThan(TenantDomainWebFilter.ORDER);
     }
 }
