@@ -19,7 +19,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.audit.SignatureAttemptRecorder;
+import es.in2.issuer.backend.signing.domain.spi.SignatureAuditPort;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,7 +46,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final SdJwtPayloadBuilder sdJwtPayloadBuilder;
-    private final SignatureAttemptRecorder signatureAttemptRecorder;
+    private final SignatureAuditPort signatureAttemptRecorder;
 
     @Observed(name = "issuance.sign-credential", contextualName = "issuance-sign-credential")
     @Override

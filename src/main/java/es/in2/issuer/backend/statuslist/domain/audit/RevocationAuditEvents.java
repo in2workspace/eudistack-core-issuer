@@ -67,8 +67,9 @@ public final class RevocationAuditEvents {
             return null;
         }
         String withoutControlCharacters = JWT_SHAPED.matcher(reason.replaceAll("\\p{Cntrl}", " ")).replaceAll(REDACTED).strip();
-        return withoutControlCharacters.length() > MAX_REASON_LENGTH
-                ? withoutControlCharacters.substring(0, MAX_REASON_LENGTH)
+        // The limit counts code points, like the validation of the request, so a pair of surrogates is never cut.
+        return withoutControlCharacters.codePointCount(0, withoutControlCharacters.length()) > MAX_REASON_LENGTH
+                ? withoutControlCharacters.substring(0, withoutControlCharacters.offsetByCodePoints(0, MAX_REASON_LENGTH))
                 : withoutControlCharacters;
     }
 }

@@ -482,6 +482,8 @@ public class RevocationWorkflow {
         Map<String, Object> auditContext = path.auditContext();
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
         AtomicBoolean statusListFailed = new AtomicBoolean();
+        // A failure of the caller's own step (the process update and its Revocation event) is not the list's.
+        AtomicBoolean ownStepFailed = new AtomicBoolean();
         // issuanceId is boundary-validated as a well-formed UUID on the contract route, the alias
         // (the DTO's @Pattern) and the queue (the mapper's UUID.fromString), but not on PATCH, and
         // this method's log statements are a shared sink for all of them. quoteIfNeeded
@@ -526,8 +528,10 @@ public class RevocationWorkflow {
                                                 ))
                                                 .then(Mono.defer(() -> stageApplied(
                                                         path.auditOrigin(), issuanceId, reason, ctx.issuance)))
+                                                .doOnError(e -> ownStepFailed.set(true))
                                 )
-                                .doOnError(e -> statusListFailed.set(!(e instanceof StatusListIndexNotFoundException)))
+                                .doOnError(e -> statusListFailed.set(
+                                        !(e instanceof StatusListIndexNotFoundException) && !ownStepFailed.get()))
                                 .onErrorMap(path.markFailure()::apply)
                                 // Only once the list and the process have committed together.
                                 .then(Mono.defer(() -> issuanceService.extractCredentialId(ctx.issuance)
@@ -587,10 +591,13 @@ public class RevocationWorkflow {
     /**
      * The catalogue entry for a revocation that was refused, or empty when the failure has no reason in
      * the catalogue (a persistence error, say): the business failure stands and no reason is invented.
+     * A wallet notification is not a request that can be refused: it only leaves a {@code Revocation} when it
+     * revokes, or when the list fails, so a process that is not revocable (a withdrawn one, say) leaves none.
      */
     private Optional<AuditEntry> refusalOf(Throwable error, Optional<Origin> auditOrigin, String issuanceId,
                                            String reason, Issuance issuance, boolean statusListFailed) {
         return auditOrigin.flatMap(origin -> catalogueReasonOf(error, issuance, statusListFailed)
+                .filter(catalogueReason -> origin == Origin.REQUEST || REASON_STATUS_LIST_UNAVAILABLE.equals(catalogueReason))
                 .map(catalogueReason -> RevocationAuditEvents.refused(
                         issuanceId, origin, catalogueReason, reason, holderOf(issuance))));
     }
@@ -617,7 +624,8 @@ public class RevocationWorkflow {
             return Optional.of(REASON_POLICY_DENIED);
         }
         if (error instanceof StatusListUnavailableException) {
-            return Optional.of(REASON_STATUS_LIST_UNAVAILABLE);
+            // Also what a failure of the process update is reported as to the caller: only the list's own failure counts.
+            return statusListFailed ? Optional.of(REASON_STATUS_LIST_UNAVAILABLE) : Optional.empty();
         }
         return statusListFailed ? Optional.of(REASON_STATUS_LIST_UNAVAILABLE) : Optional.empty();
     }

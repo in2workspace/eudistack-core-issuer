@@ -29,6 +29,21 @@ class HolderDocumentTest {
     }
 
     @Test
+    void of_documentOfTheMandator_isNeverTheDocumentOfTheHolder() {
+        String dataSet = "{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"document_number\":\"M-1\"},"
+                + "\"mandatee\":{\"employeeId\":\"E-9\"}}}}";
+
+        assertEquals("E-9", HolderDocument.of(dataSet).orElseThrow());
+    }
+
+    @Test
+    void of_onlyTheMandatorHasADocument_theHolderHasNone() {
+        String dataSet = "{\"mandator\":{\"document_number\":\"M-1\"}}";
+
+        assertTrue(HolderDocument.of(dataSet).isEmpty());
+    }
+
+    @Test
     void of_blankValueIsSkippedInFavourOfTheNextClaim() {
         String dataSet = "{\"document_number\":\" \",\"personal_administrative_number\":\"P-5\"}";
 

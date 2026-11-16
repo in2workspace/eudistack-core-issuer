@@ -1,9 +1,11 @@
 package es.in2.issuer.backend.issuance.domain.scheduler;
 
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditSource;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -33,6 +35,7 @@ public class DeliveryTimeoutScheduler {
     private final IssuanceProperties issuanceProperties;
     private final TenantRegistryService tenantRegistryService;
     private final EmailService emailService;
+    private final AuditTrailPort auditTrail;
 
     @Scheduled(cron = "${issuance.delivery-timeout-cron}")
     public Mono<Void> detectFailedDeliveries() {
@@ -42,21 +45,23 @@ public class DeliveryTimeoutScheduler {
         return tenantRegistryService.getActiveTenantSchemas()
                 .flatMapMany(Flux::fromIterable)
                 .flatMap(tenant ->
-                        issuanceService.findFailedDeliveries(cutoff)
-                                .flatMap(issuance -> {
-                                    log.info("Delivery timeout detected for issuance: {} in tenant {}", issuance.getIssuanceId(), tenant);
-                                    // Clear the flag so we don't re-notify on next run
-                                    issuance.setDeliveryAttemptedAt(null);
-                                    return issuanceService.updateIssuance(issuance)
-                                            .flatMap(saved -> emailService.sendCredentialFailureNotification(
-                                                    saved.getEmail(),
-                                                    "Credential delivery was not completed within the expected time."
-                                            ).onErrorResume(e -> {
-                                                log.warn("Failed to send delivery timeout email for issuance {}: {}", saved.getIssuanceId(), e.getMessage());
-                                                return Mono.empty();
-                                            }));
-                                })
-                                .then()
+                        // The mail goes out without a request: its ExternalSystemAccess needs the context of the tenant.
+                        auditTrail.asSystem(tenant, AuditSource.ISSUER,
+                                issuanceService.findFailedDeliveries(cutoff)
+                                    .flatMap(issuance -> {
+                                        log.info("Delivery timeout detected for issuance: {} in tenant {}", issuance.getIssuanceId(), tenant);
+                                        // Clear the flag so we don't re-notify on next run
+                                        issuance.setDeliveryAttemptedAt(null);
+                                        return issuanceService.updateIssuance(issuance)
+                                                .flatMap(saved -> emailService.sendCredentialFailureNotification(
+                                                        saved.getEmail(),
+                                                        "Credential delivery was not completed within the expected time."
+                                                ).onErrorResume(e -> {
+                                                    log.warn("Failed to send delivery timeout email for issuance {}: {}", saved.getIssuanceId(), e.getMessage());
+                                                    return Mono.empty();
+                                                }));
+                                    })
+                                    .then())
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                                 .onErrorResume(e -> {
                                     log.warn("Scheduler skipped tenant '{}': {}", tenant, e.getMessage());

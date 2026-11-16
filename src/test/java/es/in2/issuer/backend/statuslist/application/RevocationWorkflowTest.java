@@ -279,6 +279,36 @@ class RevocationWorkflowTest {
     }
 
     @Test
+    void revoke_ProcessUpdateFails_ShouldNotTraceItAsAnUnavailableStatusList() {
+        // Arrange: the list was there; what failed is the caller's own step, run by the provider
+        arrangeRevocationThatPassesValidation();
+        revokeRunsTheStatusChange(CLEAN_TOKEN);
+        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure))
+                .thenReturn(Mono.error(new IllegalStateException("database down")));
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).expectError(IllegalStateException.class).verify();
+        assertTrue(auditTrail.all().isEmpty());
+    }
+
+    @Test
+    void revokeSystem_WalletNotificationOnAProcessThatIsNotRevocable_ShouldStageNothing() {
+        // Arrange: a deleted credential has already been withdrawn, so there is nothing to revoke
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, SYSTEM_ACTOR, "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).expectError(InvalidStatusException.class).verify();
+        assertTrue(auditTrail.all().isEmpty());
+    }
+
+    @Test
     void revoke_FailureWithoutCatalogueReason_ShouldStageNothingAndKeepTheError() {
         // Arrange
         arrangeRevocationWhereAuthorizationFails(new RuntimeException("Validation failed"));

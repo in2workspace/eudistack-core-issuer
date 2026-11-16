@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -59,6 +60,20 @@ class RevocationAuditEventsTest {
 
             // Assert
             assertEquals(280, ((String) entry.details().get("revocation_reason")).length());
+        }
+
+        @Test
+        void applied_reasonCutInTheMiddleOfAnEmoji_keepsTheSurrogatePairWhole() {
+            // Arrange: 279 letters and an emoji (two UTF-16 units, one code point) make exactly 280 code points
+            String reason = "x".repeat(279) + "\uD83D\uDE00" + "tail";
+
+            // Act
+            AuditEntry entry = RevocationAuditEvents.applied(ISSUANCE_ID, Origin.REQUEST, reason, HOLDER);
+
+            // Assert
+            String stored = (String) entry.details().get("revocation_reason");
+            assertEquals(280, stored.codePointCount(0, stored.length()));
+            assertTrue(stored.endsWith("\uD83D\uDE00"));
         }
 
         @Test

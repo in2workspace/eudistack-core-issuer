@@ -47,9 +47,16 @@ public class DraftAutoWithdrawalScheduler {
                                     log.info("Withdrawing stale DRAFT issuance: {} in tenant {}", issuance.getIssuanceId(), tenant);
                                     issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
                                     String issuanceId = issuance.getIssuanceId().toString();
+                                    // A draft that fails (its event could not be staged, say) is left for the next run
+                                    // without stopping the other drafts of the tenant.
                                     return auditTrail.withCorrelationId(issuanceId, transactionalOperator.transactional(
-                                            issuanceService.updateIssuance(issuance)
-                                                    .then(Mono.defer(() -> auditTrail.stage(IssuanceAuditEvents.withdrawn(issuanceId))))));
+                                                    issuanceService.updateIssuance(issuance)
+                                                            .then(Mono.defer(() -> auditTrail.stage(IssuanceAuditEvents.withdrawn(issuanceId))))))
+                                            .onErrorResume(e -> {
+                                                log.warn("Draft auto-withdrawal skipped issuance {} in tenant '{}': {}",
+                                                        issuanceId, tenant, e.getMessage());
+                                                return Mono.empty();
+                                            });
                                 })
                                 .then())
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))

@@ -19,10 +19,29 @@ public class RecordingAuditTrail implements AuditTrailPort {
     private final List<String> holderScopes = new ArrayList<>();
     private boolean failOnNewTransaction;
     private boolean failOnStage;
+    private boolean requireContext;
+
+    private static final String SCOPE_KEY = "recordingAuditTrail.scope";
 
     public RecordingAuditTrail failingOnStage() {
         this.failOnStage = true;
         return this;
+    }
+
+    /**
+     * Makes every {@code stage} fail, as the starter does, when no audit scope ({@code asSystem} or
+     * {@code asHolder}) is open around it. The request filter that opens the scope of a web request is not
+     * part of this double, so a test that wants it must open the scope itself.
+     */
+    public RecordingAuditTrail requiringContext() {
+        this.requireContext = true;
+        return this;
+    }
+
+    private Mono<Void> record(List<AuditEntry> target, AuditEntry entry) {
+        return Mono.deferContextual(ctx -> requireContext && !ctx.hasKey(SCOPE_KEY)
+                ? Mono.error(new IllegalStateException("NO_CONTEXT"))
+                : Mono.fromRunnable(() -> target.add(entry)));
     }
 
     public RecordingAuditTrail failingOnNewTransaction() {
@@ -35,7 +54,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
         if (failOnStage) {
             return Mono.error(new IllegalStateException("outbox unavailable"));
         }
-        return Mono.fromRunnable(() -> staged.add(entry));
+        return record(staged, entry);
     }
 
     @Override
@@ -43,7 +62,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
         if (failOnNewTransaction) {
             return Mono.error(new IllegalStateException("outbox unavailable"));
         }
-        return Mono.fromRunnable(() -> stagedInNewTransaction.add(entry));
+        return record(stagedInNewTransaction, entry);
     }
 
     @Override
@@ -55,7 +74,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
     public <T> Mono<T> asSystem(String actorId, Mono<T> flow) {
         return Mono.defer(() -> {
             systemScopes.add(actorId);
-            return flow;
+            return flow.contextWrite(ctx -> ctx.put(SCOPE_KEY, true));
         });
     }
 
@@ -64,7 +83,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
         return Mono.defer(() -> {
             holderScopes.add(issuanceId);
             correlationIds.add(issuanceId);
-            return flow;
+            return flow.contextWrite(ctx -> ctx.put(SCOPE_KEY, true));
         });
     }
 
@@ -74,7 +93,9 @@ public class RecordingAuditTrail implements AuditTrailPort {
 
     @Override
     public <T> Mono<T> asSystem(String tenant, String actorId, Mono<T> flow) {
-        return Mono.fromRunnable(() -> systemScopes.add(tenant + "/" + actorId)).then(flow);
+        return Mono.fromRunnable(() -> systemScopes.add(tenant + "/" + actorId))
+                .then(flow)
+                .contextWrite(ctx -> ctx.put(SCOPE_KEY, true));
     }
 
     /** The {@code tenant/actor} of every background scope opened, in order. */

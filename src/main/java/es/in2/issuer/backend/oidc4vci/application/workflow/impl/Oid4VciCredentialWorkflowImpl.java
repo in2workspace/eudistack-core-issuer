@@ -17,7 +17,7 @@ import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Completion;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.WalletInteraction;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuedAttributeNames;
-import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
+import es.in2.issuer.backend.shared.domain.spi.IssuanceCompletionAuditPort;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.HolderCnfJson;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -84,7 +84,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final HolderDidFallbackAuditor holderDidFallbackAuditor;
     private final AuditService auditService;
     private final AuditTrailPort auditTrail;
-    private final IssuanceCompletionRecorder issuanceCompletionRecorder;
+    private final IssuanceCompletionAuditPort issuanceCompletionRecorder;
     private final TransactionalOperator transactionalOperator;
 
     public Oid4VciCredentialWorkflowImpl(
@@ -101,7 +101,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             HolderDidFallbackAuditor holderDidFallbackAuditor,
             AuditService auditService,
             AuditTrailPort auditTrail,
-            IssuanceCompletionRecorder issuanceCompletionRecorder,
+            IssuanceCompletionAuditPort issuanceCompletionRecorder,
             TransactionalOperator transactionalOperator
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;

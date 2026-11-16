@@ -14,6 +14,8 @@ import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.Proofs;
+import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
+import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
@@ -586,6 +588,70 @@ class Oid4VciCredentialWorkflowImplTest {
 
         verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    /** A credential request of a type that needs a holder key, whose proof is {@code jwtProof}. */
+    private Mono<?> credentialRequestWithProof(String jwtProof) {
+        CredentialIssuerMetadata.CredentialConfiguration config =
+                CredentialIssuerMetadata.CredentialConfiguration.builder()
+                        .format(JWT_VC_JSON)
+                        .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                        .proofTypesSupported(Map.of("jwt", CredentialProfile.ProofTypeConfig.builder()
+                                .proofSigningAlgValuesSupported(Set.of("ES256"))
+                                .build()))
+                        .build();
+        CredentialIssuerMetadata metadata = CredentialIssuerMetadata.builder()
+                .credentialIssuer("https://issuer.example.com")
+                .credentialEndpoint("https://issuer.example.com/oid4vci/v1/credential")
+                .credentialConfigurationsSupported(Map.of(CREDENTIAL_TYPE, config))
+                .build();
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(buildProcedure(JWT_VC_JSON)));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(buildProfile(true));
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .proofs(Proofs.builder().jwt(java.util.List.of(jwtProof)).build())
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder().rawToken(RAW_TOKEN).issuanceId(ISSUANCE_ID).build();
+        return workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL);
+    }
+
+    @Test
+    void createCredentialResponse_proofTheIssuerCannotAccept_stagesAttemptDeniedInvalidProofOfPossession() {
+        // Arrange: the signature check fails (the default of these tests)
+        String jwtProof = buildJwtProofWithKid("did:key:zDnaevN85Z7VJgcBoQeqQU7d8kZpuVhDSdm8hQtJYWjvek3VL#key-1");
+
+        // Act
+        Mono<?> credential = credentialRequestWithProof(jwtProof);
+
+        // Assert
+        StepVerifier.create(credential).expectError(InvalidOrMissingProofException.class).verify();
+        assertProofRefusalStaged();
+    }
+
+    @Test
+    void createCredentialResponse_proofWithoutKeyMaterial_stagesAttemptDeniedInvalidProofOfPossession() {
+        // Arrange: the signature is valid but the header names no key to bind the credential to
+        var encoder = java.util.Base64.getUrlEncoder().withoutPadding();
+        String header = encoder.encodeToString("{\"alg\":\"ES256\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String jwtProof = header + "." + encoder.encodeToString("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8)) + ".sig";
+        when(proofValidationService.verifyProof(eq(jwtProof), any(), any())).thenReturn(Mono.just(true));
+
+        // Act
+        Mono<?> credential = credentialRequestWithProof(jwtProof);
+
+        // Assert
+        StepVerifier.create(credential).expectError(ProofValidationException.class).verify();
+        assertProofRefusalStaged();
+    }
+
+    private void assertProofRefusalStaged() {
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertThat(entry.type()).isEqualTo(AuditEventType.ISSUANCE_ATTEMPT_FAILED);
+        assertThat(entry.result()).isEqualTo(AuditResult.DENIED);
+        assertThat(entry.reason()).isEqualTo("InvalidProofOfPossession");
+        assertThat(entry.source()).isEqualTo("issuer");
+        assertThat(entry.resource()).isEqualTo("issuance:" + ISSUANCE_ID);
     }
 
     @Test

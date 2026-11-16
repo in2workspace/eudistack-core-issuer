@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
+import es.in2.issuer.backend.shared.domain.service.FixedSigningConfigService;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
@@ -85,7 +86,7 @@ class BitstringStatusListProviderTest {
     private RecordingAuditTrail auditTrail = new RecordingAuditTrail();
 
     @Spy
-    private SignatureAttemptRecorder signatureAttemptRecorder = new SignatureAttemptRecorder(auditTrail);
+    private SignatureAttemptRecorder signatureAttemptRecorder = new SignatureAttemptRecorder(auditTrail, FixedSigningConfigService.qtsp());
 
     @InjectMocks
     private BitstringStatusListProvider bitstringStatusListProvider;

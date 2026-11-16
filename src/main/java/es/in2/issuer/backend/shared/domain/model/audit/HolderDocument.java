@@ -22,6 +22,12 @@ public final class HolderDocument {
     private static final List<String> CLAIMS =
             List.of("document_number", "personal_administrative_number", "mandatee.employeeId");
 
+    /**
+     * Branches of the data set that describe someone other than the holder: the document of the mandator or of
+     * the signer must never be reported as the document of the person the attestation is for.
+     */
+    private static final java.util.Set<String> OTHER_PARTIES = java.util.Set.of("mandator", "signer", "issuer");
+
     private HolderDocument() {
     }
 
@@ -40,11 +46,14 @@ public final class HolderDocument {
         }
     }
 
-    /** The first non-blank text whose dotted path is {@code claim} or ends with it. */
+    /** The first non-blank text whose dotted path is {@code claim} or ends with it, outside the other parties' branches. */
     private static Optional<String> find(JsonNode node, String path, String claim) {
         if (node.isObject()) {
             for (var fields = node.fields(); fields.hasNext(); ) {
                 var field = fields.next();
+                if (OTHER_PARTIES.contains(field.getKey())) {
+                    continue;
+                }
                 String childPath = path.isEmpty() ? field.getKey() : path + "." + field.getKey();
                 Optional<String> found = find(field.getValue(), childPath, claim);
                 if (found.isPresent()) {

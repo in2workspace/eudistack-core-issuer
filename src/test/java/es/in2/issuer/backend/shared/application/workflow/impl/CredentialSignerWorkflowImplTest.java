@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.application.workflow.impl;
 
+import es.in2.issuer.backend.shared.domain.service.FixedSigningConfigService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
@@ -62,7 +63,7 @@ class CredentialSignerWorkflowImplTest {
     private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
 
     @Spy
-    private SignatureAttemptRecorder signatureAttemptRecorder = new SignatureAttemptRecorder(auditTrail);
+    private SignatureAttemptRecorder signatureAttemptRecorder = new SignatureAttemptRecorder(auditTrail, FixedSigningConfigService.qtsp());
 
     @InjectMocks
     private CredentialSignerWorkflowImpl credentialSignerWorkflow;

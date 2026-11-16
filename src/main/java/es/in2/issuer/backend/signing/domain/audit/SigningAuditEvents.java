@@ -2,6 +2,7 @@ package es.in2.issuer.backend.signing.domain.audit;
 
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -25,32 +26,52 @@ public final class SigningAuditEvents {
         }
     }
 
+    /** How the tenant signs, as the catalogue's {@code modality}. */
+    public enum Modality {
+        QTSP("Qtsp"),
+        OWN_KEY("OwnKey");
+
+        private final String catalogValue;
+
+        Modality(String catalogValue) {
+            this.catalogValue = catalogValue;
+        }
+
+        public static Modality of(SigningModality modality) {
+            return switch (modality) {
+                case QTSP -> QTSP;
+                case OWN_KEY -> OWN_KEY;
+            };
+        }
+    }
+
     /** The certificate and algorithm a signature was made with. */
     public record SignatureProof(String algorithm, String certificateHash) {
     }
 
-    private static final String MODALITY_QTSP = "Qtsp";
     private static final int FIRST_ATTEMPT = 1;
 
     private SigningAuditEvents() {
     }
 
-    public static AuditEntry signed(String resource, SignedObject signedObject, SignatureProof proof, long durationMs) {
-        Map<String, Object> details = baseDetails(signedObject, durationMs);
+    public static AuditEntry signed(String resource, SignedObject signedObject, Modality modality,
+                                    SignatureProof proof, long durationMs) {
+        Map<String, Object> details = baseDetails(signedObject, modality, durationMs);
         details.put("signature_algorithm", proof.algorithm());
         details.put("signing_certificate", proof.certificateHash());
         return AuditEntry.success(AuditEventType.SIGNATURE_REQUESTED, resource, details);
     }
 
-    public static AuditEntry failed(String resource, SignedObject signedObject, String reason, long durationMs) {
+    public static AuditEntry failed(String resource, SignedObject signedObject, Modality modality,
+                                    String reason, long durationMs) {
         return AuditEntry.failure(AuditEventType.SIGNATURE_REQUESTED, resource, reason,
-                baseDetails(signedObject, durationMs));
+                baseDetails(signedObject, modality, durationMs));
     }
 
-    private static Map<String, Object> baseDetails(SignedObject signedObject, long durationMs) {
+    private static Map<String, Object> baseDetails(SignedObject signedObject, Modality modality, long durationMs) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("signed_object", signedObject.catalogValue);
-        details.put("modality", MODALITY_QTSP);
+        details.put("modality", modality.catalogValue);
         details.put("attempts", FIRST_ATTEMPT);
         details.put("duration_ms", durationMs);
         return details;

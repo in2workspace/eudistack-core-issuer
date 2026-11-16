@@ -6,8 +6,10 @@ import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Provi
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
+import es.in2.issuer.backend.shared.domain.spi.IssuanceCompletionAuditPort;
 import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.audit.SigningAuditEvents.SignatureProof;
 import es.in2.issuer.backend.signing.domain.util.JwsHeaderFingerprint;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +18,7 @@ import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Optional;
 
 /**
  * Records the {@code IssuanceCompleted} event of an attestation that is being delivered. The event is staged
@@ -23,16 +26,16 @@ import java.time.Duration;
  * attestation as delivered (DT-002 RQ-01, EC-10): if the outbox insert fails, so does the delivery, and a
  * restart cannot lose the event. The caller opens the transaction.
  *
- * <p>The event is only recorded when it can be complete. The signing certificate and algorithm come from
- * the header of the signed JWS, so a signature without one (a COSE one) is not reported, and the provider is
- * the organization of the tenant's signing certificate. That certificate was read, and cached, when the
- * credential was bound to its issuer, so the lookup is a cache hit; it still has no retries and a short
- * timeout. Only a failed lookup is skipped, with a warning: a failure to stage the event is never swallowed.
+ * <p>The delivery is always reported. What cannot be learned is left out of the event and logged: the
+ * signing certificate and algorithm come from the header of the signed JWS, so a signature without one (a
+ * COSE one) has none, and the provider is the organization of the tenant's signing certificate. That
+ * certificate was read, and cached, when the credential was bound to its issuer, so the lookup is a cache hit;
+ * it still has no retries and a short timeout. A failure to stage the event is never swallowed.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class IssuanceCompletionRecorder {
+public class IssuanceCompletionRecorder implements IssuanceCompletionAuditPort {
 
     private static final Duration PROVIDER_LOOKUP_TIMEOUT = Duration.ofSeconds(2);
 
@@ -40,13 +43,22 @@ public class IssuanceCompletionRecorder {
     private final TenantSigningConfigService tenantSigningConfigService;
     private final IssuerCertificateService issuerCertificateService;
 
+    @Override
     public Mono<Void> recordCompletion(String issuanceId, Completion completion, String signedCredential) {
-        return Mono.defer(() -> JwsHeaderFingerprint.of(signedCredential)
-                .map(proof -> providerOf(issuanceId)
-                        .flatMap(provider -> auditTrail.stage(IssuanceAuditEvents.completed(
-                                issuanceId, provider, completion, proof.algorithm(), proof.certificateHash(),
-                                JwsHeaderFingerprint.fingerprintOf(signedCredential.getBytes(StandardCharsets.UTF_8))))))
-                .orElseGet(Mono::empty));
+        return Mono.defer(() -> {
+            Optional<SignatureProof> proof = JwsHeaderFingerprint.of(signedCredential);
+            if (proof.isEmpty()) {
+                log.warn("issuanceId={} action=auditIssuanceCompleted status=incomplete missing=signingCertificate", issuanceId);
+            }
+            return providerOf(issuanceId)
+                    .map(Optional::of)
+                    .defaultIfEmpty(Optional.empty())
+                    .flatMap(provider -> auditTrail.stage(IssuanceAuditEvents.completed(
+                            issuanceId, provider.orElse(null), completion,
+                            proof.map(SignatureProof::algorithm).orElse(null),
+                            proof.map(SignatureProof::certificateHash).orElse(null),
+                            JwsHeaderFingerprint.fingerprintOf(signedCredential.getBytes(StandardCharsets.UTF_8)))));
+        });
     }
 
     /** The organization of the signing certificate, whether the tenant signs through a QTSP or with its own key. */
@@ -63,8 +75,11 @@ public class IssuanceCompletionRecorder {
                 .timeout(PROVIDER_LOOKUP_TIMEOUT)
                 .map(issuer -> new Provider(issuer.organization(), issuer.organizationIdentifier()))
                 .filter(Provider::isComplete)
+                .switchIfEmpty(Mono.fromRunnable(() -> log.warn(
+                        "issuanceId={} action=auditIssuanceCompleted status=incomplete missing=provider", issuanceId)))
                 .onErrorResume(error -> {
-                    log.warn("issuanceId={} action=auditIssuanceCompleted status=skipped error={}", issuanceId, error.toString());
+                    log.warn("issuanceId={} action=auditIssuanceCompleted status=incomplete missing=provider error={}",
+                            issuanceId, error.toString());
                     return Mono.empty();
                 });
     }

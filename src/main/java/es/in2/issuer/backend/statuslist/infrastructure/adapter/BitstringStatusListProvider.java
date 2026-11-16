@@ -6,7 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.signing.domain.audit.SigningAuditEvents.SignedObject;
 import es.in2.issuer.backend.signing.domain.util.JwsHeaderFingerprint;
-import es.in2.issuer.backend.signing.infrastructure.audit.SignatureAttemptRecorder;
+import es.in2.issuer.backend.signing.domain.spi.SignatureAuditPort;
 import es.in2.issuer.backend.statuslist.domain.audit.StatusListAuditEvents;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.domain.util.LogSanitizer;
@@ -40,6 +40,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.VC_JWT_TYP;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.STATUS_LIST_BASE;
@@ -76,7 +77,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
     private final IssuerFactory issuerFactory;
     private final TransactionalOperator transactionalOperator;
     private final AuditTrailPort auditTrail;
-    private final SignatureAttemptRecorder signatureAttemptRecorder;
+    private final SignatureAuditPort signatureAttemptRecorder;
 
     private final BitstringEncoder encoder = new BitstringEncoder();
 
@@ -185,6 +186,11 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
         log.debug("method=revoke step=START issuanceId={}", safeIssuanceId);
 
+        // What the caller's step (the process update and its Revocation event) or the staging of the list
+        // events does is not the list's doing: its failure must not be traced as a list that was unavailable.
+        AtomicBoolean notTheList = new AtomicBoolean();
+        Mono<Void> callerStep = statusChange.doOnError(error -> notTheList.set(true));
+
         Mono<Void> revocation = statusListIndexRepository.findByIssuanceId(UUID.fromString(issuanceId))
                 .switchIfEmpty(Mono.error(new StatusListIndexNotFoundException(issuanceId)))
                 .flatMap(listIndex -> {
@@ -192,7 +198,8 @@ public class BitstringStatusListProvider implements StatusListProvider {
                             "method=revoke step=indexResolved issuanceId={} statusListId={} idx={}",
                             safeIssuanceId, listIndex.statusListId(), listIndex.idx()
                     );
-                    return revokeWithRetry(listIndex.statusListId(), listIndex.idx(), issuanceId, token, publicIssuerBaseUrl, statusChange);
+                    return revokeWithRetry(listIndex.statusListId(), listIndex.idx(), issuanceId, token, publicIssuerBaseUrl,
+                            callerStep, notTheList);
                 })
                 .doOnSuccess(v ->
                         log.debug("method=revoke step=END issuanceId={}", safeIssuanceId)
@@ -201,6 +208,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                         log.warn("method=revoke step=ERROR issuanceId={} error={}", safeIssuanceId, e.getClass().getSimpleName())
                 );
         return auditTrail.stageOnError(revocation, error -> error instanceof StatusListIndexNotFoundException
+                || notTheList.get()
                 ? Optional.empty()
                 : Optional.of(StatusListAuditEvents.revocationFailed(issuanceId, REASON_STATUS_LIST_UNAVAILABLE)));
     }
@@ -208,14 +216,14 @@ public class BitstringStatusListProvider implements StatusListProvider {
     // --- Revocation internals ---
 
     private Mono<Void> revokeWithRetry(Long statusListId, Integer idx, String issuanceId, String token,
-                                       String publicIssuerBaseUrl, Mono<Void> statusChange) {
+                                       String publicIssuerBaseUrl, Mono<Void> statusChange, AtomicBoolean notTheList) {
         log.debug("method=revokeWithRetry step=START statusListId={} idx={}", statusListId, idx);
 
         // Each attempt asks the QTSP for a new signature of the list: three at most, with exponential
         // backoff and jitter so that revocations racing on the same list spread out (SEC-25).
         long maxAttempts = 3;
 
-        return Mono.defer(() -> revokeOnce(statusListId, idx, issuanceId, token, publicIssuerBaseUrl, statusChange))
+        return Mono.defer(() -> revokeOnce(statusListId, idx, issuanceId, token, publicIssuerBaseUrl, statusChange, notTheList))
                 .retryWhen(
                         Retry.backoff(maxAttempts - 1, Duration.ofMillis(50))
                                 .jitter(0.5)
@@ -233,7 +241,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
     }
 
     private Mono<Void> revokeOnce(Long statusListId, Integer idx, String issuanceId, String token,
-                                  String publicIssuerBaseUrl, Mono<Void> statusChange) {
+                                  String publicIssuerBaseUrl, Mono<Void> statusChange, AtomicBoolean notTheList) {
         log.debug("method=revokeOnce step=START statusListId={} idx={}", statusListId, idx);
 
         return loadList(statusListId, idx)
@@ -242,12 +250,8 @@ public class BitstringStatusListProvider implements StatusListProvider {
                         log.debug("method=revokeOnce step=ALREADY_MARKED statusListId={} idx={}", statusListId, idx);
                         return transactionalOperator.transactional(statusChange);
                     }
-                    return sealAndCommit(row, idx, issuanceId, token, publicIssuerBaseUrl, statusChange);
+                    return sealAndCommit(row, idx, issuanceId, token, publicIssuerBaseUrl, statusChange, notTheList);
                 })
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.debug("method=revokeOnce step=ALREADY_REVOKED statusListId={} idx={}", statusListId, idx);
-                    return Mono.empty();
-                }))
                 .doOnTerminate(() ->
                         log.debug("method=revokeOnce step=END statusListId={} idx={}", statusListId, idx)
                 );
@@ -264,7 +268,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
      * commit together, or none does; a seal that loses the race is discarded with its transaction.
      */
     private Mono<Void> sealAndCommit(StatusList row, Integer idx, String issuanceId, String token,
-                                     String publicIssuerBaseUrl, Mono<Void> statusChange) {
+                                     String publicIssuerBaseUrl, Mono<Void> statusChange, AtomicBoolean notTheList) {
         StatusListData updatedDomain = revocationService.applyRevocation(toDomain(row), idx);
         StatusList updatedRow = toEntity(updatedDomain);
         String listUri = buildListUrl(publicIssuerBaseUrl, row.id(), StatusListFormat.fromValue(row.format()));
@@ -275,15 +279,27 @@ public class BitstringStatusListProvider implements StatusListProvider {
                         "No seal obtained for statusListId=" + row.id())))
                 .onErrorResume(error -> stagePublicationFailure(row.id(), listUri, REASON_SIGNING_FAILED)
                         .then(Mono.<String>error(error)))
-                .flatMap(signedJwt -> transactionalOperator.transactional(
+                .flatMap(signedJwt -> commitSealedList(row, updatedRow, listUri, idx, issuanceId, signedJwt,
+                        statusChange, notTheList));
+    }
+
+    /**
+     * The failure of the update itself is traced once the transaction is rolled back, never from inside it:
+     * the event goes in a transaction of its own, and asking for a second connection while the first is held
+     * could exhaust the pool when many revocations fail together.
+     */
+    private Mono<Void> commitSealedList(StatusList row, StatusList updatedRow, String listUri, Integer idx,
+                                        String issuanceId, String signedJwt, Mono<Void> statusChange,
+                                        AtomicBoolean notTheList) {
+        AtomicBoolean updateFailed = new AtomicBoolean();
+        return transactionalOperator.transactional(
                         statusListRepository.updateSignedAndEncodedIfUnchanged(
                                         row.id(),
                                         updatedRow.encodedList(),
                                         signedJwt,
                                         row.updatedAt()
                                 )
-                                .onErrorResume(error -> stagePublicationFailure(row.id(), listUri, REASON_PUBLICATION_FAILED)
-                                        .then(Mono.<Integer>error(error)))
+                                .doOnError(error -> updateFailed.set(true))
                                 .flatMap(rowsUpdated -> {
                                     if (rowsUpdated == null || rowsUpdated == 0) {
                                         return Mono.<Void>error(new OptimisticUpdateException(
@@ -293,9 +309,12 @@ public class BitstringStatusListProvider implements StatusListProvider {
                                     return auditTrail.stage(StatusListAuditEvents.published(row.id(), listUri,
                                                     JwsHeaderFingerprint.fingerprintOf(signedJwt.getBytes(StandardCharsets.UTF_8))))
                                             .then(auditTrail.stage(StatusListAuditEvents.revoked(issuanceId, listUri, idx)))
+                                            .doOnError(error -> notTheList.set(true))
                                             .then(statusChange);
-                                })
-                ));
+                                }))
+                .onErrorResume(error -> updateFailed.get()
+                        ? stagePublicationFailure(row.id(), listUri, REASON_PUBLICATION_FAILED).then(Mono.<Void>error(error))
+                        : Mono.<Void>error(error));
     }
 
     // --- Allocation internals ---

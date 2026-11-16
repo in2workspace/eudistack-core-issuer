@@ -124,13 +124,14 @@ public final class IssuanceAuditEvents {
 
     /**
      * An attestation that was signed and delivered. The certificate and the attestation itself travel only
-     * as fingerprints.
+     * as fingerprints. What the Issuer could not learn (the provider, the certificate and algorithm of a
+     * signature that is not a JWS) is left out: the delivery is reported all the same (DT-002 RQ-01, §3.8).
      */
     public static AuditEntry completed(String issuanceId, Provider provider, Completion completion,
                                        String signatureAlgorithm, String signingCertificate, String attestationHash) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("provider_legal_name", provider.legalName());
-        details.put("provider_registration_id", provider.registrationId());
+        details.put("provider_legal_name", provider == null ? null : provider.legalName());
+        details.put("provider_registration_id", provider == null ? null : provider.registrationId());
         details.put(ATTESTATION_TYPE, completion.attestationType());
         details.put(DELIVERY_METHOD, completion.deliveryMethod());
         details.put(HOLDER, completion.holder().toDetails());

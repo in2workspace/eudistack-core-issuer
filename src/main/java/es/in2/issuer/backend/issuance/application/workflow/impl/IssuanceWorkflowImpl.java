@@ -13,7 +13,7 @@ import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.OfferKind;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuedAttributeNames;
-import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
+import es.in2.issuer.backend.shared.domain.spi.IssuanceCompletionAuditPort;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
@@ -95,7 +95,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final HolderDidFallbackAuditor holderDidFallbackAuditor;
     private final AuditTrailPort auditTrail;
-    private final IssuanceCompletionRecorder issuanceCompletionRecorder;
+    private final IssuanceCompletionAuditPort issuanceCompletionRecorder;
     private final TransactionalOperator transactionalOperator;
     private final TenantCredentialProfileService tenantCredentialProfileService;
 
@@ -574,13 +574,15 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                         issuanceId, configId, credentialFormat,
                                                                         buildResult, enrichedWithStatus, organizationOf(request),
                                                                         request.email(), originalDelivery, finalStatus, cnf);
-                                                                // IssuanceCompleted commits with the issuance (RQ-01, EC-10): a failed
-                                                                // outbox insert rolls the issuance back and fails the delivery.
+                                                                // The process is created and delivered at once, so IssuanceRequested and
+                                                                // IssuanceCompleted commit with it (RQ-01, EC-10): a failed outbox insert
+                                                                // rolls the issuance back and fails the delivery.
                                                                 return transactionalOperator.transactional(issuanceService.saveIssuance(issuance)
-                                                                                .flatMap(saved -> issuanceCompletionRecorder.recordCompletion(
+                                                                                .flatMap(saved -> auditTrail.stage(directRequest(issuanceId, request, buildResult))
+                                                                                        .then(issuanceCompletionRecorder.recordCompletion(
                                                                                                 issuanceId.toString(),
                                                                                                 directCompletion(configId, request, buildResult),
-                                                                                                signedCredential)
+                                                                                                signedCredential))
                                                                                         .thenReturn(saved)))
                                                                         .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                                                                         .doOnSuccess(saved -> log.debug(
@@ -605,6 +607,16 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return auditTrail.withCorrelationId(issuanceId.toString(), auditTrail.stageOnError(direct,
                 error -> directAttemptFailure(issuanceId, request, error)));
+    }
+
+    /** The request of a direct issuance: its process only exists once the attestation is delivered, so there is no draft. */
+    private AuditEntry directRequest(UUID issuanceId, IssuanceRequest request, CredentialBuildResult buildResult) {
+        return IssuanceAuditEvents.requested(
+                issuanceId.toString(),
+                request.credentialConfigurationId(),
+                DeliveryMode.DIRECT.value,
+                Holder.ofAttestation(buildResult.subject(), request.email(), buildResult.credentialDataSet()),
+                null);
     }
 
     /**

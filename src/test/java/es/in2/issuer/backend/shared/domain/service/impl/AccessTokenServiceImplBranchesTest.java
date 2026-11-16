@@ -71,7 +71,8 @@ class AccessTokenServiceImplBranchesTest {
         // The real decision point with the bundled matrix: role resolution is the matrix's recognition.
         PowerAuthorizationServiceImpl pdp = new PowerAuthorizationServiceImpl(
                 new FileAuthorizationMatrixProvider("", mock(AuditService.class)), callerProvider,
-                mock(TenantCredentialProfileService.class), mock(AuditService.class), objectMapper);
+                mock(TenantCredentialProfileService.class), mock(AuditService.class),
+                new es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail(), objectMapper);
         service = new AccessTokenServiceImpl(objectMapper, appConfig, tenantRegistryService, callerProvider, pdp);
     }
 

@@ -967,6 +967,11 @@ class IssuanceWorkflowImplTest {
                         && EMAIL.equals(completion.holder().email())
                         && completion.walletInteraction() == null
                         && completion.validFrom().equals(buildResult.validFrom().toInstant())), eq("signed-jwt"));
+        // The process of a direct issuance is created already delivered, so its request goes with it.
+        AuditEntry requested = auditTrail.staged().getFirst();
+        assertEquals(AuditEventType.ISSUANCE_REQUESTED, requested.type());
+        assertEquals("direct", requested.details().get("delivery_method"));
+        assertFalse(requested.details().containsKey("offer_expires_at"));
     }
 
     @Test

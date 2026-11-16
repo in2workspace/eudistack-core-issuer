@@ -4,6 +4,7 @@ import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Completion;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
@@ -24,6 +25,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -108,16 +111,23 @@ class IssuanceCompletionRecorderTest {
     }
 
     @Test
-    void record_signatureWithoutAJwsHeader_stagesNothing() {
-        // Arrange & Act
+    void record_signatureWithoutAJwsHeader_stillReportsTheDeliveryWithoutTheCertificateAndAlgorithm() {
+        // Arrange
+        issuerIs("Provider S.L.", "VATES-B12345678");
+
+        // Act
         StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), "base45-cose-value")).verifyComplete();
 
         // Assert
-        assertTrue(auditTrail.all().isEmpty());
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertNull(entry.details().get("signing_certificate"));
+        assertNull(entry.details().get("signature_algorithm"));
+        assertEquals("Provider S.L.", entry.details().get("provider_legal_name"));
+        assertNotNull(entry.details().get("attestation_hash"));
     }
 
     @Test
-    void record_issuerWithoutOrganization_stagesNothing() {
+    void record_issuerWithoutOrganization_stillReportsTheDeliveryWithoutTheProvider() {
         // Arrange
         issuerIs(null, null);
 
@@ -125,11 +135,14 @@ class IssuanceCompletionRecorderTest {
         StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
 
         // Assert
-        assertTrue(auditTrail.all().isEmpty());
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertNull(entry.details().get("provider_legal_name"));
+        assertNull(entry.details().get("provider_registration_id"));
+        assertNotNull(entry.details().get("signing_certificate"));
     }
 
     @Test
-    void record_issuerLookupFails_completesWithoutStagingAnything() {
+    void record_issuerLookupFails_stillReportsTheDeliveryWithoutTheProvider() {
         // Arrange
         when(signingConfigService.getActiveSigningConfig()).thenReturn(Mono.just(ActiveSigningConfig.qtsp(signingConfig)));
         when(certificateService.resolveRemoteDetailedIssuer(signingConfig)).thenReturn(Mono.error(new IllegalStateException("qtsp down")));
@@ -138,7 +151,9 @@ class IssuanceCompletionRecorderTest {
         StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
 
         // Assert
-        assertTrue(auditTrail.all().isEmpty());
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertNull(entry.details().get("provider_legal_name"));
+        assertEquals(AuditResult.SUCCESS, entry.result());
     }
 
     @Test

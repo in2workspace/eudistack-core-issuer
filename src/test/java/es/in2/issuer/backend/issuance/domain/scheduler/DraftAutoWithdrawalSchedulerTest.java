@@ -122,4 +122,24 @@ class DraftAutoWithdrawalSchedulerTest {
 
         verify(issuanceService, never()).updateIssuance(any());
     }
+
+    @Test
+    void withdrawStaleDrafts_oneDraftFails_stillWithdrawsTheOtherDraftsOfTheTenant() {
+        // Arrange
+        Issuance failing = Issuance.builder().issuanceId(UUID.randomUUID()).credentialStatus(CredentialStatusEnum.DRAFT).build();
+        Issuance healthy = Issuance.builder().issuanceId(UUID.randomUUID()).credentialStatus(CredentialStatusEnum.DRAFT).build();
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("sandbox")));
+        when(procedureProperties.draftMaxAgeDays()).thenReturn(30);
+        when(issuanceService.findStaleDrafts(any(Instant.class))).thenReturn(Flux.just(failing, healthy));
+        when(issuanceService.updateIssuance(failing)).thenReturn(Mono.error(new IllegalStateException("database down")));
+        when(issuanceService.updateIssuance(healthy)).thenReturn(Mono.just(healthy));
+
+        // Act
+        Mono<Void> withdrawn = scheduler.withdrawStaleDrafts();
+
+        // Assert
+        StepVerifier.create(withdrawn).verifyComplete();
+        assertEquals(1, auditTrail.staged().size());
+        assertEquals("issuance:" + healthy.getIssuanceId(), auditTrail.staged().getFirst().resource());
+    }
 }
