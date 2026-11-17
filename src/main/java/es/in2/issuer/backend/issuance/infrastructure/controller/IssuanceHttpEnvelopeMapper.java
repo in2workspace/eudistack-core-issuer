@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
+import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.ChannelBody;
@@ -32,6 +33,19 @@ public class IssuanceHttpEnvelopeMapper {
                 ? List.of()
                 : results.stream().map(result -> toChannelResponse(result, response)).toList();
         return new IssuanceHttpResponse(channels);
+    }
+
+    /**
+     * The envelope of a renewed offer (EUD-295): one entry for the issuance's delivery mode, with
+     * the new {@code credential_offer_uri} for {@code ui} and no body for {@code email}.
+     */
+    public IssuanceHttpResponse toRenewalResponse(CredentialOfferRenewal renewal) {
+        ChannelResponse channel = ChannelResponse.builder()
+                .channel(renewal.mode().value)
+                .status(200)
+                .body(renewal.mode().returnsUri ? offerBody(renewal.credentialOfferUri()) : null)
+                .build();
+        return new IssuanceHttpResponse(List.of(channel));
     }
 
     private ChannelResponse toChannelResponse(DeliveryResult result, IssuanceResponse response) {

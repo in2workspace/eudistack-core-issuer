@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -36,6 +37,9 @@ public class GenericCredentialBuilder {
 
     private static final String DC_SD_JWT = "dc+sd-jwt";
     private static final String DEFAULT_SUBJECT_SEPARATOR = " ";
+    private static final String CREDENTIAL_SUBJECT = "credentialSubject";
+    private static final String DIRECT_STRATEGY = "direct";
+    private static final String MANDATE = "mandate";
 
     /**
      * Builds an unsigned credential from a profile definition and input payload.
@@ -88,6 +92,42 @@ public class GenericCredentialBuilder {
     }
 
     /**
+     * The payload a stored credential data set was built from, the inverse of
+     * {@link #buildCredential}: the mandate, or the subject for the {@code direct} strategy, under
+     * {@code credentialSubject} (W3C) or at the top level (flat SD-JWT). Empty when the data set is
+     * not one built for the profile, so who decides on it can fail closed.
+     */
+    public Optional<JsonNode> extractPayload(CredentialProfile profile, String credentialDataSet) {
+        if (credentialDataSet == null || credentialDataSet.isBlank()) {
+            return Optional.empty();
+        }
+        JsonNode credential;
+        try {
+            credential = objectMapper.readTree(credentialDataSet);
+        } catch (Exception e) {
+            log.warn("Stored credential data set is not JSON: {}", e.getMessage());
+            return Optional.empty();
+        }
+        if (credential == null || !credential.isObject()) {
+            return Optional.empty();
+        }
+        JsonNode root = DC_SD_JWT.equals(profile.format()) && profile.sdJwt() != null
+                ? credential
+                : credential.get(CREDENTIAL_SUBJECT);
+        if (root == null) {
+            return Optional.empty();
+        }
+        boolean direct = DIRECT_STRATEGY.equals(profile.credentialSubjectStrategy());
+        if (direct && root.has(MANDATE)) {
+            // Built as a mandate, read as direct (the profile's strategy changed): its powers would go
+            // unseen, so it is not decidable rather than a subject without powers (EUD-295 review W1).
+            return Optional.empty();
+        }
+        JsonNode payload = direct ? root : root.get(MANDATE);
+        return payload != null && payload.isObject() ? Optional.of(payload) : Optional.empty();
+    }
+
+    /**
      * Builds a W3C VCDM credential structure.
      * Used for jwt_vc_json and cwt_vc formats.
      * No credentialStatus — injected at signing time via injectCredentialStatus().
@@ -105,18 +145,18 @@ public class GenericCredentialBuilder {
         }
 
         ObjectNode credentialSubjectNode;
-        if ("direct".equals(profile.credentialSubjectStrategy())) {
-            JsonNode cs = payload.get("credentialSubject");
+        if (DIRECT_STRATEGY.equals(profile.credentialSubjectStrategy())) {
+            JsonNode cs = payload.get(CREDENTIAL_SUBJECT);
             credentialSubjectNode = (cs != null) ? cs.deepCopy() : payload.deepCopy();
         } else {
             credentialSubjectNode = objectMapper.createObjectNode();
-            credentialSubjectNode.set("mandate", payload);
+            credentialSubjectNode.set(MANDATE, payload);
         }
         // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json; preserve caller-supplied id
         if (!credentialSubjectNode.has("id")) {
             credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
         }
-        credential.set("credentialSubject", credentialSubjectNode);
+        credential.set(CREDENTIAL_SUBJECT, credentialSubjectNode);
 
         credential.put("validFrom", validFrom);
         credential.put("validUntil", validUntil);
@@ -151,10 +191,10 @@ public class GenericCredentialBuilder {
         credential.put("exp", exp);
 
         // Payload goes directly at top level (e.g., "mandator", "mandatee", "power")
-        if ("direct".equals(profile.credentialSubjectStrategy())) {
+        if (DIRECT_STRATEGY.equals(profile.credentialSubjectStrategy())) {
             payload.properties().forEach(entry -> credential.set(entry.getKey(), entry.getValue()));
         } else {
-            credential.set("mandate", payload);
+            credential.set(MANDATE, payload);
         }
 
         // Store validFrom/validUntil as metadata for later use
@@ -193,10 +233,10 @@ public class GenericCredentialBuilder {
             ObjectNode credential = (ObjectNode) objectMapper.readTree(credentialJson);
 
             // W3C format: credentialSubject.mandate.mandatee.id
-            if (credential.has("credentialSubject")) {
-                JsonNode cs = credential.get("credentialSubject");
-                if (cs instanceof ObjectNode csNode && csNode.has("mandate")) {
-                    JsonNode mandate = csNode.get("mandate");
+            if (credential.has(CREDENTIAL_SUBJECT)) {
+                JsonNode cs = credential.get(CREDENTIAL_SUBJECT);
+                if (cs instanceof ObjectNode csNode && csNode.has(MANDATE)) {
+                    JsonNode mandate = csNode.get(MANDATE);
                     if (mandate instanceof ObjectNode mandateNode && mandateNode.has("mandatee")) {
                         JsonNode mandatee = mandateNode.get("mandatee");
                         if (mandatee instanceof ObjectNode mandateeNode) {
@@ -208,8 +248,8 @@ public class GenericCredentialBuilder {
             }
 
             // SD-JWT flat format: mandate.mandatee.id (top-level)
-            if (credential.has("mandate")) {
-                JsonNode mandate = credential.get("mandate");
+            if (credential.has(MANDATE)) {
+                JsonNode mandate = credential.get(MANDATE);
                 if (mandate instanceof ObjectNode mandateNode && mandateNode.has("mandatee")) {
                     JsonNode mandatee = mandateNode.get("mandatee");
                     if (mandatee instanceof ObjectNode mandateeNode) {

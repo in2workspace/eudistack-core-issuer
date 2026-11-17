@@ -19,6 +19,8 @@ import java.security.SecureRandom;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_CODE_SIZE;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_INPUT_MODE;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class PreAuthorizedCodeServiceImplTest {
@@ -26,7 +28,7 @@ class PreAuthorizedCodeServiceImplTest {
     @Mock
     private SecureRandom random; // Unused in these tests, needed by constructor
     @Mock
-    private TransientStore<IssuanceIdAndTxCode> cacheStore; // Unused here
+    private TransientStore<IssuanceIdAndTxCode> cacheStore;
     @Mock
     private TranslationService translationService; // Unused here
 
@@ -107,5 +109,14 @@ class PreAuthorizedCodeServiceImplTest {
         assertNotNull(grantTx, "TxCode must not be null");
         assertEquals(TX_CODE_SIZE, grantTx.length(), "Should match TX_CODE_SIZE constant");
         assertEquals(TX_INPUT_MODE, grantTx.inputMode(), "Should match TX_INPUT_MODE constant");
+    }
+
+    @Test
+    void PreAuthorizedCodeService_revokePreAuthorizedCode_deletesTheCodeFromTheStore() {
+        when(cacheStore.delete("code")).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.revokePreAuthorizedCode("code")).verifyComplete();
+
+        verify(cacheStore).delete("code");
     }
 }
