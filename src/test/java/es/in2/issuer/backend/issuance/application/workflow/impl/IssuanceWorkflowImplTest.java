@@ -760,6 +760,38 @@ class IssuanceWorkflowImplTest {
         assertEquals(Map.of("email", EMAIL), attemptFailed.details().get("holder"));
     }
 
+    /**
+     * Review of EUD-268: the issuer of the attestation is read from the signing configuration and its
+     * certificate before anything is reserved. When that dependency does not answer (an own key whose
+     * certificate cannot be read), the delivery is signing_failed -- a 503 with Retry-After -- like a failed
+     * signature, not the generic 500; no status list entry is reserved and nothing is saved.
+     */
+    @Test
+    void directDeliveryWhoseIssuerCannotBeBound_isSigningFailed() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null, null)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.error(new IllegalStateException("Unable to execute HTTP request: Connect to localstack:4566 failed")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMatches(deliveryFailed(DeliveryErrorCode.SIGNING_FAILED, IllegalStateException.class))
+                .verify();
+
+        verifyNoInteractions(statusListWorkflow, credentialSignerWorkflow, issuanceService);
+        AuditEntry attemptFailed = auditTrail.stagedInNewTransaction().stream()
+                .filter(entry -> entry.type() == AuditEventType.ISSUANCE_ATTEMPT_FAILED)
+                .findFirst().orElseThrow();
+        assertEquals("SigningFailed", attemptFailed.reason());
+    }
+
     @Test
     void directDeliveryWithoutASigningConfiguration_reportsInvalidConfiguration() {
         JsonNode payload = new ObjectMapper().createObjectNode();

@@ -461,6 +461,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .flatMap(buildResult ->
                         genericCredentialBuilder.bindIssuer(profile, buildResult.credentialDataSet(),
                                         issuanceId.toString(), request.email())
+                                // The issuer is read from the signing configuration and its certificate (QTSP
+                                // or own key): the same dependency as the signature, so the same 503 (EUD-254 AC-03).
+                                .onErrorMap(failedAt(DeliveryErrorCode.SIGNING_FAILED))
                                 .map(enrichedDataSet -> {
                                     // AD-8 exempt types take no key proof (F2, S2): derive the holder DID
                                     // from the cnf.jwk the exemption already resolved, so cnf and
