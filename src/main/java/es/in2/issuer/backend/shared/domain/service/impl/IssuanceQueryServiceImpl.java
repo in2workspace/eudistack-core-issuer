@@ -1,7 +1,13 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceDetail;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceSummary;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -22,12 +28,14 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.PLATFORM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
- * Listing of the issuance processes (EUD-255 design 1.1, AD-1 and AD-3). The tenant isolation comes
+ * Listing and detail of the issuance processes (EUD-255 design 1.1, AD-1 and AD-3). The tenant isolation comes
  * from the search_path of the tenant in the context; the organization scope from the decision.
  *
  * <p>Each page asks one row more than its size: if it comes, there is a next page and its cursor is
@@ -43,6 +51,7 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
     private final IssuancePort issuancePort;
     private final TenantRegistryService tenantRegistryService;
     private final AuditTrailPort auditTrail;
+    private final ObjectMapper objectMapper;
 
     @Override
     public Mono<IssuanceList> list(AuthorizationDecision decision, IssuanceQuery query) {
@@ -65,6 +74,64 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
                                     decision.caller().organizationIdentifier(), page.issuances().size()))
                             .thenReturn(page));
         });
+    }
+
+    /**
+     * The tenant isolation comes from the search_path; the scope from the decision. From the platform tenant
+     * the process is looked up in the schema of every active tenant, and the one it is in is returned with it.
+     */
+    @Override
+    public Mono<IssuanceDetail> detail(AuthorizationDecision decision, UUID issuanceId) {
+        return Mono.defer(() -> {
+            Mono<Found> found;
+            if (decision.caller().crossTenantView()) {
+                found = tenantRegistryService.getActiveTenantSchemas()
+                        .flatMapMany(Flux::fromIterable)
+                        .filter(tenant -> !PLATFORM_TENANT.equals(tenant))
+                        .concatMap(tenant -> issuancePort.findByIssuanceId(issuanceId)
+                                .map(issuance -> new Found(tenant, issuance))
+                                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant)))
+                        .next();
+            } else if (decision.anyOrganization()) {
+                found = issuancePort.findByIssuanceId(issuanceId).map(issuance -> new Found(null, issuance));
+            } else {
+                found = issuancePort.findByIssuanceIdAndOrganizationIdentifier(
+                                issuanceId, decision.caller().organizationIdentifier())
+                        .map(issuance -> new Found(null, issuance));
+            }
+            Mono<IssuanceDetail> detail = found
+                    .switchIfEmpty(Mono.error(() -> new IssuanceNotFoundException("No issuance found for the given id")))
+                    .flatMap(process -> toDetail(process)
+                            .flatMap(result -> stageDetailAccessed(process).thenReturn(result)));
+            return auditTrail.stageOnError(detail, error -> error instanceof IssuanceNotFoundException
+                    ? Optional.of(IssuanceAuditEvents.detailRefused(issuanceId.toString(), "IssuanceNotFound"))
+                    : Optional.empty());
+        });
+    }
+
+    /**
+     * EUD-244: the access is staged once. When a platform administrator read a process of another tenant, it is
+     * staged under that tenant, which owns the data and the holder in it, and the administrator stays as the
+     * actor (D62).
+     */
+    private Mono<Void> stageDetailAccessed(Found found) {
+        Issuance issuance = found.issuance();
+        Mono<Void> access = auditTrail.stageBestEffort(IssuanceAuditEvents.detailAccessed(
+                issuance.getIssuanceId().toString(),
+                Holder.ofAttestation(issuance.getSubject(), issuance.getEmail(), issuance.getCredentialDataSet())));
+        return found.tenant() == null ? access : auditTrail.inTenant(found.tenant(), access);
+    }
+
+    private Mono<IssuanceDetail> toDetail(Found found) {
+        String credentialDataSet = found.issuance().getCredentialDataSet();
+        if (credentialDataSet == null) {
+            return Mono.error(new ParseCredentialJsonException("The issuance process has no attestation data"));
+        }
+        try {
+            return Mono.just(new IssuanceDetail(toSummary(found), objectMapper.readTree(credentialDataSet)));
+        } catch (JsonProcessingException e) {
+            return Mono.error(new ParseCredentialJsonException("The attestation data of the issuance process is not JSON"));
+        }
     }
 
     /** Null for a caller who sees the whole tenant, its organization otherwise. */

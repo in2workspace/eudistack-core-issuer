@@ -1,6 +1,10 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceDetail;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceSummary;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -14,6 +18,7 @@ import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.support.TestAuthorizationDecisions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +48,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** EUD-255 AD-1 and AD-3: scope, pages and the merge of the platform tenant's view. */
+/** EUD-255 AD-1 and AD-3: scope, pages and the merge of the platform tenant's view; the detail (FR-06). */
 class IssuanceQueryServiceImplTest {
 
     private static final Instant T = Instant.parse("2026-10-01T09:00:00Z");
@@ -58,7 +63,7 @@ class IssuanceQueryServiceImplTest {
         issuancePort = mock(IssuancePort.class);
         tenantRegistryService = mock(TenantRegistryService.class);
         auditTrail = new RecordingAuditTrail();
-        service = new IssuanceQueryServiceImpl(issuancePort, tenantRegistryService, auditTrail);
+        service = new IssuanceQueryServiceImpl(issuancePort, tenantRegistryService, auditTrail, new ObjectMapper());
     }
 
     @Test
@@ -246,6 +251,153 @@ class IssuanceQueryServiceImplTest {
         StepVerifier.create(service.list(platformAdmin(), query))
                 .expectError(IllegalStateException.class)
                 .verify();
+    }
+
+    @Test
+    void theDetail_ofAnOrganizationAdmin_isLookedUpInItsOrganization_withTheAttestationData() {
+        Issuance issuance = issuance(T);
+        issuance.setOrganizationIdentifier("ORG-A");
+        issuance.setCredentialType("doctor.sd.1");
+        issuance.setCredentialDataSet("{\"given_name\":\"Ana\"}");
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(issuance.getIssuanceId(), "ORG-A"))
+                .thenReturn(Mono.just(issuance));
+
+        IssuanceDetail detail = service.detail(organizationAdmin("ORG-A"), issuance.getIssuanceId()).block();
+
+        assertThat(detail.summary()).isEqualTo(IssuanceSummary.builder()
+                .id(issuance.getIssuanceId())
+                .organizationIdentifier("ORG-A")
+                .credentialConfigurationId("doctor.sd.1")
+                .lifeCycleStatus("VALID")
+                .updated(T)
+                .build());
+        assertThat(detail.credential().path("given_name").asText()).isEqualTo("Ana");
+        verify(issuancePort, never()).findByIssuanceId(any());
+    }
+
+    @Test
+    void theDetail_ofATenantAdmin_isLookedUpInTheWholeTenant() {
+        Issuance issuance = issuance(T);
+        issuance.setCredentialDataSet("{}");
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+
+        StepVerifier.create(service.detail(tenantAdmin(), issuance.getIssuanceId()))
+                .assertNext(detail -> assertThat(detail.summary().tenant()).isNull())
+                .verifyComplete();
+        verify(issuancePort, never()).findByIssuanceIdAndOrganizationIdentifier(any(), any());
+    }
+
+    @Test
+    void theDetail_outOfScopeOrUnknown_isNotFound() {
+        UUID id = UUID.randomUUID();
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, "ORG-A")).thenReturn(Mono.empty());
+        when(issuancePort.findByIssuanceId(id)).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.detail(organizationAdmin("ORG-A"), id))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+        StepVerifier.create(service.detail(tenantAdmin(), id))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+    }
+
+    @Test
+    void theDetail_fromThePlatformTenant_isLookedUpInEveryTenantButThePlatform_andSaysWhichOne() {
+        Issuance issuance = issuance(T);
+        issuance.setCredentialDataSet("{}");
+        when(tenantRegistryService.getActiveTenantSchemas())
+                .thenReturn(Mono.just(List.of(PLATFORM_TENANT, "tenant-a", "tenant-b")));
+        List<String> queried = java.util.Collections.synchronizedList(new ArrayList<>());
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenAnswer(invocation ->
+                Mono.deferContextual(ctx -> {
+                    String tenant = ctx.get(TENANT_DOMAIN_CONTEXT_KEY);
+                    queried.add(tenant);
+                    return "tenant-b".equals(tenant) ? Mono.just(issuance) : Mono.empty();
+                }));
+
+        IssuanceDetail detail = service.detail(platformAdmin(), issuance.getIssuanceId()).block();
+
+        assertThat(detail.summary().tenant()).isEqualTo("tenant-b");
+        assertThat(queried).containsExactly("tenant-a", "tenant-b");
+        verify(issuancePort, never()).findByIssuanceIdAndOrganizationIdentifier(any(), any());
+    }
+
+    @Test
+    void theDetail_fromThePlatformTenant_inNoTenant_isNotFound() {
+        UUID id = UUID.randomUUID();
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a", "tenant-b")));
+        when(issuancePort.findByIssuanceId(id)).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.detail(platformAdmin(), id))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+    }
+
+    @Test
+    void theDetail_ofAProcessWhoseAttestationDataIsNotJson_fails() {
+        Issuance broken = issuance(T);
+        broken.setCredentialDataSet("{\"given_name\":");
+        Issuance empty = issuance(T);
+        when(issuancePort.findByIssuanceId(broken.getIssuanceId())).thenReturn(Mono.just(broken));
+        when(issuancePort.findByIssuanceId(empty.getIssuanceId())).thenReturn(Mono.just(empty));
+
+        StepVerifier.create(service.detail(tenantAdmin(), broken.getIssuanceId()))
+                .expectError(ParseCredentialJsonException.class)
+                .verify();
+        StepVerifier.create(service.detail(tenantAdmin(), empty.getIssuanceId()))
+                .expectError(ParseCredentialJsonException.class)
+                .verify();
+    }
+
+    /** EUD-244: a detail that is returned leaves one access, with the holder in clear, in the request's tenant. */
+    @Test
+    void theDetail_isAudited_withTheHolderInClear() {
+        Issuance issuance = issuance(T);
+        issuance.setCredentialDataSet("{\"vc\":{}}");
+        issuance.setSubject("Jane Doe");
+        issuance.setEmail("jane@example.com");
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(issuance.getIssuanceId(), "ORG-A"))
+                .thenReturn(Mono.just(issuance));
+
+        service.detail(organizationAdmin("ORG-A"), issuance.getIssuanceId()).block();
+
+        assertThat(auditTrail.all()).singleElement().satisfies(entry -> {
+            assertThat(entry.type()).isEqualTo(AuditEventType.ISSUANCE_DETAIL_ACCESSED);
+            assertThat(entry.result()).isEqualTo(AuditResult.SUCCESS);
+            assertThat(entry.resource()).isEqualTo("issuance:" + issuance.getIssuanceId());
+            assertThat(entry.details()).containsEntry("holder", Map.of("name", "Jane Doe", "email", "jane@example.com"));
+        });
+        assertThat(auditTrail.tenantScopes()).isEmpty();
+    }
+
+    /** EUD-244 D62: a platform administrator's read is staged once, under the tenant that owns the process. */
+    @Test
+    void theDetail_fromThePlatformTenant_isAuditedOnceUnderTheTenantOfTheProcess() {
+        Issuance issuance = issuance(T);
+        issuance.setCredentialDataSet("{}");
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("acme")));
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+
+        service.detail(platformAdmin(), issuance.getIssuanceId()).block();
+
+        assertThat(auditTrail.all()).hasSize(1);
+        assertThat(auditTrail.tenantScopes()).containsExactly("acme");
+    }
+
+    /** EUD-244: a detail that is not found leaves a Denied IssuanceNotFound, and the error goes on. */
+    @Test
+    void theDetail_notFound_isAuditedAsDenied_andKeepsTheError() {
+        UUID id = UUID.randomUUID();
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, "ORG-A")).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.detail(organizationAdmin("ORG-A"), id))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+
+        assertThat(auditTrail.all()).singleElement().satisfies(entry -> {
+            assertThat(entry.result()).isEqualTo(AuditResult.DENIED);
+            assertThat(entry.reason()).isEqualTo("IssuanceNotFound");
+        });
     }
 
     /** Answers each tenant's rows according to the tenant in the Reactor context, and records which were asked. */

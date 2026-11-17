@@ -22,7 +22,7 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceDetail;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceSummary;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -476,24 +476,26 @@ class IssuanceControllerTest {
                 .value(body -> assertThat(body).doesNotContain(ISSUANCE_ID));
     }
 
+    /** EUD-255 FR-06: decided with the organization stored with the process, answered with the shape of the contract. */
     @Test
     void IssuanceController_getIssuance_decidesWithTheOrganizationStoredWithTheAttestation() {
         // Given
-        String issuanceId = UUID.randomUUID().toString();
+        UUID issuanceId = UUID.randomUUID();
         AuthorizationDecision authCtx = organizationAdminDecision("VATES-STORED");
-        CredentialDetails details = CredentialDetails.builder()
-                .issuanceId(UUID.randomUUID())
+        IssuanceDetail detail = new IssuanceDetail(IssuanceSummary.builder()
+                .id(issuanceId)
+                .organizationIdentifier("VATES-STORED")
                 .credentialConfigurationId("learcredential.employee.w3c.4")
                 .lifeCycleStatus("VALID")
-                .credential(null)
-                .build();
-        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.just(storedIn("VATES-STORED")));
-        when(powerAuthorizationService.authorizeQuery("VATES-STORED", issuanceId))
+                .created(Instant.parse("2026-10-01T09:10:02Z"))
+                .updated(Instant.parse("2026-10-01T09:12:44Z"))
+                .build(), objectMapper.createObjectNode().put("given_name", "Ana"));
+        when(issuanceService.getIssuanceById(issuanceId.toString())).thenReturn(Mono.just(storedIn("VATES-STORED")));
+        when(powerAuthorizationService.authorizeQuery("VATES-STORED", issuanceId.toString()))
                 .thenReturn(Mono.just(authCtx));
-        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, issuanceId))
-                .thenReturn(Mono.just(details));
+        when(issuanceQueryService.detail(authCtx, issuanceId)).thenReturn(Mono.just(detail));
 
-        // When / Then
+        // When / Then: the fields of the listing at the top level, plus the attestation data
         webTestClient
                 .get()
                 .uri(ISSUANCES_PATH + "/{id}", issuanceId)
@@ -501,20 +503,28 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.lifeCycleStatus").isEqualTo("VALID");
+                .jsonPath("$.id").isEqualTo(issuanceId.toString())
+                .jsonPath("$.life_cycle_status").isEqualTo("VALID")
+                .jsonPath("$.credential_configuration_id").isEqualTo("learcredential.employee.w3c.4")
+                .jsonPath("$.updated").isEqualTo("2026-10-01T09:12:44Z")
+                .jsonPath("$.credential.given_name").isEqualTo("Ana")
+                .jsonPath("$.summary").doesNotExist()
+                .jsonPath("$.procedure_id").doesNotExist()
+                .jsonPath("$.lifeCycleStatus").doesNotExist();
     }
 
     /** An id that is not in the tenant is decided without a resource (the platform administrator's cross-tenant view). */
     @Test
     void IssuanceController_getIssuance_decidesWithoutResourceWhenTheTenantHasNoSuchAttestation() {
         // Given
-        String issuanceId = UUID.randomUUID().toString();
+        UUID issuanceId = UUID.randomUUID();
         AuthorizationDecision authCtx = organizationAdminDecision("org");
-        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.empty());
-        when(powerAuthorizationService.authorizeQuery(null, issuanceId))
+        when(issuanceService.getIssuanceById(issuanceId.toString())).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeQuery(null, issuanceId.toString()))
                 .thenReturn(Mono.just(authCtx));
-        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, issuanceId))
-                .thenReturn(Mono.just(CredentialDetails.builder().lifeCycleStatus("VALID").build()));
+        when(issuanceQueryService.detail(authCtx, issuanceId)).thenReturn(Mono.just(new IssuanceDetail(
+                IssuanceSummary.builder().id(issuanceId).lifeCycleStatus("VALID").build(),
+                objectMapper.createObjectNode())));
 
         // When / Then
         webTestClient
@@ -651,73 +661,34 @@ class IssuanceControllerTest {
         patchStatus(issuanceId, CredentialStatusEnum.VALID).expectStatus().isBadRequest();
     }
 
-    /** EUD-307: an id that is not a UUID is decided (traced as a marker) and then rejected as 400 BAD_REQUEST. */
-    @Test
-    void IssuanceController_getIssuance_malformedIdIsDecidedThenRejectedAsBadRequest() {
+    /**
+     * EUD-255 API-10: the shape goes before the permission. An id that is not a UUID -- a non-canonical one
+     * ("1-1-1-1-1", accepted by UUID.fromString) too -- is an invalid request of the id, never decided, looked
+     * up nor echoed.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-uuid", "1-1-1-1-1"})
+    @SuppressWarnings("unchecked")
+    void IssuanceController_getIssuance_malformedIdIsAnInvalidRequest_beforeDecidingAnything(String malformed) {
         // Given
-        AuthorizationDecision authCtx = organizationAdminDecision("org");
-        when(powerAuthorizationService.authorizeQuery(null, IssuanceController.MALFORMED_ID))
-                .thenReturn(Mono.just(authCtx));
-        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, "not-a-uuid"))
-                .thenReturn(Mono.error(new MalformedIssuanceIdException()));
-        stubBadRequestProblem();
+        ArgumentCaptor<List<GlobalErrorMessage.FieldViolation>> violations = ArgumentCaptor.forClass(List.class);
+        when(errorResponseFactory.handleWithViolations(any(InvalidQueryException.class), any(), eq("invalid_request"),
+                anyString(), eq(HttpStatus.BAD_REQUEST), anyString(), violations.capture()))
+                .thenReturn(Mono.just(new GlobalErrorMessage("invalid_request", "Invalid request",
+                        HttpStatus.BAD_REQUEST.value(), "The query is not valid", ISSUANCES_PATH)));
 
         // When / Then
         webTestClient
                 .get()
-                .uri(ISSUANCES_PATH + "/{id}", "not-a-uuid")
+                .uri(ISSUANCES_PATH + "/{id}", malformed)
                 .header("Authorization", "Bearer testToken")
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.type").isEqualTo("BAD_REQUEST");
-        verify(issuanceService, never()).getIssuanceById(anyString());
-    }
-
-    /** EUD-307: a caller who may not query is denied (403) before its malformed id is looked at. */
-    @Test
-    void IssuanceController_getIssuance_malformedIdOfADeniedCallerIsForbidden() {
-        // Given
-        when(powerAuthorizationService.authorizeQuery(null, IssuanceController.MALFORMED_ID))
-                .thenReturn(Mono.error(new LearIssuancePolicyException(
-                        LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));
-        when(errorResponseFactory.handleSafe(any(LearIssuancePolicyException.class), any(), eq("insufficient_permission"),
-                anyString(), eq(HttpStatus.FORBIDDEN), anyString()))
-                .thenReturn(Mono.just(new GlobalErrorMessage(
-                        "insufficient_permission", "Insufficient permission", HttpStatus.FORBIDDEN.value(),
-                        "no power", UUID.randomUUID().toString())));
-
-        // When / Then
-        webTestClient
-                .get()
-                .uri(ISSUANCES_PATH + "/{id}", "not-a-uuid")
-                .header("Authorization", "Bearer testToken")
-                .exchange()
-                .expectStatus().isForbidden()
-                .expectBody()
-                .jsonPath("$.type").isEqualTo("insufficient_permission");
-        verify(issuanceService, never()).getIssuanceDetailByIssuanceIdAndOrganizationId(any(), anyString());
-    }
-
-    /** EUD-307: a non-canonical id ("1-1-1-1-1", accepted by UUID.fromString) is malformed: never looked up nor traced. */
-    @Test
-    void IssuanceController_getIssuance_nonCanonicalIdIsTracedAsMalformed() {
-        // Given
-        AuthorizationDecision authCtx = organizationAdminDecision("org");
-        when(powerAuthorizationService.authorizeQuery(null, IssuanceController.MALFORMED_ID))
-                .thenReturn(Mono.just(authCtx));
-        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, "1-1-1-1-1"))
-                .thenReturn(Mono.error(new MalformedIssuanceIdException()));
-        stubBadRequestProblem();
-
-        // When / Then
-        webTestClient
-                .get()
-                .uri(ISSUANCES_PATH + "/{id}", "1-1-1-1-1")
-                .header("Authorization", "Bearer testToken")
-                .exchange()
-                .expectStatus().isBadRequest();
-        verify(powerAuthorizationService).authorizeQuery(null, IssuanceController.MALFORMED_ID);
+                .jsonPath("$.type").isEqualTo("invalid_request");
+        assertThat(violations.getValue()).extracting(GlobalErrorMessage.FieldViolation::field).containsExactly("id");
+        assertThat(violations.getValue().toString()).doesNotContain(malformed);
+        verifyNoInteractions(powerAuthorizationService, issuanceQueryService);
         verify(issuanceService, never()).getIssuanceById(anyString());
     }
 

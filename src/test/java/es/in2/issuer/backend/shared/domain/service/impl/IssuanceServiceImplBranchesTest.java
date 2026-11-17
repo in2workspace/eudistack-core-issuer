@@ -5,14 +5,10 @@ import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateExc
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
-import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
-import es.in2.issuer.backend.support.TestAuthorizationDecisions;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
-import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -33,7 +29,6 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -62,8 +57,6 @@ class IssuanceServiceImplBranchesTest {
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
     @Mock
-    private TenantRegistryService tenantRegistryService;
-    @Mock
     private TransactionalOperator transactionalOperator;
 
     private IssuanceServiceImpl service;
@@ -73,7 +66,7 @@ class IssuanceServiceImplBranchesTest {
     @BeforeEach
     void setUp() {
         service = new IssuanceServiceImpl(appConfig, issuancePort, new ObjectMapper(),
-                credentialProfileRegistry, tenantRegistryService, auditTrail, transactionalOperator);
+                credentialProfileRegistry, auditTrail, transactionalOperator);
         lenient().when(appConfig.getSysTenant()).thenReturn(SYS_TENANT);
         lenient().when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -215,56 +208,6 @@ class IssuanceServiceImplBranchesTest {
     }
 
     // --- platform cross-tenant view ---
-
-    @Test
-    void getIssuanceDetail_asPlatformSysAdmin_searchesAcrossTenants() {
-        // Arrange
-        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, true);
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("acme", "globex")));
-        when(issuancePort.findByIssuanceId(ISSUANCE_UUID))
-                .thenReturn(Mono.just(issuance(CredentialStatusEnum.VALID, "{\"id\":\"urn:1\"}")));
-
-        // Act + Assert
-        StepVerifier.create(service.getIssuanceDetailByIssuanceIdAndOrganizationId(ctx, ISSUANCE_ID))
-                .assertNext(details -> {
-                    assertThat(details.issuanceId()).isEqualTo(ISSUANCE_UUID);
-                    assertThat(details.lifeCycleStatus()).isEqualTo("VALID");
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void getIssuanceDetail_asPlatformSysAdmin_stagesTheAccessOnceUnderTheTenantOfTheProcess() {
-        // Arrange
-        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, true);
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("acme")));
-        when(issuancePort.findByIssuanceId(ISSUANCE_UUID))
-                .thenReturn(Mono.just(issuance(CredentialStatusEnum.VALID, "{\"id\":\"urn:1\"}")));
-
-        // Act
-        StepVerifier.create(service.getIssuanceDetailByIssuanceIdAndOrganizationId(ctx, ISSUANCE_ID))
-                .expectNextCount(1).verifyComplete();
-
-        // Assert: one event, in the tenant that owns the process
-        assertThat(auditTrail.all()).hasSize(1);
-        assertThat(auditTrail.tenantScopes()).containsExactly("acme");
-    }
-
-    @Test
-    void getIssuanceDetail_ofTheOwnTenant_stagesTheAccessInTheContextOfTheRequest() {
-        // Arrange
-        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, false);
-        when(issuancePort.findByIssuanceId(ISSUANCE_UUID))
-                .thenReturn(Mono.just(issuance(CredentialStatusEnum.VALID, "{\"id\":\"urn:1\"}")));
-
-        // Act
-        StepVerifier.create(service.getIssuanceDetailByIssuanceIdAndOrganizationId(ctx, ISSUANCE_ID))
-                .expectNextCount(1).verifyComplete();
-
-        // Assert
-        assertThat(auditTrail.all()).hasSize(1);
-        assertThat(auditTrail.tenantScopes()).isEmpty();
-    }
 
     // --- credential offer email info ---
 

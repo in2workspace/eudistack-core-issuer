@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
-import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -9,20 +8,15 @@ import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
-import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
-import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
-import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
-import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
-import es.in2.issuer.backend.shared.domain.util.IssuanceIds;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +42,6 @@ public class IssuanceServiceImpl implements IssuanceService {
     private final IssuancePort issuancePort;
     private final ObjectMapper objectMapper;
     private final CredentialProfileRegistry credentialProfileRegistry;
-    private final TenantRegistryService tenantRegistryService;
     private final AuditTrailPort auditTrail;
     private final TransactionalOperator transactionalOperator;
 
@@ -160,74 +153,6 @@ public class IssuanceServiceImpl implements IssuanceService {
     public Flux<String> getAllIssuedCredentialByOrganizationIdentifier(String organizationIdentifier) {
         return issuancePort.findByCredentialStatusAndOrganizationIdentifier(CredentialStatusEnum.ISSUED, organizationIdentifier)
                 .map(Issuance::getCredentialDataSet);
-    }
-
-    @Override
-    public Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationDecision decision, String issuanceId) {
-        // Tenant isolation enforced by search_path; the scope comes from the authorization decision (C1).
-        // Platform administrator from the platform tenant → cross-tenant read-only search.
-        // Scope on any organization → any issuance within the current tenant.
-        // Scope on its own organization → filtered by organization (another one's reads as not found).
-        Optional<UUID> parsedId = IssuanceIds.parse(issuanceId);
-        if (parsedId.isEmpty()) {
-            return Mono.error(new MalformedIssuanceIdException());
-        }
-        UUID id = parsedId.get();
-        Mono<FoundIssuance> issuanceMono;
-        if (decision.caller().crossTenantView()) {
-            log.debug("Platform admin cross-tenant access for issuanceId: {}", id);
-            issuanceMono = tenantRegistryService.getActiveTenantSchemas()
-                    .flatMapMany(Flux::fromIterable)
-                    .flatMap(tenant ->
-                            issuancePort.findByIssuanceId(id)
-                                    .map(issuance -> new FoundIssuance(tenant, issuance))
-                                    .contextWrite(c -> c.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
-                    )
-                    .next();
-        } else if (decision.anyOrganization()) {
-            log.debug("Tenant-wide access for issuanceId: {}", id);
-            issuanceMono = issuancePort.findByIssuanceId(id).map(issuance -> new FoundIssuance(null, issuance));
-        } else {
-            issuanceMono = issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, decision.caller().organizationIdentifier())
-                    .map(issuance -> new FoundIssuance(null, issuance));
-        }
-        Mono<CredentialDetails> detail = issuanceMono
-                .switchIfEmpty(Mono.error(new IssuanceNotFoundException("No issuance found for the given id")))
-                .flatMap(found -> {
-                    Issuance issuance = found.issuance();
-                    try {
-                        return stageDetailAccessed(found, issuanceId)
-                                .thenReturn(CredentialDetails.builder()
-                                        .issuanceId(issuance.getIssuanceId())
-                                        .credentialConfigurationId(issuance.getCredentialType())
-                                        .lifeCycleStatus(String.valueOf(issuance.getCredentialStatus()))
-                                        .credential(objectMapper.readTree(issuance.getCredentialDataSet()))
-                                        .email(issuance.getEmail())
-                                        .build());
-                    } catch (JsonProcessingException e) {
-                        log.warn(PARSING_CREDENTIAL_ERROR_MESSAGE, e);
-                        return Mono.error(new JsonParseException(null, PARSING_CREDENTIAL_ERROR_MESSAGE));
-                    }
-                })
-                .doOnError(error -> log.error("Could not load credentials, error: {}", error.getMessage()));
-        return auditTrail.stageOnError(detail, error -> error instanceof IssuanceNotFoundException
-                ? Optional.of(IssuanceAuditEvents.detailRefused(issuanceId, "IssuanceNotFound"))
-                : Optional.empty());
-    }
-
-    /** A process, and the tenant it was found in when it was looked for across tenants. */
-    private record FoundIssuance(String tenant, Issuance issuance) {
-    }
-
-    /**
-     * The access is staged once. When a platform administrator read a process of another tenant, it is staged
-     * under that tenant, which owns the data and the holder in it, and the administrator stays as the actor.
-     */
-    private Mono<Void> stageDetailAccessed(FoundIssuance found, String issuanceId) {
-        Issuance issuance = found.issuance();
-        Mono<Void> access = auditTrail.stageBestEffort(IssuanceAuditEvents.detailAccessed(
-                issuanceId, Holder.ofAttestation(issuance.getSubject(), issuance.getEmail(), issuance.getCredentialDataSet())));
-        return found.tenant() == null ? access : auditTrail.inTenant(found.tenant(), access);
     }
 
     @Override

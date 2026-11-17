@@ -7,8 +7,6 @@ import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateExc
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
-import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
-import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
@@ -16,11 +14,8 @@ import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
-import es.in2.issuer.backend.support.TestAuthorizationDecisions;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -43,7 +38,6 @@ import reactor.test.StepVerifier;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -67,8 +61,6 @@ class IssuanceServiceImplTest {
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
 
-    @Mock
-    private TenantRegistryService tenantRegistryService;
 
     @Mock
     private TransactionalOperator transactionalOperator;
@@ -328,243 +320,6 @@ class IssuanceServiceImplTest {
     }
 
     // ---------- Admin bypass tests use boolean sysAdmin parameter ----------
-
-    @Test
-    void getIssuanceDetail_found_stagesIssuanceDetailAccessedWithTheHolderInClear() throws Exception {
-        // Arrange
-        UUID issuanceId = UUID.randomUUID();
-        String credentialDataSet = "{\"vc\":{}}";
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(issuanceId);
-        issuance.setCredentialDataSet(credentialDataSet);
-        issuance.setCredentialStatus(CredentialStatusEnum.VALID);
-        issuance.setSubject("Jane Doe");
-        issuance.setEmail("jane@example.com");
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
-                .thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(credentialDataSet)).thenReturn(new ObjectMapper().readTree(credentialDataSet));
-
-        // Act
-        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), issuanceId.toString());
-
-        // Assert
-        StepVerifier.create(detail).expectNextCount(1).verifyComplete();
-        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
-        assertEquals(AuditEventType.ISSUANCE_DETAIL_ACCESSED, entry.type());
-        assertEquals(AuditResult.SUCCESS, entry.result());
-        assertEquals("issuance:" + issuanceId, entry.resource());
-        assertEquals(Map.of("name", "Jane Doe", "email", "jane@example.com"), entry.details().get("holder"));
-    }
-
-    @Test
-    void getIssuanceDetail_notFound_stagesDeniedIssuanceNotFoundAndKeepsTheError() {
-        // Arrange
-        UUID issuanceId = UUID.randomUUID();
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
-                .thenReturn(Mono.empty());
-
-        // Act
-        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), issuanceId.toString());
-
-        // Assert
-        StepVerifier.create(detail).expectError(IssuanceNotFoundException.class).verify();
-        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
-        assertEquals(AuditResult.DENIED, entry.result());
-        assertEquals("IssuanceNotFound", entry.reason());
-    }
-
-    @Test
-    void getIssuanceDetail_malformedId_stagesNothingBecauseThereIsNoProcessToPointAt() {
-        // Arrange & Act
-        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "not-a-uuid");
-
-        // Assert
-        StepVerifier.create(detail).expectError(MalformedIssuanceIdException.class).verify();
-        assertTrue(auditTrail.all().isEmpty());
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldReturnCredentialDetails_forRegularOrg() throws Exception {
-        // Given (non-admin path)
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = "org-123";
-        String credentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
-        UUID expectedProcedureId = UUID.fromString(issuanceId);
-        CredentialStatusEnum status = CredentialStatusEnum.ISSUED;
-        String email = "owner@example.com";
-
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(expectedProcedureId);
-        issuance.setCredentialDataSet(credentialDataSet);
-        issuance.setCredentialStatus(status);
-        issuance.setOrganizationIdentifier(organizationIdentifier);
-        issuance.setEmail(email);
-
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
-
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
-                .thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectNextMatches(details ->
-                        details.issuanceId().equals(expectedProcedureId) &&
-                                details.lifeCycleStatus().equals(status.name()) &&
-                                details.credential().equals(credentialNode) &&
-                                email.equals(details.email())
-                )
-                .verifyComplete();
-
-        verify(issuancePort, times(1))
-                .findByIssuanceIdAndOrganizationIdentifier(UUID.fromString(issuanceId), organizationIdentifier);
-        verify(issuancePort, never()).findByIssuanceId(any(UUID.class));
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldReturnCredentialDetails_forAdminOrg() throws Exception {
-        // Given (admin organization -> bypass via sysAdmin=true)
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = ADMIN_ORG_ID;
-        String credentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
-        UUID expectedProcedureId = UUID.fromString(issuanceId);
-        String email = "admin-owner@example.com";
-
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(expectedProcedureId);
-        issuance.setCredentialDataSet(credentialDataSet);
-        issuance.setCredentialStatus(CredentialStatusEnum.VALID);
-        issuance.setOrganizationIdentifier("any-org");
-        issuance.setEmail(email);
-
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
-
-        when(issuancePort.findByIssuanceId(any(UUID.class)))
-                .thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectNextMatches(details ->
-                        details.issuanceId().equals(expectedProcedureId) &&
-                                details.credential().equals(credentialNode) &&
-                                email.equals(details.email())
-                )
-                .verifyComplete();
-
-        verify(issuancePort, times(1)).findByIssuanceId(UUID.fromString(issuanceId));
-        verify(issuancePort, never())
-                .findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString());
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorWhenNotFound_forRegularOrg() {
-        // Given
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = "org-123";
-
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString()))
-                .thenReturn(Mono.empty());
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectErrorSatisfies(err -> {
-                    assertInstanceOf(IssuanceNotFoundException.class, err);
-                    assertFalse(err.getMessage().contains(issuanceId));
-                })
-                .verify();
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorWhenNotFound_forAdminOrg() {
-        // Given
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = ADMIN_ORG_ID;
-
-        when(issuancePort.findByIssuanceId(any(UUID.class)))
-                .thenReturn(Mono.empty());
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectError(IssuanceNotFoundException.class)
-                .verify();
-    }
-
-    /** EUD-307: UUID.fromString accepts "1-1-1-1-1"; only the canonical form is an issuance id. */
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsBadRequest_whenIdIsNotCanonical() {
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "1-1-1-1-1");
-
-        // Then
-        StepVerifier.create(result)
-                .expectError(MalformedIssuanceIdException.class)
-                .verify();
-        verifyNoInteractions(issuancePort);
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsBadRequest_whenIdIsMalformed() {
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "not-a-uuid");
-
-        // Then
-        StepVerifier.create(result)
-                .expectErrorSatisfies(err -> {
-                    assertInstanceOf(MalformedIssuanceIdException.class, err);
-                    assertFalse(err.getMessage().contains("not-a-uuid"));
-                })
-                .verify();
-        verifyNoInteractions(issuancePort);
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldHandleJsonProcessingException() throws Exception {
-        // Given
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = "org-123";
-        String invalidCredentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"}";
-
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(UUID.fromString(issuanceId));
-        issuance.setCredentialDataSet(invalidCredentialDataSet);
-        issuance.setOrganizationIdentifier(organizationIdentifier);
-
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
-                .thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(invalidCredentialDataSet))
-                .thenThrow(new JsonParseException(null, "Error parsing credential"));
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectErrorMatches(JsonParseException.class::isInstance)
-                .verify();
-    }
 
     @Test
     void extractCredentialNode_shouldReturnJsonNode_whenInputIsValid() throws Exception {
@@ -898,24 +653,6 @@ class IssuanceServiceImplTest {
         StepVerifier.create(issuanceService.updateCredentialDataSetByIssuanceId(issuance.getIssuanceId().toString(), "{}", "jwt_vc_json"))
                 .expectErrorMatches(error -> isConflictDuring(error, "updateCredentialDataSetByIssuanceId"))
                 .verify();
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldSearchEveryActiveTenant_forPlatformSysAdmin() throws Exception {
-        String dataSet = "{\"vc\":{}}";
-        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.VALID);
-        issuance.setCredentialDataSet(dataSet);
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a", "tenant-b")));
-        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
-
-        Mono<CredentialDetails> result = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true), issuance.getIssuanceId().toString());
-
-        StepVerifier.create(result)
-                .assertNext(details -> assertEquals(issuance.getIssuanceId(), details.issuanceId()))
-                .verifyComplete();
-        verify(issuancePort, never()).findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString());
     }
 
     @Test

@@ -1,8 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import reactor.core.publisher.Flux;
@@ -22,8 +20,6 @@ public interface IssuanceService {
     Mono<String> getCredentialDataSetByIssuanceId(String issuanceId);
 
     Flux<String> getAllIssuedCredentialByOrganizationIdentifier(String organizationIdentifier);
-
-    Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationDecision decision, String issuanceId);
 
     Mono<Void> updateIssuanceStatusToValidByIssuanceId(String issuanceId);
 
