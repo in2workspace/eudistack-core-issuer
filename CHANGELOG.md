@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **EUD-268 — `MissingIdTokenHeaderException` and its `MISSING_HEADER` error type**, which nothing threw since EUD-272 stopped requiring `X-Id-Token`.
 
+### Changed (EUD-342)
+
+- **EUD-342 — DoctorID profile in step with platform-dev**: `doctorid.sd.1.profile.json` (in `dev-tools/credentials/profiles` and in the test catalogue) now lists `givenName`, `familyName` and `medical_board` in `access_token_embed`, as the profile in `eudistack-platform-dev/dev-tools/schemas` does: the Verifier puts them in the Access Token, as the OIDC IdP guide says. The Issuer does not read `access_token_embed`, so issuance does not change.
+
 ### Added (EUD-244, version 3.14.0)
 
 - **EUD-244 — Audit events (catalogue 2.2.0)**: the Issuer states what happened through the `AuditTrailPort` and, when `auditoria.publisher.enabled=true`, hands it to the transactional audit outbox of `auditoria-spring-boot-starter`, which delivers it to the Audit API (`auditoria.dispatcher.enabled`). Both switches are off by default and the Issuer behaves as before. Covered: issuance requests and refusals, credential offers, the holder's token and credential exchange, wallet notifications, signing, status-list entries and publication, revocation, withdrawal and archiving, issuance queries, credential catalogue changes and calls to third parties.
