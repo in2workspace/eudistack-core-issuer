@@ -22,6 +22,7 @@ import es.in2.issuer.backend.shared.domain.policy.Caller;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.policy.service.impl.PowerAuthorizationServiceImpl;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
@@ -100,7 +101,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         when(profiles.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
         PowerAuthorizationService decisionPoint = new PowerAuthorizationServiceImpl(
                 new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
-                callerProvider, profiles, decisionAuditService, MAPPER);
+                callerProvider, profiles, decisionAuditService, new RecordingAuditTrail(), MAPPER);
         Map<String, CredentialProfile> loaded = Map.of(LEAR_TYPE, LEAR_PROFILE, LABEL_TYPE, LABEL_PROFILE);
         CredentialProfileCatalog catalog = mock(CredentialProfileCatalog.class);
         when(catalog.getByConfigurationId(anyString()))
