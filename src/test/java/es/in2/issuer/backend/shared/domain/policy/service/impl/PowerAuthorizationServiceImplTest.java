@@ -17,6 +17,10 @@ import es.in2.issuer.backend.shared.domain.policy.Caller;
 import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -68,6 +72,7 @@ class PowerAuthorizationServiceImplTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private CallerProvider callerProvider;
     private AuditService auditService;
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
     private PowerAuthorizationServiceImpl service;
 
     @BeforeEach
@@ -75,7 +80,7 @@ class PowerAuthorizationServiceImplTest {
         callerProvider = mock(CallerProvider.class);
         auditService = mock(AuditService.class);
         service = new PowerAuthorizationServiceImpl(new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
-                callerProvider, auditService, objectMapper);
+                callerProvider, auditService, auditTrail, objectMapper);
     }
 
     // --- helpers ---
@@ -751,6 +756,75 @@ class PowerAuthorizationServiceImplTest {
 
             // Then
             verify(auditService).auditSuccess(eq("authorization.permit"), eq("jti-only"), eq("action"), eq(REVOKE), any());
+        }
+    }
+
+    // --- AuthorizationDecision of the audit trail ---
+
+    @Nested
+    class AuditedDecision {
+
+        @Test
+        void authorize_permitted_stagesASuccessWithTheActionTheUserTypeAndTheTargetOrganization() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, ORG_ADMIN), ORG)).expectNextCount(1).verifyComplete();
+
+            // Then
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.type()).isEqualTo(AuditEventType.AUTHORIZATION_DECISION);
+            assertThat(entry.result()).isEqualTo(AuditResult.SUCCESS);
+            assertThat(entry.resource()).isEqualTo("issuance:issuance-1");
+            assertThat(entry.details()).containsEntry("requested_action", REVOKE)
+                    .containsEntry("user_type", RecognizedCaller.ORGANIZATION_ADMIN)
+                    .containsEntry("target_organization", ORG);
+        }
+
+        @Test
+        void authorize_resourceOfAnotherOrganization_stagesDeniedOutOfScope() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
+                    .expectError(IssuanceNotFoundException.class).verify();
+
+            // Then
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.result()).isEqualTo(AuditResult.DENIED);
+            assertThat(entry.reason()).isEqualTo("OutOfScope");
+        }
+
+        @Test
+        void authorize_callerWithoutThePower_stagesDeniedPowerMissing() {
+            // When
+            expectReason(decide(REVOKE, caller(ORG, TENANT), ORG), Reason.OPERATOR_LACKS_ONBOARDING);
+
+            // Then
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.reason()).isEqualTo("PowerMissing");
+            assertThat(entry.details()).containsEntry("user_type", RecognizedCaller.USER);
+        }
+
+        @Test
+        void authorize_tokenOfAnotherTenant_stagesDeniedTenantMismatchWithTheUserTypeItWouldHave() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, "platform", PLATFORM_ADMIN), ORG))
+                    .expectError(TenantMismatchException.class).verify();
+
+            // Then
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.reason()).isEqualTo("TenantMismatch");
+            assertThat(entry.details()).containsKey("user_type");
+        }
+
+        @Test
+        void authorizeIssuance_permitted_stagesOneDecisionForTheProcess() {
+            // When
+            StepVerifier.create(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()))
+                    .expectNextCount(1).verifyComplete();
+
+            // Then
+            assertThat(auditTrail.stagedInNewTransaction()).hasSize(1);
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.resource()).isEqualTo("issuance:process-1");
+            assertThat(entry.result()).isEqualTo(AuditResult.SUCCESS);
         }
     }
 }

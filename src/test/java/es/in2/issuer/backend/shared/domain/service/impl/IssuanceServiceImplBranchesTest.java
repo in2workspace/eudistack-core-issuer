@@ -15,6 +15,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
@@ -27,6 +28,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -62,14 +64,20 @@ class IssuanceServiceImplBranchesTest {
     private CredentialProfileRegistry credentialProfileRegistry;
     @Mock
     private TenantRegistryService tenantRegistryService;
+    @Mock
+    private TransactionalOperator transactionalOperator;
 
     private IssuanceServiceImpl service;
+
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
 
     @BeforeEach
     void setUp() {
         service = new IssuanceServiceImpl(appConfig, issuancePort, new ObjectMapper(),
-                credentialProfileRegistry, tenantRegistryService);
+                credentialProfileRegistry, tenantRegistryService, auditTrail, transactionalOperator);
         lenient().when(appConfig.getSysTenant()).thenReturn(SYS_TENANT);
+        lenient().when(transactionalOperator.transactional(any(Mono.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     // --- getCredentialTypeByIssuanceId ---
@@ -224,6 +232,39 @@ class IssuanceServiceImplBranchesTest {
                     assertThat(details.lifeCycleStatus()).isEqualTo("VALID");
                 })
                 .verifyComplete();
+    }
+
+    @Test
+    void getIssuanceDetail_asPlatformSysAdmin_stagesTheAccessOnceUnderTheTenantOfTheProcess() {
+        // Arrange
+        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, true);
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("acme")));
+        when(issuancePort.findByIssuanceId(ISSUANCE_UUID))
+                .thenReturn(Mono.just(issuance(CredentialStatusEnum.VALID, "{\"id\":\"urn:1\"}")));
+
+        // Act
+        StepVerifier.create(service.getIssuanceDetailByIssuanceIdAndOrganizationId(ctx, ISSUANCE_ID))
+                .expectNextCount(1).verifyComplete();
+
+        // Assert: one event, in the tenant that owns the process
+        assertThat(auditTrail.all()).hasSize(1);
+        assertThat(auditTrail.tenantScopes()).containsExactly("acme");
+    }
+
+    @Test
+    void getIssuanceDetail_ofTheOwnTenant_stagesTheAccessInTheContextOfTheRequest() {
+        // Arrange
+        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, false);
+        when(issuancePort.findByIssuanceId(ISSUANCE_UUID))
+                .thenReturn(Mono.just(issuance(CredentialStatusEnum.VALID, "{\"id\":\"urn:1\"}")));
+
+        // Act
+        StepVerifier.create(service.getIssuanceDetailByIssuanceIdAndOrganizationId(ctx, ISSUANCE_ID))
+                .expectNextCount(1).verifyComplete();
+
+        // Assert
+        assertThat(auditTrail.all()).hasSize(1);
+        assertThat(auditTrail.tenantScopes()).isEmpty();
     }
 
     @Test

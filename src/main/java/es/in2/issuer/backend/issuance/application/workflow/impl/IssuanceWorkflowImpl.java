@@ -7,8 +7,18 @@ import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
+import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.OfferKind;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuedAttributeNames;
+import es.in2.issuer.backend.shared.domain.spi.IssuanceCompletionAuditPort;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
@@ -19,6 +29,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.*;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
@@ -44,6 +55,7 @@ import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -69,6 +81,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     /** Detail of {@code invalid_delivery_mode}: never echoes the value sent, which may be any string. */
     static final String INVALID_DELIVERY_MESSAGE = "delivery must be one of: email, ui, direct";
     private static final String INVALID_DELIVERY_LABEL = "invalid";
+    /** The bootstrap endpoint carries no caller, so what it issues is audited as done by the Issuer itself. */
+    private static final String BOOTSTRAP_ACTOR = "issuer-bootstrap";
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
@@ -86,6 +100,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final IssuanceProperties issuanceProperties;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final HolderDidFallbackAuditor holderDidFallbackAuditor;
+    private final AuditTrailPort auditTrail;
+    private final IssuanceCompletionAuditPort issuanceCompletionRecorder;
+    private final TransactionalOperator transactionalOperator;
     private final TenantCredentialProfileService tenantCredentialProfileService;
 
     @Override
@@ -102,14 +119,18 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         // Metrics and logs never carry the value the client sent: it is only checked later (EUD-254 §3).
         String deliveryLabel = DeliveryMode.fromValue(delivery).map(mode -> mode.value).orElse(INVALID_DELIVERY_LABEL);
 
-        return requireResolvedTenant()
+        Mono<PreparedRequest> requestChecks = requireResolvedTenant()
                 .then(Mono.defer(() -> validateRequest(request)))
                 .then(Mono.defer(() -> requireTypeEnabled(configId)))
                 .then(Mono.fromSupplier(() -> prepared(request)))
                 .flatMap(prepared -> payloadSchemaValidator.validate(configId, prepared.request().payload())
-                        .then(Mono.defer(() -> powerAuthorizationService.authorizeIssuance(processId, configId,
+                        .thenReturn(prepared));
+
+        return auditTrail.withCorrelationId(processId, auditTrail.stageOnError(requestChecks,
+                        error -> requestRefusal(processId, request, error)))
+                .flatMap(prepared -> powerAuthorizationService.authorizeIssuance(processId, configId,
                                 credentialProfileRegistry.getByConfigurationId(configId).credentialType(),
-                                prepared.request().organization(), prepared.request().payload())))
+                                prepared.request().organization(), prepared.request().payload())
                         // FR-07: the process belongs to the organization the decision set, never to the content.
                         .flatMap(authorization -> performIssuanceFlow(processId,
                                 prepared.request().withOrganization(authorization.organizationIdentifier()),
@@ -136,6 +157,23 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                 }
                             });
                 });
+    }
+
+    /**
+     * A request refused before any process exists. The request's own id stands for the process, as no other
+     * exists, and only the two refusals with a reason in the catalogue are reported; a refusal of powers
+     * belongs to the authorization decision and is not repeated here.
+     */
+    private Optional<AuditEntry> requestRefusal(String processId, IssuanceRequest request, Throwable error) {
+        String reason = null;
+        if (error instanceof CredentialTypeUnsupportedException) {
+            reason = "UnknownAttestationType";
+        } else if (error instanceof PayloadValidationException) {
+            reason = "InvalidRequestData";
+        }
+        return Optional.ofNullable(reason).map(catalogueReason -> IssuanceAuditEvents.attemptFailed(
+                processId, catalogueReason, request.credentialConfigurationId(), null,
+                new Holder(null, null, request.email())));
     }
 
     /** Early guard (AC-05/ES-02): fails closed before anything is validated, built or delivered. */
@@ -200,12 +238,12 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
-        return Mono.fromCallable(() -> keepOnlyOid4vciDeliveryModes(delivery))
+        return auditTrail.asSystem(BOOTSTRAP_ACTOR, Mono.fromCallable(() -> keepOnlyOid4vciDeliveryModes(delivery))
                 .flatMap(safeDelivery -> validateRequest(request)
                         .then(Mono.fromSupplier(() -> prepared(request)))
                         .flatMap(prepared -> payloadSchemaValidator.validate(prepared.request().credentialConfigurationId(), prepared.request().payload())
                                 .then(Mono.defer(() -> performIssuanceFlow(processId, prepared.request(), token,
-                                        publicIssuerBaseUrl, safeDelivery, prepared.validity())))));
+                                        publicIssuerBaseUrl, safeDelivery, prepared.validity()))))));
     }
 
     /** A request whose payload is normalized and split from the validity dates it asks for (EUD-254 §5). */
@@ -419,7 +457,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
 
-        return buildCredential(profile, request, terms)
+        Mono<IssuanceResponse> direct = buildCredential(profile, request, terms)
                 .flatMap(buildResult ->
                         genericCredentialBuilder.bindIssuer(profile, buildResult.credentialDataSet(),
                                         issuanceId.toString(), request.email())
@@ -452,7 +490,16 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                         issuanceId, configId, credentialFormat,
                                                                         buildResult, enrichedWithStatus, organizationOf(request),
                                                                         request.email(), DeliveryMode.DIRECT.value, finalStatus, cnf);
-                                                                return issuanceService.saveIssuance(issuance)
+                                                                // The process is created and delivered at once, so IssuanceRequested and
+                                                                // IssuanceCompleted commit with it (RQ-01, EC-10): a failed outbox insert
+                                                                // rolls the issuance back and fails the delivery as persistence_failed.
+                                                                return transactionalOperator.transactional(issuanceService.saveIssuance(issuance)
+                                                                                .flatMap(saved -> auditTrail.stage(directRequest(issuanceId, request, buildResult))
+                                                                                        .then(issuanceCompletionRecorder.recordCompletion(
+                                                                                                issuanceId.toString(),
+                                                                                                directCompletion(configId, request, buildResult),
+                                                                                                signedCredential))
+                                                                                        .thenReturn(saved)))
                                                                         .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                                                                         .doOnSuccess(saved -> log.debug(
                                                                                 "ProcessId: {} - Direct issuance saved: {} status={}",
@@ -470,9 +517,41 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                 // threw past it and leaked the entry allocateEntry had just reserved.
                                                 // releaseStatusListEntryBestEffort's delete is a no-op when nothing
                                                 // was ever allocated, so covering the allocate failure too is harmless.
-                                                .onErrorResume(error -> releaseStatusListEntryBestEffort(processId, issuanceId, error))
+                                                .onErrorResume(error -> releaseStatusListEntryBestEffort(processId, issuanceId, publicIssuerBaseUrl, error))
                                 )
                 );
+
+        return auditTrail.withCorrelationId(issuanceId.toString(), auditTrail.stageOnError(direct,
+                error -> directAttemptFailure(issuanceId, request, error)));
+    }
+
+    /** The request of a direct issuance: its process only exists once the attestation is delivered, so there is no draft. */
+    private AuditEntry directRequest(UUID issuanceId, IssuanceRequest request, CredentialBuildResult buildResult) {
+        return IssuanceAuditEvents.requested(
+                issuanceId.toString(),
+                request.credentialConfigurationId(),
+                DeliveryMode.DIRECT.value,
+                Holder.ofAttestation(buildResult.subject(), request.email(), buildResult.credentialDataSet()),
+                null);
+    }
+
+    /**
+     * The direct leg fails at a stage only when the status list or the signature did; a persistence
+     * failure has no reason in the catalogue, so it is not reported as an attempt that failed.
+     */
+    private Optional<AuditEntry> directAttemptFailure(UUID issuanceId, IssuanceRequest request, Throwable error) {
+        if (!(error instanceof DeliveryFailedException failure)) {
+            return Optional.empty();
+        }
+        String reason = switch (failure.code()) {
+            case STATUS_LIST_UNAVAILABLE -> "StatusListUnavailable";
+            case SIGNING_FAILED -> SigningFailureReasons.of(failure) == SigningFailureReason.NO_CONFIGURATION
+                    ? "InvalidConfiguration" : "SigningFailed";
+            default -> null;
+        };
+        return Optional.ofNullable(reason).map(catalogueReason -> IssuanceAuditEvents.attemptFailed(
+                issuanceId.toString(), catalogueReason, request.credentialConfigurationId(),
+                DeliveryMode.DIRECT.value, new Holder(null, null, request.email())));
     }
 
     /**
@@ -482,6 +561,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      */
     private static Function<Throwable, Throwable> failedAt(DeliveryErrorCode code) {
         return ex -> ex instanceof DeliveryFailedException ? ex : new DeliveryFailedException(code, ex);
+    }
+
+    private static IssuanceAuditEvents.Completion directCompletion(String configId, IssuanceRequest request,
+                                                                   CredentialBuildResult buildResult) {
+        return new IssuanceAuditEvents.Completion(configId, DeliveryMode.DIRECT.value,
+                Holder.ofAttestation(buildResult.subject(), request.email(), buildResult.credentialDataSet()),
+                IssuedAttributeNames.of(buildResult.credentialDataSet()),
+                IssuanceAuditEvents.instantOf(buildResult.validFrom()), IssuanceAuditEvents.instantOf(buildResult.validUntil()), null);
     }
 
     private Mono<Oid4VciLegResult> performOid4VciIssuance(String processId, IssuanceRequest request,
@@ -506,26 +593,55 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             cnf,
                             grantType);
 
-                    return issuanceService.saveIssuance(issuance)
-                            .onErrorMap(failedAt(DeliveryErrorCode.PERSISTENCE_FAILED))
-                            .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
-                            .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
-                            .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
-                                            saved.getIssuanceId().toString(), configId, grantType, request.email(),
-                                            oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
-                                            publicIssuerBaseUrl)
-                                    .onErrorMap(failedAt(DeliveryErrorCode.DELIVERY_FAILED))
-                                    .map(offerResult -> new Oid4VciLegResult(
-                                            offerResult.credentialOfferUri(), offerResult.emailError(),
-                                            saved.getIssuanceId().toString()))
-                            );
+                    // The draft and its IssuanceRequested commit together: a failed outbox insert is a
+                    // persistence_failed like a failed save (EUD-254 AC-03, EUD-244 RQ-01).
+                    return auditTrail.withCorrelationId(issuanceId.toString(),
+                            saveDraftAndStageRequest(issuance, request, buildResult, oid4vciDelivery)
+                                    .onErrorMap(failedAt(DeliveryErrorCode.PERSISTENCE_FAILED))
+                                    .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
+                                    .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
+                                    .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
+                                                    saved.getIssuanceId().toString(), configId, grantType, request.email(),
+                                                    oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
+                                                    publicIssuerBaseUrl)
+                                            .onErrorMap(failedAt(DeliveryErrorCode.DELIVERY_FAILED))
+                                            .flatMap(offerResult -> stageOfferSent(issuanceId.toString(), request.email(),
+                                                    oid4vciDelivery, offerResult)
+                                                    .thenReturn(new Oid4VciLegResult(
+                                                            offerResult.credentialOfferUri(), offerResult.emailError(),
+                                                            saved.getIssuanceId().toString())))
+                                    ));
                 });
+    }
+
+    /** The draft and its {@code IssuanceRequested} commit together, so a process never exists unaudited. */
+    private Mono<Issuance> saveDraftAndStageRequest(Issuance draft, IssuanceRequest request,
+                                                    CredentialBuildResult buildResult, String delivery) {
+        AuditEntry requested = IssuanceAuditEvents.requested(
+                draft.getIssuanceId().toString(),
+                request.credentialConfigurationId(),
+                IssuanceAuditEvents.deliveryMethodOf(delivery),
+                Holder.ofAttestation(buildResult.subject(), request.email(), buildResult.credentialDataSet()),
+                credentialOfferService.newOfferExpiry());
+        return transactionalOperator.transactional(
+                issuanceService.saveIssuance(draft)
+                        .flatMap(saved -> auditTrail.stage(requested).thenReturn(saved)));
+    }
+
+    /** The offer goes out by email only when that mode was asked for; a link or QR needs no mail. */
+    private Mono<Void> stageOfferSent(String issuanceId, String recipientEmail, String delivery,
+                                      CredentialOfferResult offerResult) {
+        if (!DeliveryMode.parse(delivery).contains(DeliveryMode.EMAIL)) {
+            return Mono.empty();
+        }
+        return auditTrail.stageBestEffort(IssuanceAuditEvents.offerSent(issuanceId, OfferKind.INITIAL,
+                recipientEmail, offerResult.offerExpiresAt(), offerResult.emailError() == null));
     }
 
     /**
      * The tenant's catalog entry of the type. A row not filled yet falls back to the type file (D9); an
-     * entry that is not enabled would have been rejected by the PDP already, so there is nothing else to
-     * fall back from.
+     * entry that is not enabled was rejected by {@link #requireTypeEnabled} already, so there is nothing
+     * else to fall back from.
      */
     private Mono<Optional<CatalogEntry>> catalogEntry(String configId) {
         return tenantCredentialProfileService.findEnabledEntry(configId)
@@ -566,8 +682,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .build();
     }
 
-    private <T> Mono<T> releaseStatusListEntryBestEffort(String processId, UUID issuanceId, Throwable original) {
-        return statusListWorkflow.releaseEntry(issuanceId.toString())
+    private <T> Mono<T> releaseStatusListEntryBestEffort(String processId, UUID issuanceId, String publicIssuerBaseUrl,
+                                                         Throwable original) {
+        return statusListWorkflow.releaseEntry(issuanceId.toString(), publicIssuerBaseUrl)
                 .doOnSuccess(v -> log.debug(
                         "ProcessId: {} - Released orphaned status list entry for issuanceId={} after {}",
                         processId, issuanceId, original.getClass().getSimpleName()))
