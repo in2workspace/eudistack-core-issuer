@@ -47,6 +47,9 @@ import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
@@ -164,14 +167,20 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     /**
      * A request refused before any process exists. The request's own id stands for the process, as no other
-     * exists, and only the two refusals with a reason in the catalogue are reported; a refusal of powers
-     * belongs to the authorization decision and is not repeated here.
+     * exists. An unknown or not enabled type is {@code UnknownAttestationType}; every other value of the
+     * request the contract rejects (EUD-254: the delivery mode, the payload schema, the grant, the validity,
+     * the holder key) is {@code InvalidRequestData}. A refusal of powers belongs to the authorization
+     * decision and is not repeated here; a refusal without a catalogue reason is not reported.
      */
     private Optional<AuditEntry> requestRefusal(String processId, IssuanceRequest request, Throwable error) {
         String reason = null;
         if (error instanceof CredentialTypeUnsupportedException) {
             reason = "UnknownAttestationType";
-        } else if (error instanceof PayloadValidationException) {
+        } else if (error instanceof PayloadValidationException
+                || error instanceof InvalidDeliveryModeException
+                || error instanceof InvalidGrantTypeException
+                || error instanceof InvalidValidityException
+                || error instanceof InvalidHolderKeyException) {
             reason = "InvalidRequestData";
         }
         return Optional.ofNullable(reason).map(catalogueReason -> IssuanceAuditEvents.attemptFailed(
@@ -299,12 +308,21 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
 
         // EUD-254 §3: delivery mode, grant, validity and holder key, in this order, before anything is created.
-        return resolveAndValidateDeliveryMode(configId, delivery)
+        // A refusal here leaves its IssuanceAttemptFailed, like the checks before the permission (EUD-244).
+        Mono<CheckedDelivery> checks = resolveAndValidateDeliveryMode(configId, delivery)
                 // Whatever the mode: the direct mode builds no offer and ignores a valid grant.
                 .doOnNext(mode -> OfferGrantType.fromRequest(request.grantType()))
                 .flatMap(mode -> credentialTerms(configId, requestedValidity)
-                        .flatMap(terms -> executeIssuance(processId, request, bearerToken,
-                                publicIssuerBaseUrl, mode, holderCnf(configId, profile, request), terms)));
+                        .map(terms -> new CheckedDelivery(mode, holderCnf(configId, profile, request), terms)));
+
+        return auditTrail.withCorrelationId(processId, auditTrail.stageOnError(checks,
+                        error -> requestRefusal(processId, request, error)))
+                .flatMap(checked -> executeIssuance(processId, request, bearerToken,
+                        publicIssuerBaseUrl, checked.mode(), checked.cnf(), checked.terms()));
+    }
+
+    /** What the checks after the permission accepted: the mode, the holder key of an exempt type and the terms. */
+    private record CheckedDelivery(DeliveryMode mode, Map<String, Object> cnf, CredentialTerms terms) {
     }
 
     /** The tenant's catalog entry, and the validity window requested and accepted against it (EUD-254 FR-06). */

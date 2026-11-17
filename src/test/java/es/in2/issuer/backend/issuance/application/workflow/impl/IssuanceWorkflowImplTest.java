@@ -288,8 +288,10 @@ class IssuanceWorkflowImplTest {
         assertEquals(CONFIG_ID, requested.details().get("attestation_type"));
         assertEquals("ThirdParty", requested.details().get("issuance_mode"));
         assertEquals(offerExpiry, requested.details().get("offer_expires_at"));
-        assertEquals(2, auditTrail.correlationIds().size());
-        assertEquals("p", auditTrail.correlationIds().getFirst());
+        // The checks before and after the permission run under the request ("p"), the draft under its issuance id.
+        assertEquals(3, auditTrail.correlationIds().size());
+        assertEquals(List.of("p", "p"), auditTrail.correlationIds().subList(0, 2));
+        assertNotEquals("p", auditTrail.correlationIds().get(2));
     }
 
     @Test
@@ -534,6 +536,48 @@ class IssuanceWorkflowImplTest {
         assertEquals(AuditResult.DENIED, refused.result());
         assertEquals("InvalidRequestData", refused.reason());
         assertEquals(Map.of("email", EMAIL), refused.details().get("holder"));
+    }
+
+    /** Review of EUD-268: the refusals the contract added leave their trace too, before the permission... */
+    @Test
+    void executeShouldReportAListOfModesAsInvalidRequestData() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email,ui", EMAIL, null);
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectError(InvalidDeliveryModeException.class)
+                .verify();
+
+        AuditEntry refused = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.DENIED, refused.result());
+        assertEquals("InvalidRequestData", refused.reason());
+    }
+
+    /** ...and after it: the grant, the validity and the holder key are checked once the permission is granted. */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "client_credentials, 2030-01-01T00:00:00Z, 2031-01-01T00:00:00Z",
+            ", 2030-01-01T00:00:00Z, 2029-01-01T00:00:00Z"})
+    void executeShouldReportARefusalAfterThePermissionAsInvalidRequestData(String grantType, String from, String until) {
+        ObjectNode payload = payloadWithDates(from, until);
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, grantType);
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(eq(CONFIG_ID), any())).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
+        lenient().when(tenantCredentialProfileService.findEnabledEntry(CONFIG_ID))
+                .thenReturn(Mono.just(entryWithValidity(true, 400)));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMatches(e -> e instanceof InvalidGrantTypeException
+                        || e instanceof es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException)
+                .verify();
+
+        AuditEntry refused = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.DENIED, refused.result());
+        assertEquals("InvalidRequestData", refused.reason());
+        verifyNoInteractions(issuanceService, credentialOfferService);
     }
 
     /**
