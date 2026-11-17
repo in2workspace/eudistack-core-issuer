@@ -22,6 +22,8 @@ import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.UnknownOrganizationException;
+import es.in2.issuer.backend.issuance.domain.service.TenantOrganizationService;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
@@ -129,6 +131,7 @@ class IssuanceWorkflowImplTest {
 
     @Spy private RecordingAuditTrail auditTrail = new RecordingAuditTrail();
     @Mock private TenantCredentialProfileService tenantCredentialProfileService;
+    @Mock private TenantOrganizationService tenantOrganizationService;
 
     @Spy
     private IssuanceProperties issuanceProperties =
@@ -143,6 +146,8 @@ class IssuanceWorkflowImplTest {
         lenient().when(tenantCredentialProfileService.findEnabledEntry(anyString())).thenReturn(Mono.empty());
         // Every type enabled in the tenant by default; the tests of a type that is not override it.
         lenient().when(tenantCredentialProfileService.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
+        // An organization indicated with E2 is of the tenant by default; the tests of one that is not override it.
+        lenient().when(tenantOrganizationService.requireOrganizationOfTenant(anyString())).thenReturn(Mono.empty());
         // Identity by default: the normalizer has its own tests; here only the tests about what the
         // workflow does with its result override it.
         lenient().when(issuancePayloadNormalizer.normalize(anyString(), any()))
@@ -536,6 +541,72 @@ class IssuanceWorkflowImplTest {
         assertEquals(AuditResult.DENIED, refused.result());
         assertEquals("InvalidRequestData", refused.reason());
         assertEquals(Map.of("email", EMAIL), refused.details().get("holder"));
+    }
+
+    // --- EUD-254 FR-12, AC-18: the organization indicated must be of the tenant ---
+
+    private static final IssuanceAuthorization ON_BEHALF_AUTHORIZATION =
+            new IssuanceAuthorization(null, "VATES-Z00000000", List.of("E1", "E2"));
+
+    private IssuanceRequest onBehalfRequest(JsonNode payload) {
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), eq("VATES-Z00000000"), any()))
+                .thenReturn(Mono.just(ON_BEHALF_AUTHORIZATION));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+        return new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null).withOrganization("VATES-Z00000000");
+    }
+
+    /** Review of EUD-268: VATES-Z00000000 is not of the tenant, so nothing is created and the refusal is traced. */
+    @Test
+    void anOrganizationThatIsNotOfTheTenantIsRejectedAfterThePermission() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = onBehalfRequest(payload);
+        when(tenantOrganizationService.requireOrganizationOfTenant("VATES-Z00000000"))
+                .thenReturn(Mono.error(new UnknownOrganizationException("not of the tenant")));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectError(UnknownOrganizationException.class)
+                .verify();
+
+        verifyNoInteractions(genericCredentialBuilder, issuanceService, credentialOfferService, statusListWorkflow);
+        AuditEntry refused = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.DENIED, refused.result());
+        assertEquals("InvalidRequestData", refused.reason());
+    }
+
+    @Test
+    void anOrganizationOfTheTenantGoesOnToTheDelivery() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = onBehalfRequest(payload);
+        when(tenantOrganizationService.requireOrganizationOfTenant("VATES-Z00000000")).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(any(), any(), any(), any()))
+                .thenReturn(Mono.error(new IllegalStateException("stop after the checks")));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMessage("stop after the checks")
+                .verify();
+
+        verify(tenantOrganizationService).requireOrganizationOfTenant("VATES-Z00000000");
+    }
+
+    /** Without E2 the process is the caller's: there is no other organization to check. */
+    @Test
+    void theCallersOwnOrganizationIsNotChecked() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
+        when(genericCredentialBuilder.buildCredential(any(), any(), any(), any()))
+                .thenReturn(Mono.error(new IllegalStateException("stop after the checks")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMessage("stop after the checks")
+                .verify();
+
+        verifyNoInteractions(tenantOrganizationService);
     }
 
     /** Review of EUD-268: the refusals the contract added leave their trace too, before the permission... */

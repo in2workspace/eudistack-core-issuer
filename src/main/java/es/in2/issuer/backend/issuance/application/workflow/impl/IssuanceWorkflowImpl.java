@@ -50,6 +50,9 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeExcept
 import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
+import es.in2.issuer.backend.issuance.domain.exception.UnknownOrganizationException;
+import es.in2.issuer.backend.issuance.domain.service.TenantOrganizationService;
+import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
@@ -107,6 +110,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final IssuanceCompletionAuditPort issuanceCompletionRecorder;
     private final TransactionalOperator transactionalOperator;
     private final TenantCredentialProfileService tenantCredentialProfileService;
+    private final TenantOrganizationService tenantOrganizationService;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -138,9 +142,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                 credentialProfileRegistry.getByConfigurationId(configId).credentialType(),
                                 prepared.request().organization(), prepared.request().payload())
                         // FR-07: the process belongs to the organization the decision set, never to the content.
-                        .flatMap(authorization -> performIssuanceFlow(processId,
-                                prepared.request().withOrganization(authorization.organizationIdentifier()),
-                                bearerToken, publicIssuerBaseUrl, delivery, prepared.validity())))
+                        .flatMap(authorization -> requireOrganizationOfTenant(processId, request, authorization)
+                                .then(Mono.defer(() -> performIssuanceFlow(processId,
+                                        prepared.request().withOrganization(authorization.organizationIdentifier()),
+                                        bearerToken, publicIssuerBaseUrl, delivery, prepared.validity())))))
                 .transformDeferredContextual((flow, ctx) -> {
                     String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
                     return flow
@@ -169,7 +174,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * A request refused before any process exists. The request's own id stands for the process, as no other
      * exists. An unknown or not enabled type is {@code UnknownAttestationType}; every other value of the
      * request the contract rejects (EUD-254: the delivery mode, the payload schema, the grant, the validity,
-     * the holder key) is {@code InvalidRequestData}. A refusal of powers belongs to the authorization
+     * the holder key, an organization that is not of the tenant) is {@code InvalidRequestData}. A refusal of powers belongs to the authorization
      * decision and is not repeated here; a refusal without a catalogue reason is not reported.
      */
     private Optional<AuditEntry> requestRefusal(String processId, IssuanceRequest request, Throwable error) {
@@ -180,12 +185,28 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 || error instanceof InvalidDeliveryModeException
                 || error instanceof InvalidGrantTypeException
                 || error instanceof InvalidValidityException
-                || error instanceof InvalidHolderKeyException) {
+                || error instanceof InvalidHolderKeyException
+                || error instanceof UnknownOrganizationException) {
             reason = "InvalidRequestData";
         }
         return Optional.ofNullable(reason).map(catalogueReason -> IssuanceAuditEvents.attemptFailed(
                 processId, catalogueReason, request.credentialConfigurationId(), null,
                 new Holder(null, null, request.email())));
+    }
+
+    /**
+     * EUD-254 FR-12, AC-18: an organization other than the caller's must be of the tenant. Checked once the
+     * permission to indicate another organization ({@code E2}) is granted (design §2, step 8), so only who holds it learns
+     * which organizations a tenant has. Its refusal is traced like the other values of the request.
+     */
+    private Mono<Void> requireOrganizationOfTenant(String processId, IssuanceRequest request,
+                                                   IssuanceAuthorization authorization) {
+        if (!authorization.actionIds().contains(PowerAuthorizationService.ISSUE_ON_BEHALF)) {
+            return Mono.empty();
+        }
+        return auditTrail.withCorrelationId(processId, auditTrail.stageOnError(
+                tenantOrganizationService.requireOrganizationOfTenant(authorization.organizationIdentifier()),
+                error -> requestRefusal(processId, request, error)));
     }
 
     /** Early guard (AC-05/ES-02): fails closed before anything is validated, built or delivered. */

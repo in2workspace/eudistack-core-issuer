@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.service.EmailService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.support.ContractSchemas;
 import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import org.junit.jupiter.api.AfterEach;
@@ -14,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
@@ -30,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atMostOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -86,9 +89,17 @@ class IssuanceContractIT extends PostgresIntegrationBase {
     /** Default of {@code issuance.delivery-retry-after-seconds}. */
     private static final String RETRY_AFTER_SECONDS = "5";
     private static final String FRONTEND_URL_KEY = "issuer.frontend_url";
+    /** The organization that governs a tenant, the only one of a simple tenant (platform model MP-01). */
+    private static final String TENANT_ORGANIZATION_KEY = "admin_organization_id";
+    /** The organization of {@link #tenantAdministratorToken(String)}. */
+    private static final String TENANT_ADMINISTRATOR_ORGANIZATION = "admin-org-for-issuance-contract-it";
 
     @MockitoBean
     private EmailService emailService;
+
+    /** The real registry, except where a test needs the tenant to be multi-organization. */
+    @MockitoSpyBean
+    private TenantRegistryService tenantRegistryService;
 
     private boolean seededFrontendUrl;
 
@@ -190,9 +201,14 @@ class IssuanceContractIT extends PostgresIntegrationBase {
                 .jsonPath("$.responses[0].channel").isEqualTo("email");
     }
 
-    /** PRD AC-15: the process belongs to the indicated organization, whose administrator then sees it. */
+    /**
+     * PRD AC-15: the process belongs to the indicated organization, whose administrator then sees it. Another
+     * organization only exists in a multi-organization tenant, which accepts any one until its organizations
+     * are recorded (TDG-25); the IT tenants are simple, so this one is seen as multi-organization here.
+     */
     @Test
     void aTenantAdministratorIssuingForAnotherOrganizationLeavesTheProcessInThatOrganization() {
+        doReturn(Mono.just("multi_org")).when(tenantRegistryService).getTenantType(TENANT);
         accepted(tenantAdministratorToken(TENANT),
                 request("\"delivery\": \"ui\", \"organization\": \"" + OTHER_ORGANIZATION + "\""));
 
@@ -207,6 +223,25 @@ class IssuanceContractIT extends PostgresIntegrationBase {
                 .headers(headers(organizationAdministratorToken(TENANT), TENANT))
                 .exchange()
                 .expectStatus().isNotFound();
+    }
+
+    /**
+     * PRD AC-18 in a simple tenant: its only organization is the one that governs it, so a tenant
+     * administrator indicating any other one gets unknown_organization and nothing is created.
+     */
+    @Test
+    void aTenantAdministratorIndicatingAnOrganizationThatIsNotOfASimpleTenantIsUnknownOrganization() {
+        boolean seeded = seedTenantConfigIfAbsent(TENANT_ORGANIZATION_KEY, TENANT_ADMINISTRATOR_ORGANIZATION);
+        try {
+            rejected(tenantAdministratorToken(TENANT), TENANT,
+                    request("\"delivery\": \"ui\", \"organization\": \"" + OTHER_ORGANIZATION + "\""),
+                    HttpStatus.BAD_REQUEST, "unknown_organization")
+                    .jsonPath("$.detail").isEqualTo("organization is not an organization of the tenant");
+        } finally {
+            if (seeded) {
+                deleteTenantConfig(TENANT_ORGANIZATION_KEY);
+            }
+        }
     }
 
     /** PRD AC-09: an entry that lets the requester set the dates issues for the window asked for. */
@@ -400,6 +435,20 @@ class IssuanceContractIT extends PostgresIntegrationBase {
     }
 
     /** The email offer links to the tenant's frontend; seeded only when the tenant has none. */
+    private boolean seedTenantConfigIfAbsent(String key, String value) {
+        Long rows = databaseClient.sql("INSERT INTO \"" + TENANT + SCHEMA_SUFFIX + "\".tenant_config "
+                        + "(config_key, config_value) VALUES (:key, :value) ON CONFLICT (config_key) DO NOTHING")
+                .bind("key", key)
+                .bind("value", value)
+                .fetch().rowsUpdated().block();
+        return rows != null && rows > 0;
+    }
+
+    private void deleteTenantConfig(String key) {
+        databaseClient.sql("DELETE FROM \"" + TENANT + SCHEMA_SUFFIX + "\".tenant_config WHERE config_key = :key")
+                .bind("key", key).then().block();
+    }
+
     private boolean seedFrontendUrlIfAbsent() {
         Long rows = databaseClient.sql("INSERT INTO \"" + TENANT + SCHEMA_SUFFIX + "\".tenant_config "
                         + "(config_key, config_value) VALUES (:key, 'https://e2e-tenant-a.example.org') "
@@ -495,7 +544,7 @@ class IssuanceContractIT extends PostgresIntegrationBase {
 
     /** The tenant's administrator: {@code organization · <tenant> · Onboarding · Execute} (EUD-272). */
     private String tenantAdministratorToken(String tenant) {
-        return mintUserAccessToken(tenant, "admin-org-for-issuance-contract-it", List.of(Map.of(
+        return mintUserAccessToken(tenant, TENANT_ADMINISTRATOR_ORGANIZATION, List.of(Map.of(
                 "type", "organization",
                 "domain", tenant,
                 "function", "Onboarding",

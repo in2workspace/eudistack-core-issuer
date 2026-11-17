@@ -9,6 +9,7 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeExcept
 import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
+import es.in2.issuer.backend.issuance.domain.exception.UnknownOrganizationException;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import lombok.extern.slf4j.Slf4j;
@@ -90,6 +91,22 @@ public class IssuanceExceptionHandler {
                 "Delivery mode not eligible",
                 HttpStatus.CONFLICT,
                 "The declared delivery mode is not eligible for this credential type"
+        );
+    }
+
+    /** EUD-254 AC-18. The detail never echoes the identifier sent: only who may indicate one gets this far. */
+    @ExceptionHandler(UnknownOrganizationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleUnknownOrganization(
+            UnknownOrganizationException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.UNKNOWN_ORGANIZATION.getCode(),
+                "Unknown organization",
+                HttpStatus.BAD_REQUEST,
+                "organization is not an organization of the tenant"
         );
     }
 

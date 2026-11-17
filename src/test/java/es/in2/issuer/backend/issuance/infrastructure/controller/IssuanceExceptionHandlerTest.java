@@ -3,6 +3,7 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
+import es.in2.issuer.backend.issuance.domain.exception.UnknownOrganizationException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
@@ -101,6 +102,27 @@ class IssuanceExceptionHandlerTest {
 
         verify(errors).handleWith(exNull,  request, type, title, st, fallback);
         verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+    }
+
+    // ------------------- UnknownOrganizationException (EUD-268, AC-18) -------------------
+
+    @Test
+    void handleUnknownOrganization_isA400WithTheContractCodeAndAFixedDetail() {
+        var ex = new UnknownOrganizationException("organization is not an organization of the tenant");
+
+        String type   = GlobalErrorTypes.UNKNOWN_ORGANIZATION.getCode();
+        String title  = "Unknown organization";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "organization is not an organization of the tenant";
+
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleUnknownOrganization(ex, request))
+                .assertNext(gem -> assertGem(gem, "unknown_organization", title, st, fallback))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
     // ------------------- InvalidGrantTypeException (EUD-268) -------------------

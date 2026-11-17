@@ -71,6 +71,7 @@ public enum GlobalErrorTypes {
     UNSUPPORTED_BINDING_TYPE("unsupported_binding_type"),
     FIELD_NOT_IN_SCHEMA("field_not_in_schema"),
     INVALID_VALIDITY("invalid_validity"),
+    UNKNOWN_ORGANIZATION("unknown_organization"),
     NO_DELIVERY_MODE("no_delivery_mode"),
     CATALOG_ENTRY_ALREADY_EXISTS("catalog_entry_already_exists"),
     CATALOG_ENTRY_NOT_FOUND("catalog_entry_not_found"),
