@@ -54,6 +54,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     static final String POWER_ALIAS_CONFLICT = "power_alias_conflict";
 
     private static final String ACTION = "action";
+    private static final String RESOURCE_ORGANIZATION = "resourceOrganization";
 
     /** Denial code of each action that is not simply "the caller has no power for it". */
     private static final Map<String, Reason> DENIAL_REASONS = Map.of(
@@ -96,7 +97,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                                                  String resourceId) {
         return requestTenant().flatMap(tenant -> {
             Trace trace = new Trace(actionId, caller, tenant)
-                    .with("resourceOrganization", resourceOrganization)
+                    .with(RESOURCE_ORGANIZATION, resourceOrganization)
                     .with("resourceId", resourceId);
             return recorded(trace, resourceOf(tenant, resourceOrganization, resourceId),
                     Mono.defer(() -> decide(trace, actionId, caller, tenant, resourceOrganization, resourceId)));
@@ -213,7 +214,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         String organization = Objects.requireNonNullElse(resourceOrganization, "");
         Trace trace = new Trace(ISSUE_OWN, caller, tenant)
                 .with("reissue", true)
-                .with("resourceOrganization", organization)
+                .with(RESOURCE_ORGANIZATION, organization)
                 .with("resourceId", processId)
                 .with("credentialConfigurationId", credentialConfigurationId);
         requireTenantMatch(caller, tenant, trace);
@@ -553,7 +554,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             if (userType == null) {
                 return Optional.empty();
             }
-            Object target = details.getOrDefault("resourceOrganization", details.get("organization"));
+            Object target = details.getOrDefault(RESOURCE_ORGANIZATION, details.get("organization"));
             Decision decision = new Decision(actionId, text(details.get("powerEvaluated")), userType.toString(),
                     text(target));
             if (deniedWith == null) {
