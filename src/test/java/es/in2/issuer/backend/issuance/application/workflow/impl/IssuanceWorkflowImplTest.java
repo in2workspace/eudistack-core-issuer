@@ -878,12 +878,6 @@ class IssuanceWorkflowImplTest {
     }
 
     /**
-     * Review of EUD-268: the issuer of the attestation is read from the signing configuration and its
-     * certificate before anything is reserved. When that dependency does not answer (an own key whose
-     * certificate cannot be read), the delivery is signing_failed -- a 503 with Retry-After -- like a failed
-     * signature, not the generic 500; no status list entry is reserved and nothing is saved.
-     */
-    /**
      * Review of EUD-268: the delivery value is part of the form of the request (design §2, step 5), so a
      * list of modes is invalid_delivery_mode even when the payload would also fail its schema -- and
      * nothing after the form (type, schema, permission) is consulted.
@@ -902,6 +896,12 @@ class IssuanceWorkflowImplTest {
                 powerAuthorizationService);
     }
 
+    /**
+     * Review of EUD-268: the issuer of the attestation is read from the signing configuration and its
+     * certificate before anything is reserved. When that dependency does not answer (an own key whose
+     * certificate cannot be read), the delivery is signing_failed -- a 503 with Retry-After -- like a failed
+     * signature, not the generic 500; no status list entry is reserved and nothing is saved.
+     */
     @Test
     void directDeliveryWhoseIssuerCannotBeBound_isSigningFailed() {
         JsonNode payload = new ObjectMapper().createObjectNode();
@@ -1893,7 +1893,6 @@ class IssuanceWorkflowImplTest {
 
     // --- EUD-268: one delivery flow -- a failed delivery is an error, never a per-mode result ---
 
-    /** Stubs a wallet-mode issuance up to the credential offer, whose answer is given. */
     /** Stubs a wallet leg whose offer is {@code offer}; returns the id of the draft it stores. */
     private String stubWalletLeg(String mode, JsonNode payload, Mono<CredentialOfferResult> offer) {
         CredentialProfile profile = profileWithoutCnf();
