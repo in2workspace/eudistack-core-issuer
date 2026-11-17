@@ -31,8 +31,15 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.SwaggerConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.TenantDomainWebFilter",
                     BASE_PACKAGE + ".shared.infrastructure.config.IssuerBaseUrlWebFilter",
+                    // String constants are inlined by the compiler, so no class shows a dependency on them
+                    BASE_PACKAGE + ".shared.domain.model.audit.AuditSource",
+                    BASE_PACKAGE + ".shared.domain.model.audit.AuditVocabulary",
                     // Spring-managed beans discovered via component scanning (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.service.AuditServiceImpl",
+                    BASE_PACKAGE + ".shared.infrastructure.service.NoOpAuditTrailAdapter",
+                    BASE_PACKAGE + ".shared.infrastructure.service.StarterAuditTrailAdapter",
+                    BASE_PACKAGE + ".shared.infrastructure.audit.IssuerAuditContextResolver",
+                    BASE_PACKAGE + ".shared.infrastructure.audit.MachineAuditAccessTokenProvider",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.SigningServiceHealthIndicator",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.SmtpHealthIndicator",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.VerifierHealthIndicator",
@@ -44,6 +51,8 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.FlywayConfig",
                     // EUD-272: wires the domain decision point as a bean (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.config.PowerAuthorizationConfig",
+                    // EUD-269: wires the idempotency and volume-limit policies and web filters as beans
+                    BASE_PACKAGE + ".shared.infrastructure.config.ApiRequestControlConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.IdempotencyFilter",
                     // Environment label (email-ui-refactor): WebFilter discovered via component scanning
                     BASE_PACKAGE + ".shared.infrastructure.config.EnvironmentLabelWebFilter",

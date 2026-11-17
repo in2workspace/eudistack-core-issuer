@@ -104,6 +104,22 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     }
 
     @Override
+    public Mono<String> getSubjectFromCurrentSession() {
+        return ReactiveSecurityContextHolder.getContext()
+                .flatMap(ctx -> {
+                    if (!(ctx.getAuthentication() instanceof JwtAuthenticationToken token)) {
+                        return Mono.empty();
+                    }
+                    String subject = token.getToken().getSubject();
+                    if (subject == null || subject.isBlank()) {
+                        subject = token.getToken().getClaimAsString("client_id");
+                    }
+                    return (subject == null || subject.isBlank()) ? Mono.<String>empty() : Mono.just(subject);
+                })
+                .switchIfEmpty(Mono.error(new InvalidTokenException()));
+    }
+
+    @Override
     public Mono<AccessTokenContext> resolveAccessTokenContext(String authorizationHeader) {
         return getCleanBearerToken(authorizationHeader)
                 .flatMap(rawToken ->

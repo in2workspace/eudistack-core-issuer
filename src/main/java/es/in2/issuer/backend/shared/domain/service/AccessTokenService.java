@@ -9,6 +9,13 @@ public interface AccessTokenService {
     Mono<String> getOrganizationId(String authorizationHeader);
     Mono<AuthorizationContext> getAuthorizationContext(String authorizationHeader);
     Mono<String> getOrganizationIdFromCurrentSession();
+
+    /**
+     * Subject of the caller, read from the already-authenticated SecurityContext: the {@code sub}
+     * claim and, when absent, {@code client_id} (machine tokens). Errors with
+     * {@link es.in2.issuer.backend.shared.domain.exception.InvalidTokenException} when it cannot be resolved.
+     */
+    Mono<String> getSubjectFromCurrentSession();
     Mono<AccessTokenContext> resolveAccessTokenContext(String authorizationHeader);
 
     /**

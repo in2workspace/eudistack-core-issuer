@@ -11,6 +11,7 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -47,6 +48,18 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER
  * Class-init order has no such ambiguity: it always runs first.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// EUD-269: the ITs send many requests of one requester within a minute, and they test other things than the
+// volume limits. A subclass that tests the limits sets its own: its properties override these.
+@TestPropertySource(properties = {
+        "issuer.api.volume-limit.issuance.per-person=1000000",
+        "issuer.api.volume-limit.issuance.systems-per-organization=1000000",
+        "issuer.api.volume-limit.revocation.per-person=1000000",
+        "issuer.api.volume-limit.revocation.systems-per-organization=1000000",
+        "issuer.api.volume-limit.search.per-person=1000000",
+        "issuer.api.volume-limit.search.systems-per-organization=1000000",
+        "issuer.api.volume-limit.read.per-person=1000000",
+        "issuer.api.volume-limit.read.systems-per-organization=1000000"
+})
 public abstract class PostgresIntegrationBase {
 
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -58,11 +71,28 @@ public abstract class PostgresIntegrationBase {
 
     @DynamicPropertySource
     static void registerPostgresProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.r2dbc.url", () -> "r2dbc:postgresql://" + POSTGRES.getHost()
-                + ":" + POSTGRES.getFirstMappedPort() + "/" + POSTGRES.getDatabaseName());
+        registry.add("spring.r2dbc.url", PostgresIntegrationBase::postgresR2dbcUrl);
         registry.add("spring.r2dbc.username", POSTGRES::getUsername);
         registry.add("spring.r2dbc.password", POSTGRES::getPassword);
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
+    }
+
+    /** The shared database, for an IT that starts a second application on it (another issuer instance). */
+    protected static String postgresR2dbcUrl() {
+        return "r2dbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getFirstMappedPort() + "/"
+                + POSTGRES.getDatabaseName();
+    }
+
+    protected static String postgresJdbcUrl() {
+        return POSTGRES.getJdbcUrl();
+    }
+
+    protected static String postgresUsername() {
+        return POSTGRES.getUsername();
+    }
+
+    protected static String postgresPassword() {
+        return POSTGRES.getPassword();
     }
 
     @LocalServerPort

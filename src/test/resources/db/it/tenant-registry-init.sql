@@ -21,4 +21,5 @@ CREATE TABLE IF NOT EXISTS public.tenant_registry (
 INSERT INTO public.tenant_registry (schema_name, display_name, tenant_type) VALUES
     ('e2e',          'IT Test Tenant',   'simple'),
     ('e2e-tenant-a', 'IT Test Tenant A', 'simple'),
-    ('e2e-tenant-b', 'IT Test Tenant B', 'simple');
+    ('e2e-tenant-b', 'IT Test Tenant B', 'simple'),
+    ('platform',     'IT Platform',      'simple');

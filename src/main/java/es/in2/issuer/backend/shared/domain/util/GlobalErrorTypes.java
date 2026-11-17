@@ -64,6 +64,8 @@ public enum GlobalErrorTypes {
     CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured"),
     CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled"),
     OFFER_NOT_RENEWABLE("offer_not_renewable"),
+    IDEMPOTENCY_KEY_REUSED("idempotency_key_reused"),
+    IDEMPOTENCY_IN_PROGRESS("idempotency_in_progress"),
     RATE_LIMITED("rate_limited"),
     UNKNOWN_SCHEMA("unknown_schema"),
     UNSUPPORTED_BINDING_TYPE("unsupported_binding_type"),
