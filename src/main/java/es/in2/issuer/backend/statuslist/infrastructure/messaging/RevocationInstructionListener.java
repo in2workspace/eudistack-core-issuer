@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.statuslist.infrastructure.messaging;
 
+import es.in2.issuer.backend.shared.domain.model.audit.AuditSource;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.domain.util.TenantIdentifiers;
 import es.in2.issuer.backend.statuslist.application.HandleRevocationInstructionWorkflow;
 import es.in2.issuer.backend.statuslist.application.RevocationAuditDetails;
@@ -74,6 +76,7 @@ public class RevocationInstructionListener {
     private final TenantRegistryService tenantRegistryService;
     private final RevocationMessagingProperties messagingProperties;
     private final MeterRegistry meterRegistry;
+    private final AuditTrailPort auditTrail;
 
     @RabbitListener(queues = RevocationMessagingConfig.QUEUE_NAME, containerFactory = "revocationListenerContainerFactory")
     public void onMessage(RevocationInstructionMessage message,
@@ -160,7 +163,7 @@ public class RevocationInstructionListener {
         // A Mismatch is rejected by the workflow itself (with its own audit trail) without
         // ever needing the tenant_registry lookup: the discordance is already the failure.
         if (resolution instanceof TenantBindingResolution.Mismatch) {
-            return workflow.handleRevocationInstruction(processId, instruction, resolution)
+            return asSystem(contextTenant, workflow.handleRevocationInstruction(processId, instruction, resolution))
                     .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, contextTenant));
         }
 
@@ -173,9 +176,18 @@ public class RevocationInstructionListener {
                     if (!activeSchemas.contains(contextTenant)) {
                         return Mono.<Void>error(new UnknownTenantException(contextTenant));
                     }
-                    return workflow.handleRevocationInstruction(processId, instruction, resolution)
+                    return asSystem(contextTenant, workflow.handleRevocationInstruction(processId, instruction, resolution))
                             .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, contextTenant));
                 });
+    }
+
+    /**
+     * A message on the queue has no request, so no filter opens the audit context: the facts the workflow
+     * stages (status list entry, publication, revocation) would otherwise fail for lack of one and undo the
+     * whole revocation. The tenant is the one the message was resolved to (AD-10); the actor is the Issuer.
+     */
+    private <T> Mono<T> asSystem(String contextTenant, Mono<T> flow) {
+        return auditTrail.asSystem(contextTenant, AuditSource.ISSUER, flow);
     }
 
     private void validateTenantFormat(String tenantId) {

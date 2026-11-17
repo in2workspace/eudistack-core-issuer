@@ -8,7 +8,9 @@ import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import org.mockito.InjectMocks;
+import org.mockito.Spy;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import reactor.core.publisher.Flux;
@@ -32,6 +34,7 @@ class CredentialExpirationSchedulerImplTest {
     @Mock private IssuanceService issuanceService;
     @Mock private EmailService emailService;
     @Mock private TenantRegistryService tenantRegistryService;
+    @Spy private RecordingAuditTrail auditTrail = new RecordingAuditTrail();
 
     @InjectMocks
     private CredentialExpirationScheduler credentialExpirationScheduler;
@@ -77,6 +80,16 @@ class CredentialExpirationSchedulerImplTest {
                     && ua != null
                     && ua.isAfter(baseline.minusSeconds(1));
         }));
+    }
+
+    @Test
+    void shouldOpenTheAuditContextOfEachTenantBecauseTheExpirationMailIsAnExternalSystemAccess() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("sandbox", "kpmg")));
+        when(issuancePort.findAll()).thenReturn(Flux.empty());
+
+        StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials()).verifyComplete();
+
+        assertEquals(List.of("sandbox/issuer", "kpmg/issuer"), auditTrail.systemScopes());
     }
 
     @Test

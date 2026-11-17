@@ -1,11 +1,13 @@
 package es.in2.issuer.backend.issuance.domain.scheduler;
 
 import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditSource;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +32,7 @@ public class CredentialExpirationScheduler {
     private final IssuanceService issuanceService;
     private final EmailService emailService;
     private final TenantRegistryService tenantRegistryService;
+    private final AuditTrailPort auditTrail;
 
     @Scheduled(cron = "0 0 1 * * ?") // Every day at 1:00 AM
     public Mono<Void> checkAndExpireCredentials() {
@@ -38,24 +41,26 @@ public class CredentialExpirationScheduler {
         return tenantRegistryService.getActiveTenantSchemas()
                 .flatMapMany(Flux::fromIterable)
                 .flatMap(tenant ->
-                        issuancePort.findAll()
-                                .flatMap(issuance -> isExpiredAndNotAlreadyMarked(issuance)
-                                        .filter(Boolean::booleanValue)
-                                        .flatMap(expired -> expireCredential(issuance)
-                                                .then(issuanceService.extractCredentialId(issuance)
-                                                        .defaultIfEmpty(issuance.getIssuanceId().toString())
-                                                        .flatMap(credentialId -> emailService.sendCredentialStatusChangeNotification(
-                                                                issuance.getEmail(),
-                                                                credentialId,
-                                                                issuance.getCredentialType(),
-                                                                EXPIRED.toString()
-                                                        ))
-                                                        .onErrorResume(e -> {
-                                                            log.warn("Failed to send expiration email for issuanceId={}: {}",
-                                                                    issuance.getIssuanceId(), e.toString());
-                                                            return Mono.empty();
-                                                        }))))
-                                .then()
+                        // The mail goes out without a request: its ExternalSystemAccess needs the context of the tenant.
+                        auditTrail.asSystem(tenant, AuditSource.ISSUER,
+                                issuancePort.findAll()
+                                    .flatMap(issuance -> isExpiredAndNotAlreadyMarked(issuance)
+                                            .filter(Boolean::booleanValue)
+                                            .flatMap(expired -> expireCredential(issuance)
+                                                    .then(issuanceService.extractCredentialId(issuance)
+                                                            .defaultIfEmpty(issuance.getIssuanceId().toString())
+                                                            .flatMap(credentialId -> emailService.sendCredentialStatusChangeNotification(
+                                                                    issuance.getEmail(),
+                                                                    credentialId,
+                                                                    issuance.getCredentialType(),
+                                                                    EXPIRED.toString()
+                                                            ))
+                                                            .onErrorResume(e -> {
+                                                                log.warn("Failed to send expiration email for issuanceId={}: {}",
+                                                                        issuance.getIssuanceId(), e.toString());
+                                                                return Mono.empty();
+                                                            }))))
+                                    .then())
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                                 .onErrorResume(e -> {
                                     log.warn("Scheduler skipped tenant '{}': {}", tenant, e.getMessage());

@@ -1,6 +1,9 @@
 package es.in2.issuer.backend.statuslist.infrastructure.messaging;
 
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.statuslist.application.HandleRevocationInstructionWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.RevocationInstruction;
 import es.in2.issuer.backend.statuslist.domain.model.TenantBindingResolution;
@@ -50,6 +53,7 @@ class RevocationInstructionListenerTest {
     private TenantRegistryService tenantRegistryService;
 
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail().requiringContext();
 
     private static RevocationInstructionMessage rawMessage(String tenantId) {
         return new RevocationInstructionMessage(
@@ -63,7 +67,7 @@ class RevocationInstructionListenerTest {
         // false FromMessage match -- fail-open, exactly the F12 bug.
         RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a", false);
         RevocationInstructionListener listener = new RevocationInstructionListener(
-                mapper, workflow, errorClassifier, tenantRegistryService, properties, meterRegistry);
+                mapper, workflow, errorClassifier, tenantRegistryService, properties, meterRegistry, auditTrail);
 
         RevocationInstruction instruction = new RevocationInstruction(
                 "msg-1", "e2e-tenant-a-stg", ISSUANCE_ID, null, Instant.now());
@@ -96,7 +100,7 @@ class RevocationInstructionListenerTest {
         // asymmetric bug (stripping only the message side) would otherwise reject this.
         RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a-stg", false);
         RevocationInstructionListener listener = new RevocationInstructionListener(
-                mapper, workflow, errorClassifier, tenantRegistryService, properties, meterRegistry);
+                mapper, workflow, errorClassifier, tenantRegistryService, properties, meterRegistry, auditTrail);
 
         RevocationInstruction instruction = new RevocationInstruction(
                 "msg-1", "e2e-tenant-a-stg", ISSUANCE_ID, null, Instant.now());
@@ -116,5 +120,29 @@ class RevocationInstructionListenerTest {
         // the *stripped* tenant (e2e-tenant-a) -- an unstripped lookup against
         // e2e-tenant-a-stg would have failed against the mocked registry above.
         verify(tenantRegistryService).getActiveTenantSchemas();
+    }
+
+    @Test
+    void onMessage_workflowStagesAnAuditFact_runsItInTheAuditContextOfTheTenantOfTheMessage() {
+        // The queue has no request filter: without the scope the starter refuses the fact and the
+        // revocation is undone (the trail double refuses it too, as the starter does).
+        RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a", false);
+        RevocationInstructionListener listener = new RevocationInstructionListener(
+                mapper, workflow, errorClassifier, tenantRegistryService, properties, meterRegistry, auditTrail);
+        RevocationInstruction instruction = new RevocationInstruction(
+                "msg-1", "e2e-tenant-a", ISSUANCE_ID, null, Instant.now());
+        AuditEntry published = AuditEntry.success(AuditEventType.STATUS_LIST_PUBLISHED, "status-list:1", java.util.Map.of());
+        when(mapper.toDomain(any(), any(), any())).thenReturn(instruction);
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("e2e-tenant-a")));
+        when(workflow.handleRevocationInstruction(anyString(), eq(instruction), any()))
+                .thenReturn(Mono.defer(() -> auditTrail.stage(published)));
+
+        listener.onMessage(rawMessage("e2e-tenant-a"), null);
+
+        assertThat(auditTrail.staged()).containsExactly(published);
+        assertThat(auditTrail.systemScopes()).containsExactly("e2e-tenant-a/issuer");
+        assertThat(meterRegistry.get("revocation.instruction.processed")
+                .tag("tenant", "e2e-tenant-a").tag("outcome", "success").counter().count())
+                .isEqualTo(1.0);
     }
 }
