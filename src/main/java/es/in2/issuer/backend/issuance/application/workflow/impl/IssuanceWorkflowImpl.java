@@ -116,10 +116,13 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         var sample = issuanceMetrics.startTimer();
         String configId = request.credentialConfigurationId();
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
-        // Metrics and logs never carry the value the client sent: it is only checked later (EUD-254 §3).
+        // Metrics and logs never carry the value the client sent, which may be any string.
         String deliveryLabel = DeliveryMode.fromValue(delivery).map(mode -> mode.value).orElse(INVALID_DELIVERY_LABEL);
 
+        // EUD-254 design §2: the form of the request (step 5, which includes the delivery value) before the
+        // type (6) and the schema (7); whether the mode is admitted for the type is checked after the permission.
         Mono<PreparedRequest> requestChecks = requireResolvedTenant()
+                .then(Mono.fromRunnable(() -> requestedMode(delivery)))
                 .then(Mono.defer(() -> validateRequest(request)))
                 .then(Mono.defer(() -> requireTypeEnabled(configId)))
                 .then(Mono.fromSupplier(() -> prepared(request)))

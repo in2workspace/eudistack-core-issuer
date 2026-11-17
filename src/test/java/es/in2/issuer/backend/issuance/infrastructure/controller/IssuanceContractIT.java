@@ -301,6 +301,14 @@ class IssuanceContractIT extends PostgresIntegrationBase {
         rejected(request("\"delivery\": \"email\""), HttpStatus.BAD_REQUEST, "unsupported_credential_type");
     }
 
+    /** Design §2: the delivery value is part of the form (step 5), checked before the schema (step 7). */
+    @Test
+    void aListOfModesWithAPayloadThatFailsItsSchemaIsInvalidDeliveryMode() {
+        rejected(requestWithPayload("""
+                {"givenName": "Jane", "familyName": "Doe", "personal_administrative_number": "123456789"}""",
+                "\"delivery\": \"email,ui\""), HttpStatus.BAD_REQUEST, "invalid_delivery_mode");
+    }
+
     @Test
     void aPayloadWithoutARequiredAttributeIsPayloadValidationErrorNamingIt() {
         rejected(requestWithPayload("""
