@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed (EUD-268, breaking)
+### Changed (EUD-268, breaking, version 3.14.1)
 
 - **EUD-268 — One delivery mode per issuance.** `delivery` of `POST /api/v1/issuances` takes exactly `email`, `ui` or `direct` (default `email`). A list of modes (`email,ui`), an unknown value, an empty one or one with spaces is `400 invalid_delivery_mode`; before, a comma-separated list was accepted and other values were `400 BAD_REQUEST`. The bootstrap issuance still takes only `email` or `ui`. Deploy with the `eudistack-mfe-credential-manager` that sends a single mode.
 - **EUD-268 — One delivery flow, answered with `200` or a problem.** The issuance runs the requested mode only: the hybrid issuance (`direct` plus a wallet mode) and the per-mode isolation are gone. A successful issuance is always `200` with `Location` and one `responses` entry; `207 Multi-Status`, the empty `202`, the `500` with a per-channel envelope and `responses[].error` no longer exist. A bounced offer email is a failed delivery, not a failed mode next to a delivered one.
