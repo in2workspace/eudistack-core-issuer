@@ -140,8 +140,8 @@ class IssuanceContractIT extends PostgresIntegrationBase {
 
     /**
      * PRD AC-03: the email could not be sent. Not a temporarily unavailable dependency the contract names,
-     * so 500 without {@code Retry-After}. The draft process stays, as any process whose offer did not
-     * reach the holder; the cleanup job removes it.
+     * so 500 without {@code Retry-After}. The draft whose offer did not reach the holder is withdrawn in
+     * the same request (design AD-4), so it is not listed as pending.
      */
     @Test
     void aBouncedOfferEmailIsDeliveryFailed() {
@@ -149,15 +149,20 @@ class IssuanceContractIT extends PostgresIntegrationBase {
 
         deliveryFailed(request("\"delivery\": \"email\""), HttpStatus.INTERNAL_SERVER_ERROR, "delivery_failed")
                 .jsonPath("$.detail").isEqualTo("The issuance could not be completed.");
+        assertThat(theOnlyProcessOfTheHolder()).containsEntry("credential_status", "WITHDRAWN");
     }
 
-    /** PRD AC-03: the wallet flow did not answer in time, so 503 with {@code Retry-After}. */
+    /**
+     * PRD AC-03: the wallet flow did not answer in time, so 503 with {@code Retry-After}. The draft is
+     * withdrawn (design AD-4): an offer that still goes out late cannot be redeemed.
+     */
     @Test
     void anOfferEmailThatNeverAnswersIsWalletDeliveryTimeoutWithRetryAfter() {
         offerEmailAnswers(Mono.never());
 
         deliveryFailed(request("\"delivery\": \"email\""), HttpStatus.SERVICE_UNAVAILABLE, "wallet_delivery_timeout")
                 .jsonPath("$.detail").isEqualTo("The issuance could not be completed. Retry later.");
+        assertThat(theOnlyProcessOfTheHolder()).containsEntry("credential_status", "WITHDRAWN");
     }
 
     // ---- 200 -------------------------------------------------------------------------

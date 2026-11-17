@@ -444,32 +444,20 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .doOnError(e -> credentialIssuedLogger.logFailed(configId, e));
     }
 
-    /**
-     * The credential offer, by email or returned to the interface. A bounced email is a failed delivery:
-     * with one mode there is nothing else to return.
-     */
+    /** The credential offer, by email or returned to the interface. */
     private Mono<IssuanceResponse> executeWalletDelivery(String processId, IssuanceRequest request,
                                                          String publicIssuerBaseUrl, DeliveryMode mode,
                                                          Map<String, Object> cnf, CredentialTerms terms) {
         return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, mode.value, cnf, terms)
-                .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
-                .onErrorMap(TimeoutException.class,
-                        e -> new DeliveryFailedException(DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT, e))
-                .flatMap(offer -> offer.emailError() != null
-                        ? Mono.error(new DeliveryFailedException(DeliveryErrorCode.DELIVERY_FAILED,
-                                new EmailCommunicationException(offer.emailError())))
-                        : Mono.just(IssuanceResponse.builder()
-                                .credentialOfferUri(offer.credentialOfferUri())
-                                .deliveryResults(List.of(DeliveryResult.dispatched(mode.value)))
-                                .issuanceId(offer.issuanceId())
-                                .build()));
+                .map(offer -> IssuanceResponse.builder()
+                        .credentialOfferUri(offer.credentialOfferUri())
+                        .deliveryResults(List.of(DeliveryResult.dispatched(mode.value)))
+                        .issuanceId(offer.issuanceId())
+                        .build());
     }
 
-    /**
-     * What the wallet flow produced: the offer URI, the email failure the offer service reported
-     * rather than threw, and the stored process.
-     */
-    private record Oid4VciLegResult(String credentialOfferUri, String emailError, String issuanceId) {}
+    /** What the wallet flow produced: the offer URI and the stored process. */
+    private record Oid4VciLegResult(String credentialOfferUri, String issuanceId) {}
 
     /**
      * {@code cnf} is only ever non-null here for an AD-8 exempt type (F4), and only ever jwk-shaped for
@@ -645,17 +633,52 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                     .onErrorMap(failedAt(DeliveryErrorCode.PERSISTENCE_FAILED))
                                     .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
                                     .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
-                                    .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
-                                                    saved.getIssuanceId().toString(), configId, grantType, request.email(),
-                                                    oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
-                                                    publicIssuerBaseUrl)
-                                            .onErrorMap(failedAt(DeliveryErrorCode.DELIVERY_FAILED))
-                                            .flatMap(offerResult -> stageOfferSent(issuanceId.toString(), request.email(),
-                                                    oid4vciDelivery, offerResult)
-                                                    .thenReturn(new Oid4VciLegResult(
-                                                            offerResult.credentialOfferUri(), offerResult.emailError(),
-                                                            saved.getIssuanceId().toString())))
-                                    ));
+                                    .flatMap(saved -> deliverOffer(saved, request, configId, grantType,
+                                                    oid4vciDelivery, publicIssuerBaseUrl)
+                                            // EUD-254 design AD-4: the draft whose offer failed does not stay pending.
+                                            .onErrorResume(error -> withdrawDraftBestEffort(processId,
+                                                    saved.getIssuanceId().toString())
+                                                    .then(Mono.error(error)))));
+                });
+    }
+
+    /**
+     * The offer of a stored draft: created, sent by email when that is the mode, and traced. A bounced email
+     * is a failed delivery (with one mode there is nothing else to return), and an offer that does not
+     * complete within {@code issuance.hybrid-wallet-timeout-seconds} is a timeout.
+     */
+    private Mono<Oid4VciLegResult> deliverOffer(Issuance saved, IssuanceRequest request, String configId,
+                                                String grantType, String delivery, String publicIssuerBaseUrl) {
+        String issuanceId = saved.getIssuanceId().toString();
+        return credentialOfferService.createAndDeliverCredentialOffer(
+                        issuanceId, configId, grantType, request.email(), delivery,
+                        saved.getCredentialOfferRefreshToken(), publicIssuerBaseUrl)
+                .onErrorMap(failedAt(DeliveryErrorCode.DELIVERY_FAILED))
+                .flatMap(offerResult -> stageOfferSent(issuanceId, request.email(), delivery, offerResult)
+                        .thenReturn(offerResult))
+                .flatMap(offerResult -> offerResult.emailError() != null
+                        ? Mono.<Oid4VciLegResult>error(new DeliveryFailedException(DeliveryErrorCode.DELIVERY_FAILED,
+                                new EmailCommunicationException(offerResult.emailError())))
+                        : Mono.just(new Oid4VciLegResult(offerResult.credentialOfferUri(), issuanceId)))
+                .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
+                .onErrorMap(TimeoutException.class,
+                        e -> new DeliveryFailedException(DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT, e));
+    }
+
+    /**
+     * EUD-254 design AD-4: a draft whose offer could not be delivered is withdrawn in the same request, with
+     * its IssuanceWithdrawn, so it is not listed as pending and an offer that still reaches the holder (an
+     * email sent after the timeout) cannot be redeemed. Best effort: the caller gets the delivery error; a
+     * failed withdrawal is only logged, and the automatic withdrawal of stale drafts takes the draft later.
+     */
+    private Mono<Void> withdrawDraftBestEffort(String processId, String issuanceId) {
+        return issuanceService.withdrawIssuance(issuanceId)
+                .doOnSuccess(done -> log.info("ProcessId: {} - Draft {} withdrawn: its offer could not be delivered",
+                        processId, issuanceId))
+                .onErrorResume(e -> {
+                    log.warn("ProcessId: {} - Draft {} left for the automatic withdrawal: {}",
+                            processId, issuanceId, e.toString());
+                    return Mono.empty();
                 });
     }
 

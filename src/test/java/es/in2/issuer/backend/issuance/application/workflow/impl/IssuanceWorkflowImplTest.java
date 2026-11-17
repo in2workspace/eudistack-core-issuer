@@ -148,6 +148,8 @@ class IssuanceWorkflowImplTest {
         lenient().when(tenantCredentialProfileService.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
         // An organization indicated with E2 is of the tenant by default; the tests of one that is not override it.
         lenient().when(tenantOrganizationService.requireOrganizationOfTenant(anyString())).thenReturn(Mono.empty());
+        // Withdrawing the draft of a failed offer succeeds by default (EUD-254 design AD-4).
+        lenient().when(issuanceService.withdrawIssuance(anyString())).thenReturn(Mono.empty());
         // Identity by default: the normalizer has its own tests; here only the tests about what the
         // workflow does with its result override it.
         lenient().when(issuancePayloadNormalizer.normalize(anyString(), any()))
@@ -1892,7 +1894,8 @@ class IssuanceWorkflowImplTest {
     // --- EUD-268: one delivery flow -- a failed delivery is an error, never a per-mode result ---
 
     /** Stubs a wallet-mode issuance up to the credential offer, whose answer is given. */
-    private void stubWalletLeg(String mode, JsonNode payload, Mono<CredentialOfferResult> offer) {
+    /** Stubs a wallet leg whose offer is {@code offer}; returns the id of the draft it stores. */
+    private String stubWalletLeg(String mode, JsonNode payload, Mono<CredentialOfferResult> offer) {
         CredentialProfile profile = profileWithoutCnf();
         Issuance savedIssuance = Issuance.builder().issuanceId(UUID.randomUUID()).credentialOfferRefreshToken("rt").build();
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
@@ -1904,6 +1907,63 @@ class IssuanceWorkflowImplTest {
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), eq(mode), any(), any()))
                 .thenReturn(offer);
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+        return savedIssuance.getIssuanceId().toString();
+    }
+
+    // --- EUD-254 design AD-4: the draft of a failed offer is withdrawn, not left pending ---
+
+    @Test
+    void aBouncedOfferEmailWithdrawsTheDraft() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        String draftId = stubWalletLeg("email", payload,
+                Mono.just(new CredentialOfferResult(null, "mail server unavailable")));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMatches(deliveryFailed(DeliveryErrorCode.DELIVERY_FAILED, EmailCommunicationException.class))
+                .verify();
+
+        verify(issuanceService).withdrawIssuance(draftId);
+    }
+
+    @Test
+    void anOfferThatFailsWithdrawsTheDraft() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "ui", EMAIL, null);
+        String draftId = stubWalletLeg("ui", payload, Mono.error(new IllegalStateException("offer cache unavailable")));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMatches(deliveryFailed(DeliveryErrorCode.DELIVERY_FAILED, IllegalStateException.class))
+                .verify();
+
+        verify(issuanceService).withdrawIssuance(draftId);
+    }
+
+    /** Best effort: a failed withdrawal never hides the delivery error the caller has to get. */
+    @Test
+    void aWithdrawalThatFailsStillAnswersTheDeliveryError() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "ui", EMAIL, null);
+        String draftId = stubWalletLeg("ui", payload, Mono.error(new IllegalStateException("offer cache unavailable")));
+        when(issuanceService.withdrawIssuance(draftId)).thenReturn(Mono.error(new IllegalStateException("database down")));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectErrorMatches(e -> deliveryFailed(DeliveryErrorCode.DELIVERY_FAILED, IllegalStateException.class).test(e)
+                        && "offer cache unavailable".equals(e.getCause().getMessage()))
+                .verify();
+    }
+
+    @Test
+    void aSuccessfulOfferWithdrawsNothing() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "ui", EMAIL, null);
+        stubWalletLeg("ui", payload, Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(issuanceService, never()).withdrawIssuance(anyString());
     }
 
     @Test
@@ -1947,8 +2007,9 @@ class IssuanceWorkflowImplTest {
                 .expectErrorMatches(deliveryFailed(DeliveryErrorCode.PERSISTENCE_FAILED, IllegalStateException.class))
                 .verify();
 
-        // No offer is created or sent for a process that was never stored.
+        // No offer is created or sent, and nothing is withdrawn, for a process that was never stored.
         verify(credentialOfferService, never()).createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any());
+        verify(issuanceService, never()).withdrawIssuance(anyString());
     }
 
     /** The delivery failed with {@code code}, keeping the original failure as its cause. */
@@ -1963,11 +2024,14 @@ class IssuanceWorkflowImplTest {
     void walletDeliveryThatDoesNotAnswerInTimeShouldTimeOut() {
         JsonNode payload = new ObjectMapper().createObjectNode();
         IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "ui", EMAIL, null);
-        stubWalletLeg("ui", payload, Mono.never());
+        String draftId = stubWalletLeg("ui", payload, Mono.never());
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
                 .expectErrorMatches(deliveryFailed(DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT, TimeoutException.class))
                 .verify(Duration.ofSeconds(HYBRID_WALLET_TIMEOUT_SECONDS + 5L));
+
+        // An offer that still goes out after the timeout points to a withdrawn process, which cannot be redeemed.
+        verify(issuanceService).withdrawIssuance(draftId);
     }
 
     @Test
