@@ -3,6 +3,7 @@ package es.in2.issuer.backend.issuance.domain.model.dto;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -21,14 +22,18 @@ public record IssuanceRequest(
         @JsonProperty(value = "payload", required = true) JsonNode payload,
         // EUD-254: exactly one of email, ui or direct (email when absent). Any other value -- a list of
         // modes included -- is invalid_delivery_mode, not a BAD_REQUEST on its shape: the workflow checks
-        // it, and the value sent never reaches a log line or a metric tag.
+        // it, and the value sent never reaches a log line or a metric tag. A JSON list or any other
+        // non-string value is read as its JSON text, so it reaches that check too.
+        @JsonDeserialize(using = JsonValueAsTextDeserializer.class)
         @JsonProperty("delivery") String delivery,
         @NotBlank(message = "email is required")
         @Email(message = "email must be a well-formed email address")
         @Size(max = 254, message = "email must be at most 254 characters")
         @JsonProperty("email") String email,
         // EUD-254: any value other than its two is invalid_grant_type, not a BAD_REQUEST on its shape --
-        // OfferGrantType checks it, and the value sent is never logged or echoed back.
+        // OfferGrantType checks it, and the value sent is never logged or echoed back. A non-string
+        // value is read as its JSON text, so it reaches that check too.
+        @JsonDeserialize(using = JsonValueAsTextDeserializer.class)
         @JsonProperty("grant_type") String grantType,
         @JsonProperty("holder_key") JsonNode holderKey,
         // EUD-253 FR-07 / EUD-268: organization the attestation is issued for. Optional: absent, it is

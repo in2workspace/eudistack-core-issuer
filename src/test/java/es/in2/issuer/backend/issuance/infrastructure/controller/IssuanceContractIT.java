@@ -278,6 +278,21 @@ class IssuanceContractIT extends PostgresIntegrationBase {
                 HttpStatus.BAD_REQUEST, "invalid_grant_type");
     }
 
+    /** Any list is invalid_delivery_mode (EUD-254), and so is any other value that is not a string. */
+    @ParameterizedTest
+    @ValueSource(strings = {"[\"email\", \"ui\"]", "[\"email\"]", "[]", "5", "true", "{\"mode\": \"email\"}"})
+    void aDeliveryThatIsNotAStringIsInvalidDeliveryMode(String delivery) {
+        rejected(request("\"delivery\": " + delivery), HttpStatus.BAD_REQUEST, "invalid_delivery_mode")
+                .jsonPath("$.detail").isEqualTo("delivery must be one of: email, ui, direct");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[\"authorization_code\"]", "1", "{}"})
+    void aGrantThatIsNotAStringIsInvalidGrantType(String grantType) {
+        rejected(request("\"delivery\": \"ui\", \"grant_type\": " + grantType),
+                HttpStatus.BAD_REQUEST, "invalid_grant_type");
+    }
+
     @Test
     void aValidityAboveTheMaximumOfTheEntryIsInvalidValidity() {
         rejected(requestWithPayload("""
