@@ -61,7 +61,10 @@
       "legally_entitled": "legally_entitled"
     },
     "access_token_embed": {
+      "givenName": "givenName",
+      "familyName": "familyName",
       "personal_administrative_number": "personal_administrative_number",
+      "medical_board": "medical_board",
       "medical_speciality": "medical_speciality",
       "legally_entitled": "legally_entitled"
     },

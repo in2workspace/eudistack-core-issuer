@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.shared.domain.service;
 
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
@@ -51,14 +54,57 @@ class CatalogEntryChangeAuditorTest {
 
     @Mock private AuditService auditService;
     @Mock private CallerProvider callerProvider;
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
 
     private CatalogEntryChangeAuditor auditor;
 
     @BeforeEach
     void setUp() {
-        auditor = new CatalogEntryChangeAuditor(auditService, callerProvider);
+        auditor = new CatalogEntryChangeAuditor(auditService, callerProvider, auditTrail);
         when(callerProvider.current()).thenReturn(Mono.just(new Caller(ORGANIZATION, List.of(), TENANT, null, null)));
         when(callerProvider.currentPerson()).thenReturn(Mono.just(PERSON));
+    }
+
+    @Test
+    void audit_ofAChange_alsoStagesCatalogEntryChangedForTheAuditStoreAfterTheCommit() {
+        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.updated(entry(true, 3), entry(false, 4)))))
+                .verifyComplete();
+
+        assertThat(auditTrail.stagedInNewTransaction()).hasSize(1);
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertThat(entry.type()).isEqualTo(AuditEventType.CATALOG_ENTRY_CHANGED);
+        assertThat(entry.resource()).isEqualTo("catalog-entry:" + DOCTORID);
+        assertThat(entry.details()).containsEntry("operation", "Update");
+        assertThat(auditTrail.staged()).isEmpty();
+    }
+
+    @Test
+    void auditDenied_withAKnownEntry_stagesTheRefusalWithItsReason() {
+        StepVerifier.create(asPersonInTenant(auditor.auditDenied(
+                CatalogEntryChange.Operation.UPDATE, DOCTORID, CatalogEntryChangeAuditor.POLICY_DENIED)))
+                .verifyComplete();
+
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertThat(entry.reason()).isEqualTo("PolicyDenied");
+        assertThat(entry.resource()).isEqualTo("catalog-entry:" + DOCTORID);
+    }
+
+    @Test
+    void auditDenied_withoutAKnownEntry_stagesNothingBecauseTheResourceNeedsIt() {
+        StepVerifier.create(asPersonInTenant(auditor.auditDenied(
+                null, null, CatalogEntryChangeAuditor.POLICY_DENIED)))
+                .verifyComplete();
+
+        assertThat(auditTrail.all()).isEmpty();
+    }
+
+    @Test
+    void audit_whenTheAuditStoreIsDown_stillCompletes() {
+        CatalogEntryChangeAuditor broken = new CatalogEntryChangeAuditor(
+                auditService, callerProvider, new RecordingAuditTrail().failingOnNewTransaction());
+
+        StepVerifier.create(asPersonInTenant(broken.audit(CatalogEntryChange.updated(entry(true, 3), entry(false, 4)))))
+                .verifyComplete();
     }
 
     /** AC-12: the event says which person did it, and the organization goes next to it, not in the details. */

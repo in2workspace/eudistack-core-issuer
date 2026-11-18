@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.domain.util.LogSafe;
 import es.in2.issuer.backend.shared.domain.util.Sha256;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +12,8 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -18,35 +21,43 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 import static es.in2.issuer.backend.shared.infrastructure.config.ApiOperationResolver.MANAGEMENT_API_PREFIX;
 
 /**
  * SEC-06: Simple per-IP rate limiter for mutating endpoints.
  * Uses a sliding window (1 minute) with a configurable max requests per IP.
- * Rejects excess requests with HTTP 429 Too Many Requests.
+ * Rejects excess requests with HTTP 429 Too Many Requests, as an {@code application/problem+json}
+ * {@code rate_limited} with {@code Retry-After} on every route (EUD-295: the issuance API contract
+ * fixes that body, the same one {@link ApiVolumeLimitFilter} writes for the limit of the requester).
  */
 @Slf4j
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class RateLimitFilter implements WebFilter {
 
-    /**
-     * Exchange attribute the security layer sets when it verifies the request's credential (see
-     * {@code SecurityConfig}): a request that ends without it was not authenticated, whatever its status.
-     */
-    public static final String AUTHENTICATED_ATTRIBUTE = RateLimitFilter.class.getName() + ".authenticated";
+    static final int RETRY_AFTER_SECONDS = 60;
+    private static final byte[] RATE_LIMITED_PROBLEM = ("{\"type\":\"" + GlobalErrorTypes.RATE_LIMITED.getCode()
+            + "\",\"title\":\"Too many requests\",\"status\":429,"
+            + "\"detail\":\"The volume limit was exceeded. Retry after the time in Retry-After.\"}")
+            .getBytes(StandardCharsets.UTF_8);
 
-    /** How long a credential that authenticated is let through an address over its limit of failures. */
-    static final Duration AUTHENTICATED_CREDENTIAL_TTL = Duration.ofMinutes(10);
+    /** How long a credential that was counted by its requester is let through an address over its limit. */
+    static final Duration COUNTED_CREDENTIAL_TTL = Duration.ofMinutes(10);
 
     private final int maxRequestsPerMinute;
     private final Cache<String, AtomicInteger> requestCounts;
-    private final Cache<String, AtomicInteger> failedAuthentications;
-    /** Digests of the {@code Authorization} headers that authenticated recently on this instance. */
-    private final Cache<String, Boolean> authenticatedCredentials;
+    private final Cache<String, AtomicInteger> uncountedRequests;
+    /**
+     * Digests of the {@code Authorization} header, the {@code X-Tenant} and the operation of the requests that were
+     * counted in the limit of their requester recently on this instance.
+     */
+    private final Cache<String, Boolean> countedCredentials;
 
     public RateLimitFilter(
             @Value("${issuer.api.rate-limit.max-per-minute:100}") int maxRequestsPerMinute) {
@@ -55,12 +66,12 @@ public class RateLimitFilter implements WebFilter {
                 .expireAfterWrite(Duration.ofMinutes(1))
                 .maximumSize(50_000)
                 .build();
-        this.failedAuthentications = Caffeine.newBuilder()
+        this.uncountedRequests = Caffeine.newBuilder()
                 .expireAfterWrite(Duration.ofMinutes(1))
                 .maximumSize(50_000)
                 .build();
-        this.authenticatedCredentials = Caffeine.newBuilder()
-                .expireAfterWrite(AUTHENTICATED_CREDENTIAL_TTL)
+        this.countedCredentials = Caffeine.newBuilder()
+                .expireAfterWrite(COUNTED_CREDENTIAL_TTL)
                 .maximumSize(50_000)
                 .build();
     }
@@ -72,7 +83,7 @@ public class RateLimitFilter implements WebFilter {
             return chain.filter(exchange);
         }
         if (hasVolumeLimitOfItsRequester(exchange)) {
-            return limitFailedAuthentications(exchange, chain);
+            return limitUncountedRequests(exchange, chain);
         }
 
         String clientIp = resolveClientIp(exchange);
@@ -90,54 +101,78 @@ public class RateLimitFilter implements WebFilter {
     }
 
     /**
-     * On the issuance, revocation and query APIs an authenticated request has the volume limit of its
-     * requester instead (EUD-269), so here only the requests that end without a verified credential are counted
-     * per address -- whatever their status: a 401, but also a 5xx when the token could not be checked, which
-     * costs a call to the verifier. An address over the limit of them is rejected before its token is verified,
-     * which keeps floods of invalid or expired tokens throttled.
+     * On the issuance, revocation and query APIs a request counted in the volume limit of its requester (EUD-269,
+     * {@link ApiVolumeLimitFilter#COUNTED_ATTRIBUTE}) is not counted per address. Every other request of those
+     * routes is, whatever its status: one without a verified token (a 401, but also a 5xx when the token could not
+     * be checked, which costs a call to the verifier), and one with a valid token that has no requester (another
+     * tenant in {@code X-Tenant}, a token that names no organization) or whose route has no operation. An address
+     * over the limit is rejected before its token is verified, so no request of these routes goes without a limit.
      *
-     * <p>The address is the first {@code X-Forwarded-For} value (TDG-15), which a client can set, so a flood of
-     * invalid tokens can name another client's address. That client is not locked out with a credential that
-     * already authenticated on this instance: it goes through, and is not counted here. Only its first request
-     * with a new credential during such a flood is rejected -- the residual risk noted with TDG-15.
+     * <p>The address is the first {@code X-Forwarded-For} value, which a client can set, so a flood of invalid
+     * tokens can name another client's address. That client is not locked out with a credential already counted by
+     * its requester on this instance, for the same tenant and operation: it goes through. Only its first request
+     * with a new credential during such a flood is rejected (residual risk, until the address is taken only from
+     * the trusted proxies).
      */
-    private Mono<Void> limitFailedAuthentications(ServerWebExchange exchange, WebFilterChain chain) {
+    private Mono<Void> limitUncountedRequests(ServerWebExchange exchange, WebFilterChain chain) {
         String clientIp = resolveClientIp(exchange);
-        String credential = credentialDigest(exchange);
-        AtomicInteger failures = failedAuthentications.getIfPresent(clientIp);
-        if (failures != null && failures.get() >= maxRequestsPerMinute
-                && (credential == null || authenticatedCredentials.getIfPresent(credential) == null)) {
-            log.warn("Rate limit of failed authentications exceeded for IP {} on {} {}", LogSafe.of(clientIp),
+        String credential = countableCredential(exchange);
+        AtomicInteger uncounted = uncountedRequests.getIfPresent(clientIp);
+        if (uncounted != null && uncounted.get() >= maxRequestsPerMinute
+                && (credential == null || countedCredentials.getIfPresent(credential) == null)) {
+            log.warn("Rate limit of uncounted requests exceeded for IP {} on {} {}", LogSafe.of(clientIp),
                     exchange.getRequest().getMethod(), exchange.getRequest().getPath().value());
             return reject(exchange);
         }
         return chain.filter(exchange).doFinally(signal -> {
-            if (Boolean.TRUE.equals(exchange.getAttribute(AUTHENTICATED_ATTRIBUTE))) {
+            if (Boolean.TRUE.equals(exchange.getAttribute(ApiVolumeLimitFilter.COUNTED_ATTRIBUTE))) {
                 if (credential != null) {
-                    authenticatedCredentials.put(credential, Boolean.TRUE);
+                    countedCredentials.put(credential, Boolean.TRUE);
                 }
             } else {
-                failedAuthentications.get(clientIp, k -> new AtomicInteger(0)).incrementAndGet();
+                uncountedRequests.get(clientIp, k -> new AtomicInteger(0)).incrementAndGet();
             }
         });
     }
 
-    /** Digest of the {@code Authorization} header, never kept in clear; {@code null} without one. */
-    private static String credentialDigest(ServerWebExchange exchange) {
+    /**
+     * Digest of what decides whether a request is counted by its requester -- the {@code Authorization} header,
+     * the {@code X-Tenant} and the operation -- never kept in clear: a credential counted for one tenant or
+     * operation is not let through for another, where it may have no requester. {@code null} without a credential
+     * or an operation, which are never counted by their requester.
+     */
+    private static String countableCredential(ServerWebExchange exchange) {
         String authorization = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        return authorization == null || authorization.isBlank() ? null : Sha256.hex(authorization);
+        if (authorization == null || authorization.isBlank()) {
+            return null;
+        }
+        return ApiOperationResolver.resolve(exchange.getRequest().getMethod(),
+                        exchange.getRequest().getPath().pathWithinApplication().value())
+                .map(operation -> {
+                    String tenant = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
+                    return Sha256.hex(authorization + "\n"
+                            + (tenant == null ? "" : tenant.trim().toLowerCase(Locale.ROOT)) + "\n"
+                            + operation.key());
+                })
+                .orElse(null);
     }
 
     private static Mono<Void> reject(ServerWebExchange exchange) {
-        exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
-        exchange.getResponse().getHeaders().set("Retry-After", "60");
-        return exchange.getResponse().setComplete();
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+        response.getHeaders().set(HttpHeaders.RETRY_AFTER, String.valueOf(RETRY_AFTER_SECONDS));
+        response.getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
+        // Written before Spring Security's header writer runs, so the 429 sets its own (§8.1).
+        response.getHeaders().set("X-Content-Type-Options", "nosniff");
+        response.getHeaders().setCacheControl("no-store");
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(RATE_LIMITED_PROBLEM)));
     }
 
     /**
      * The issuance, revocation and query APIs have the volume limit of their requester -- per person, and per
      * organization for its systems, shared by every instance -- instead of this one per address (EUD-269,
-     * {@link ApiVolumeLimitFilter}). Every other route keeps it, among them the public OID4VCI ones.
+     * {@link ApiVolumeLimitFilter}): here only the requests it did not count. Every other route keeps it whole,
+     * among them the public OID4VCI ones.
      */
     private static boolean hasVolumeLimitOfItsRequester(ServerWebExchange exchange) {
         String path = exchange.getRequest().getPath().pathWithinApplication().value();

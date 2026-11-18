@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import es.in2.issuer.backend.issuance.application.workflow.CredentialOfferRenewalWorkflow;
 import es.in2.issuer.backend.issuance.application.workflow.impl.IssuanceWorkflowImpl;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
@@ -22,6 +23,7 @@ import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.SearchIdentifierIndexer;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.issuance.domain.service.TenantOrganizationService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
@@ -29,6 +31,8 @@ import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
+import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
+import es.in2.issuer.backend.shared.infrastructure.service.NoOpAuditTrailAdapter;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +41,7 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.web.server.WebFilter;
 import reactor.core.publisher.Mono;
 
@@ -76,6 +81,7 @@ class DirectDeliveryCeilingTest {
 
     private PayloadSchemaValidator payloadSchemaValidator;
     private PowerAuthorizationService powerAuthorizationService;
+    private IssuanceService issuanceService;
     private SearchIdentifierIndexer searchIdentifierIndexer;
     private CredentialOfferService credentialOfferService;
     private CredentialSignerWorkflow credentialSignerWorkflow;
@@ -93,6 +99,7 @@ class DirectDeliveryCeilingTest {
         payloadSchemaValidator = mock(PayloadSchemaValidator.class);
         powerAuthorizationService = mock(PowerAuthorizationService.class);
         IssuancePayloadNormalizer issuancePayloadNormalizer = mock(IssuancePayloadNormalizer.class);
+        issuanceService = mock(IssuanceService.class);
         searchIdentifierIndexer = mock(SearchIdentifierIndexer.class);
         credentialOfferService = mock(CredentialOfferService.class);
         credentialSignerWorkflow = mock(CredentialSignerWorkflow.class);
@@ -108,6 +115,9 @@ class DirectDeliveryCeilingTest {
         // Rejection happens before the direct leg ever runs (the ceiling check is upstream of
         // performIssuanceFlow), so this collaborator is never exercised by these tests.
         HolderDidFallbackAuditor holderDidFallbackAuditor = mock(HolderDidFallbackAuditor.class);
+        // The type is enabled in the tenant: the rejection under test is the ceiling's, which comes after.
+        TenantCredentialProfileService tenantCredentialProfileService = mock(TenantCredentialProfileService.class);
+        when(tenantCredentialProfileService.isProfileAllowed(any())).thenReturn(Mono.just(true));
 
         // The two gates the ceiling check runs after: both must clear for the request to reach
         // SchemaDeliveryCeiling at all. Real objects have nothing to say here -- they are the
@@ -118,6 +128,7 @@ class DirectDeliveryCeilingTest {
         when(issuancePayloadNormalizer.normalize(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
 
         IssuanceWorkflowImpl issuanceWorkflow = new IssuanceWorkflowImpl(
+                issuanceService,
                 credentialOfferService,
                 powerAuthorizationService,
                 issuancePayloadNormalizer,
@@ -133,7 +144,11 @@ class DirectDeliveryCeilingTest {
                 issuanceProperties,
                 schemaDeliveryCeiling,
                 holderDidFallbackAuditor,
-                mock(TenantCredentialProfileService.class),
+                new NoOpAuditTrailAdapter(),
+                mock(IssuanceCompletionRecorder.class),
+                mock(TransactionalOperator.class),
+                tenantCredentialProfileService,
+                mock(TenantOrganizationService.class),
                 searchIdentifierIndexer
         );
 
@@ -146,7 +161,8 @@ class DirectDeliveryCeilingTest {
                 mock(PowerAuthorizationService.class),
                 mock(RevocationWorkflow.class),
                 urlResolver,
-                new IssuanceHttpEnvelopeMapper()
+                new IssuanceHttpEnvelopeMapper(),
+                mock(CredentialOfferRenewalWorkflow.class)
         );
 
         // Stands in for TenantDomainWebFilter (which resolves the tenant against tenant_registry --
@@ -156,7 +172,7 @@ class DirectDeliveryCeilingTest {
                 chain.filter(exchange).contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
 
         webTestClient = WebTestClient.bindToController(controller)
-                .controllerAdvice(new IssuanceExceptionHandler(new ErrorResponseFactory()))
+                .controllerAdvice(new IssuanceExceptionHandler(new ErrorResponseFactory(), 5))
                 .webFilter(tenantContextFilter)
                 .build();
     }
@@ -182,6 +198,7 @@ class DirectDeliveryCeilingTest {
 
         verifyNoInteractions(credentialSignerWorkflow);
         verifyNoInteractions(statusListWorkflow);
+        verifyNoInteractions(issuanceService);
         verifyNoInteractions(searchIdentifierIndexer);
         verifyNoInteractions(credentialOfferService);
         verifyNoInteractions(genericCredentialBuilder);
@@ -216,18 +233,13 @@ class DirectDeliveryCeilingTest {
     }
 
     /**
-     * ES-01: an unknown delivery mode is rejected as a 400 {@code invalid_request} before the ceiling
-     * (or any other business rule) is even evaluated -- {@code DeliveryMode.parse} fails first.
-     *
-     * <p>Fixture is letters-only (no hyphen): this test targets {@code DeliveryMode.parse}'s rejection
-     * specifically, not the DTO-level {@code @Pattern} added for TD-06 -- a hyphenated value like the
-     * previous {@code "carrier-pigeon"} would now be rejected one layer earlier by Bean Validation,
-     * which this hand-wired {@code bindToController} harness (no default WebFlux exception handling,
-     * unlike the full app context) has no handler for.
+     * ES-01, EUD-268: an unknown delivery mode is rejected as a 400 {@code invalid_delivery_mode} before
+     * the ceiling (or any other business rule) is even evaluated. The detail is fixed: it never echoes
+     * the value sent.
      */
     @Test
-    void createIssuance_InvalidDeliveryMode_Returns400InvalidRequest() throws JsonProcessingException {
-        IssuanceRequest request = buildIssuanceRequest(BOUND_CONFIG_ID, "carrierpigeon");
+    void createIssuance_InvalidDeliveryMode_Returns400InvalidDeliveryMode() throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest(BOUND_CONFIG_ID, "carrier-pigeon");
 
         webTestClient.post()
                 .uri(ISSUANCES_PATH)
@@ -237,12 +249,13 @@ class DirectDeliveryCeilingTest {
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.type").isEqualTo("invalid_request")
+                .jsonPath("$.type").isEqualTo("invalid_delivery_mode")
                 .jsonPath("$.status").isEqualTo(400)
-                .jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("carrierpigeon"));
+                .jsonPath("$.detail").isEqualTo("delivery must be one of: email, ui, direct");
 
         verifyNoInteractions(credentialSignerWorkflow);
         verifyNoInteractions(statusListWorkflow);
+        verifyNoInteractions(issuanceService);
         verifyNoInteractions(searchIdentifierIndexer);
         verifyNoInteractions(credentialOfferService);
     }

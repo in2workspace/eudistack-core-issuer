@@ -90,8 +90,8 @@ class GenericCredentialBuilderEntryConfigTest {
     }
 
     /**
-     * EUD-254 («today `validFrom` / `validUntil` are ignored and the default validity of the type applies»):
-     * {@code requester_can_set_dates} and {@code max_days} are stored but not applied at issuance yet.
+     * The builder never reads the payload's {@code validFrom} / {@code validUntil}, even when the entry lets
+     * the requester set the dates: the issuance splits them and passes the window it accepted (EUD-268).
      */
     @Test
     void buildCredential_requesterDatesAllowed_areStillIgnored() {
@@ -106,6 +106,23 @@ class GenericCredentialBuilderEntryConfigTest {
         assertThat(result.validUntil().toInstant())
                 .isCloseTo(Instant.now().plus(30, ChronoUnit.DAYS), within(1, ChronoUnit.MINUTES));
         assertThat(result.credentialDataSet()).doesNotContain(from.toString(), until.toString());
+    }
+
+    /** EUD-268 (EUD-254 FR-06): the window the issuance accepted replaces the default validity. */
+    @Test
+    void buildCredential_withAWindow_isValidForThatWindow() {
+        CatalogEntry entry = configured(new CatalogEntry.Validity(30, true, 60), null);
+        Instant from = Instant.now().plus(1, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS);
+        Instant until = from.plus(45, ChronoUnit.DAYS);
+        CredentialProfile profile = registry.getByConfigurationId(DOCTORID);
+
+        CredentialBuildResult result = builder.buildCredential(profile, doctorPayload(), entry,
+                new es.in2.issuer.backend.shared.domain.model.dto.ValidityWindow(from, until)).block();
+
+        assertThat(result).isNotNull();
+        assertThat(result.validFrom().toInstant()).isEqualTo(from);
+        assertThat(result.validUntil().toInstant()).isEqualTo(until);
+        assertThat(result.credentialDataSet()).contains(from.toString(), until.toString());
     }
 
     @Test

@@ -64,9 +64,12 @@ class ApiVolumeLimitFilterTest {
     void withinTheLimit_goesOn() {
         when(volumeLimitService.check(ApiOperation.ISSUANCE, SYSTEM)).thenReturn(Mono.just(VolumeLimitDecision.allowed(300)));
 
-        StepVerifier.create(filter.filter(post("/api/v1/issuances"), chain)).verifyComplete();
+        MockServerWebExchange exchange = post("/api/v1/issuances");
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
         assertThat(calls).hasValue(1);
+        assertThat((Boolean) exchange.getAttribute(ApiVolumeLimitFilter.COUNTED_ATTRIBUTE)).isTrue();
     }
 
     @Test
@@ -85,33 +88,42 @@ class ApiVolumeLimitFilterTest {
         assertThat(problem.path("type").asText()).isEqualTo("rate_limited");
         assertThat(problem.path("status").asInt()).isEqualTo(429);
         verify(metrics).recordVolumeLimitRejection("revocation", "system");
+        assertThat((Boolean) exchange.getAttribute(ApiVolumeLimitFilter.COUNTED_ATTRIBUTE)).isTrue();
     }
 
     @Test
     void aRouteWithoutVolumeLimit_isNotCounted() {
-        StepVerifier.create(filter.filter(post("/oauth/token"), chain)).verifyComplete();
+        MockServerWebExchange exchange = post("/oauth/token");
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
         assertThat(calls).hasValue(1);
+        assertThat((Boolean) exchange.getAttribute(ApiVolumeLimitFilter.COUNTED_ATTRIBUTE)).isNull();
         verifyNoInteractions(requesterResolver, volumeLimitService);
     }
 
     @Test
     void aRequestThatNamesNoOrganization_isNotCounted() {
         when(requesterResolver.current()).thenReturn(Mono.empty());
+        MockServerWebExchange exchange = post("/api/v1/issuances");
 
-        StepVerifier.create(filter.filter(post("/api/v1/issuances"), chain)).verifyComplete();
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
         assertThat(calls).hasValue(1);
+        assertThat((Boolean) exchange.getAttribute(ApiVolumeLimitFilter.COUNTED_ATTRIBUTE)).isNull();
         verify(volumeLimitService, never()).check(any(), any());
     }
 
     @Test
     void countersUnavailable_failsOpen() {
         when(volumeLimitService.check(any(), any())).thenReturn(Mono.error(new IllegalStateException("db down")));
+        MockServerWebExchange exchange = post("/api/v1/issuances");
 
-        StepVerifier.create(filter.filter(post("/api/v1/issuances"), chain)).verifyComplete();
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
         assertThat(calls).hasValue(1);
+        // Not counted by its requester, so the per-address limit counts it.
+        assertThat((Boolean) exchange.getAttribute(ApiVolumeLimitFilter.COUNTED_ATTRIBUTE)).isNull();
     }
 
     @Test

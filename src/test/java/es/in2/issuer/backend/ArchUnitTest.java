@@ -5,7 +5,6 @@ import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaType;
-import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -13,10 +12,11 @@ import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.GeneralCodingRules;
-import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -31,8 +31,15 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.SwaggerConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.TenantDomainWebFilter",
                     BASE_PACKAGE + ".shared.infrastructure.config.IssuerBaseUrlWebFilter",
+                    // String constants are inlined by the compiler, so no class shows a dependency on them
+                    BASE_PACKAGE + ".shared.domain.model.audit.AuditSource",
+                    BASE_PACKAGE + ".shared.domain.model.audit.AuditVocabulary",
                     // Spring-managed beans discovered via component scanning (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.service.AuditServiceImpl",
+                    BASE_PACKAGE + ".shared.infrastructure.service.NoOpAuditTrailAdapter",
+                    BASE_PACKAGE + ".shared.infrastructure.service.StarterAuditTrailAdapter",
+                    BASE_PACKAGE + ".shared.infrastructure.audit.IssuerAuditContextResolver",
+                    BASE_PACKAGE + ".shared.infrastructure.audit.MachineAuditAccessTokenProvider",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.SigningServiceHealthIndicator",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.SmtpHealthIndicator",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.VerifierHealthIndicator",
@@ -203,32 +210,33 @@ class ArchUnitTest {
     static final ArchRule testClassesShouldResideInTheSamePackageAsImplementation =
             GeneralCodingRules.testClassesShouldResideInTheSamePackageAsImplementation();
 
-    @Test
-    void classesInSharedMustBeUsedBySharedOrByBothIssuanceAndOidc4vci() {
-        var classes = new ClassFileImporter().importPackages(BASE_PACKAGE);
-
-        Set<JavaClass> sharedClasses = classes.stream()
-                .filter(javaClass -> javaClass.getPackageName().contains(".shared"))
-                .collect(Collectors.toSet());
-
-        Set<JavaClass> sharedClassesToCheck = sharedClasses
-                .stream()
-                .filter(javaClass -> !CONSTANTS_CLASSES.contains(javaClass.getName()))
-                .filter(this::isNotTestClass)
-                .filter(this::isNotAnonymousClass)
-                .collect(Collectors.toSet());
-
-        Set<JavaClass> issuanceClasses = filterClassesByPackage(classes, ".issuance");
-        Set<JavaClass> oidcClasses = filterClassesByPackage(classes, ".oidc4vci");
-
+    /**
+     * Receives the classes ArchUnit already imported for this class (cached), instead of importing the package again:
+     * two full imports of the issuer did not fit in the default heap of the test JVM. The users of each class are
+     * indexed once, so the rule is linear in the dependencies instead of shared classes times all classes.
+     */
+    @ArchTest
+    static void classesInSharedMustBeUsedBySharedOrByBothIssuanceAndOidc4vci(JavaClasses classes) {
+        Map<JavaClass, Set<String>> userAreas = new HashMap<>();
+        for (JavaClass user : classes) {
+            Set<String> areas = areasOf(user);
+            if (areas.isEmpty()) {
+                continue;
+            }
+            user.getDirectDependenciesFromSelf().forEach(dependency ->
+                    userAreas.computeIfAbsent(dependency.getTargetClass(), target -> new HashSet<>()).addAll(areas));
+        }
 
         java.util.List<String> violations = new java.util.ArrayList<>();
-        for (JavaClass sharedClass : sharedClassesToCheck) {
-            boolean usedByIssuance = issuanceClasses.stream().anyMatch(user -> usesClass(user, sharedClass));
-            boolean usedByOidc4vci = oidcClasses.stream().anyMatch(user -> usesClass(user, sharedClass));
-            boolean usedByShared = sharedClasses.stream().anyMatch(user -> usesClass(user, sharedClass));
-
-            boolean isShared = ((usedByIssuance && usedByOidc4vci) || usedByShared);
+        for (JavaClass sharedClass : classes) {
+            if (!sharedClass.getPackageName().contains(SHARED)
+                    || CONSTANTS_CLASSES.contains(sharedClass.getName())
+                    || !isNotTestClass(sharedClass)
+                    || !isNotAnonymousClass(sharedClass)) {
+                continue;
+            }
+            Set<String> areas = userAreas.getOrDefault(sharedClass, Set.of());
+            boolean isShared = (areas.contains(ISSUANCE) && areas.contains(OIDC4VCI)) || areas.contains(SHARED);
             if (!isShared) {
                 violations.add(sharedClass.getName());
             }
@@ -238,25 +246,30 @@ class ArchUnitTest {
                 .isEmpty();
     }
 
-    private Set<JavaClass> filterClassesByPackage(JavaClasses classes, String packageName) {
-        return classes.stream()
-                .filter(javaClass -> javaClass.getPackageName().contains(packageName))
-                .collect(Collectors.toSet());
+    private static final String SHARED = ".shared";
+    private static final String ISSUANCE = ".issuance";
+    private static final String OIDC4VCI = ".oidc4vci";
+
+    /** The areas a user class counts for, as the rule always matched them: by a substring of its package. */
+    private static Set<String> areasOf(JavaClass javaClass) {
+        String packageName = javaClass.getPackageName();
+        Set<String> areas = new HashSet<>();
+        for (String area : new String[]{SHARED, ISSUANCE, OIDC4VCI}) {
+            if (packageName.contains(area)) {
+                areas.add(area);
+            }
+        }
+        return areas;
     }
 
-    private boolean usesClass(JavaClass javaClass, JavaClass sharedClass) {
-        return javaClass.getDirectDependenciesFromSelf().stream()
-                .anyMatch(dependency -> dependency.getTargetClass().equals(sharedClass));
-    }
-
-    private boolean isNotTestClass(JavaClass javaClass) {
+    private static boolean isNotTestClass(JavaClass javaClass) {
         String fullName = javaClass.getName();
         return !javaClass.getSimpleName().endsWith("Test")
                 && !javaClass.getSimpleName().endsWith("IT")
                 && !fullName.contains("Test$");
     }
 
-    private boolean isNotAnonymousClass(JavaClass javaClass) {
+    private static boolean isNotAnonymousClass(JavaClass javaClass) {
         String simpleName = javaClass.getSimpleName();
         return !simpleName.isEmpty() && !Character.isDigit(simpleName.charAt(0));
     }

@@ -2,6 +2,8 @@ package es.in2.issuer.backend.shared.domain.model.dto;
 
 import lombok.Builder;
 
+import java.time.Instant;
+
 /**
  * Outcome of delivering one credential offer.
  *
@@ -10,10 +12,17 @@ import lombok.Builder;
  * correctly. Callers decide what a non-null value means for them — an issuance records it per mode
  * and carries on, the refresh endpoint (whose only purpose is the email) turns it into an error.
  * {@code null} means the email was sent, or was never requested.
+ *
+ * <p>{@code offerExpiresAt} is when the offer stops being redeemable.
  */
 @Builder
 public record CredentialOfferResult(
         String credentialOfferUri,
-        String emailError
+        String emailError,
+        Instant offerExpiresAt
 ) {
+
+    public CredentialOfferResult(String credentialOfferUri, String emailError) {
+        this(credentialOfferUri, emailError, null);
+    }
 }

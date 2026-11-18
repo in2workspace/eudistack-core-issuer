@@ -30,7 +30,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * the tenant configuration ({@value #ORGANIZATION_LIMIT_PREFIX}{@code <operation>.<organization>}),
  * which takes effect without a redeploy once the configuration cache refreshes: within a minute when the
  * organization had no limit of its own, within five minutes when it changes one it had (the cache of
- * {@link TenantConfigService}).
+ * {@link TenantConfigService}). A counter already rejected keeps being rejected until its {@code Retry-After}
+ * (at most one window) on top of that, since its rejection is remembered (below).
  *
  * <p>A rejected request is taken back from the counter, so a client that keeps retrying while it is over the
  * limit does not stay locked out: the limit counts the requests served in the last minute.
@@ -104,7 +105,15 @@ public class VolumeLimitServiceImpl implements VolumeLimitService {
                         }
                         rejected.put(counterKey,
                                 new Rejection(decision.limit(), now.plusSeconds(decision.retryAfterSeconds())));
-                        return counterStore.undo(counterKey, bucket).thenReturn(decision);
+                        // The rejection stands even if the counter cannot be taken back: the request is not served
+                        // (an error here would reach the fail-open of the filter and let it through).
+                        return counterStore.undo(counterKey, bucket)
+                                .onErrorResume(e -> {
+                                    log.warn("Volume limit: rejected request of {} not taken back from its counter: {}",
+                                            operation.key(), e.toString());
+                                    return Mono.empty();
+                                })
+                                .thenReturn(decision);
                     });
         });
     }

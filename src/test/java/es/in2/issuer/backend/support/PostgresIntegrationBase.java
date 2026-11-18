@@ -62,7 +62,13 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER
 })
 public abstract class PostgresIntegrationBase {
 
+    /**
+     * Every distinct Spring context cached by the test run keeps its own connection pool open on this
+     * container, so the default {@code max_connections} (100) is exhausted once enough ITs declare their
+     * own properties or mocks ("too many clients already"). {@code fsync=off} is the container's default.
+     */
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+            .withCommand("postgres", "-c", "fsync=off", "-c", "max_connections=500")
             .withInitScript("db/it/tenant-registry-init.sql");
 
     static {

@@ -17,7 +17,10 @@ import es.in2.issuer.backend.shared.domain.policy.Caller;
 import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -44,7 +47,6 @@ import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizat
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -69,18 +71,16 @@ class PowerAuthorizationServiceImplTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private CallerProvider callerProvider;
-    private TenantCredentialProfileService tenantCredentialProfileService;
     private AuditService auditService;
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
     private PowerAuthorizationServiceImpl service;
 
     @BeforeEach
     void setUp() {
         callerProvider = mock(CallerProvider.class);
-        tenantCredentialProfileService = mock(TenantCredentialProfileService.class);
         auditService = mock(AuditService.class);
-        when(tenantCredentialProfileService.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
         service = new PowerAuthorizationServiceImpl(new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
-                callerProvider, tenantCredentialProfileService, auditService, objectMapper);
+                callerProvider, auditService, auditTrail, objectMapper);
     }
 
     // --- helpers ---
@@ -616,23 +616,112 @@ class PowerAuthorizationServiceImplTest {
                     null, objectMapper.createObjectNode()), TENANT)).expectNextCount(1).verifyComplete();
         }
 
-        /** AC-15: denied like any other rule, with its stable reason (N3). */
-        @Test
-        void PowerAuthorizationService_authorizeIssuance_typeNotEnabledInTheTenantIsDenied() {
-            // Given
-            when(tenantCredentialProfileService.isProfileAllowed("config-id")).thenReturn(Mono.just(false));
-
-            // When / Then
-            expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()),
-                    Reason.CREDENTIAL_TYPE_NOT_ENABLED);
-            lastDenyDetails(Reason.CREDENTIAL_TYPE_NOT_ENABLED.getCode());
-        }
-
         /** AC-11. */
         @Test
         void PowerAuthorizationService_authorizeIssuance_platformAdminFromThePlatformTenantCannotIssue() {
             expectReason(issueIn("platform", caller(ORG, "platform", PLATFORM_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()),
                     Reason.PLATFORM_TENANT_READ_ONLY);
+        }
+    }
+
+    // --- EUD-295: a reissue of a stored process is decided as issuing it ---
+
+    @Nested
+    class Reissue {
+
+        private Mono<IssuanceAuthorization> reissue(Caller caller, String configurationId, String type,
+                                                    String storedOrganization, JsonNode payload) {
+            return inTenant(service.authorizeReissue(caller, "issuance-1", configurationId, type, storedOrganization,
+                    payload), TENANT);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_organizationAdminReissuesAProcessOfItsOrganization() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, ORG_ADMIN), "config-id", EMPLOYEE_TYPE, ORG, payloadGranting()))
+                    .assertNext(a -> assertThat(a.actionIds()).containsExactly("E1"))
+                    .verifyComplete();
+            assertThat(lastPermitDetails()).containsEntry("reissue", true)
+                    .containsEntry("resourceId", "issuance-1")
+                    .containsEntry("resourceOrganization", ORG);
+        }
+
+        /** S1 of the EUD-295 review: a power the caller may not grant is denied, as in an issuance. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_aPowerTheCallerMayNotGrantIsDenied() {
+            expectReason(reissue(caller(ORG, TENANT, ORG_ADMIN), "config-id", EMPLOYEE_TYPE, ORG, payloadGranting(TENANT_ADMIN)),
+                    Reason.TENANT_ADMIN_DELEGATION_REQUIRES_PLATFORM_ADMIN);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_aPowerTheCallerMayGrantIsPermitted() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, PLATFORM_ADMIN), "config-id", EMPLOYEE_TYPE, ORG,
+                            payloadGranting(TENANT_ADMIN)))
+                    .assertNext(a -> assertThat(a.actionIds()).contains("E4"))
+                    .verifyComplete();
+        }
+
+        /** Decision 1 of the round-2 review: a product certification is E6, not E1. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_productCertificationNeedsE6() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, CERTIFY), "gx.labelcredential.w3c.2", LABEL_TYPE, ORG,
+                            objectMapper.createObjectNode()))
+                    .assertNext(a -> assertThat(a.actionIds()).containsExactly("E6"))
+                    .verifyComplete();
+            expectReason(reissue(caller(ORG, TENANT, ORG_ADMIN), "gx.labelcredential.w3c.2", LABEL_TYPE, ORG,
+                    objectMapper.createObjectNode()), Reason.CERTIFICATION_POWER_REQUIRED);
+        }
+
+        /** AC-06: who may issue only for its own organization finds another's process as not found. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_anotherOrganizationWithoutE2IsNotFound() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, ORG_ADMIN), "config-id", EMPLOYEE_TYPE, OTHER_ORG,
+                            payloadGranting(TENANT_ADMIN)))
+                    .expectError(IssuanceNotFoundException.class)
+                    .verify();
+        }
+
+        /** AC-11: who may not issue at all is denied before the scope is looked at. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_userWithoutPowersIsDeniedAlsoOnAnotherOrganization() {
+            expectReason(reissue(caller(ORG, TENANT), "config-id", EMPLOYEE_TYPE, OTHER_ORG, payloadGranting()),
+                    Reason.OPERATOR_LACKS_ONBOARDING);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_tenantAdminReissuesInAnotherOrganizationAsE2() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, TENANT_ADMIN), "config-id", EMPLOYEE_TYPE, OTHER_ORG,
+                            payloadGranting()))
+                    .assertNext(a -> assertThat(a.actionIds()).containsExactly("E1", "E2"))
+                    .verifyComplete();
+        }
+
+        /** W2 of the EUD-295 review: stored content with two readings of a power is not reissued, as it is not issued. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_aPowerWhoseFieldAndAliasDifferIsRejected() throws Exception {
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.putArray("power").add(objectMapper.readTree(
+                    "{\"type\":\"organization\",\"domain\":\"sandbox\",\"function\":\"Onboarding\",\"tmf_function\":\"Nope\",\"action\":[\"Execute\"]}"));
+
+            StepVerifier.create(reissue(caller(ORG, TENANT, PLATFORM_ADMIN), "config-id", EMPLOYEE_TYPE, ORG, payload))
+                    .expectError(PayloadValidationException.class)
+                    .verify();
+            assertThat(lastDenyDetails(PowerAuthorizationServiceImpl.POWER_ALIAS_CONFLICT))
+                    .containsEntry("reissue", true)
+                    .containsEntry("resourceId", "issuance-1");
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_tokenOfAnotherTenantIsDenied() {
+            StepVerifier.create(reissue(caller(ORG, OTHER_TENANT, TENANT_ADMIN), "config-id", EMPLOYEE_TYPE, ORG,
+                            payloadGranting()))
+                    .expectError(TenantMismatchException.class)
+                    .verify();
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_platformAdminFromThePlatformTenantCannotReissue() {
+            expectReason(inTenant(service.authorizeReissue(caller(ORG, "platform", PLATFORM_ADMIN), "issuance-1",
+                    "config-id", EMPLOYEE_TYPE, ORG, payloadGranting()), "platform"), Reason.PLATFORM_TENANT_READ_ONLY);
         }
     }
 
@@ -768,6 +857,75 @@ class PowerAuthorizationServiceImplTest {
 
             // Then
             verify(auditService).auditSuccess(eq("authorization.permit"), eq("jti-only"), eq("action"), eq(REVOKE), any());
+        }
+    }
+
+    // --- AuthorizationDecision of the audit trail ---
+
+    @Nested
+    class AuditedDecision {
+
+        @Test
+        void authorize_permitted_stagesASuccessWithTheActionTheUserTypeAndTheTargetOrganization() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, ORG_ADMIN), ORG)).expectNextCount(1).verifyComplete();
+
+            // Then
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.type()).isEqualTo(AuditEventType.AUTHORIZATION_DECISION);
+            assertThat(entry.result()).isEqualTo(AuditResult.SUCCESS);
+            assertThat(entry.resource()).isEqualTo("issuance:issuance-1");
+            assertThat(entry.details()).containsEntry("requested_action", REVOKE)
+                    .containsEntry("user_type", RecognizedCaller.ORGANIZATION_ADMIN)
+                    .containsEntry("target_organization", ORG);
+        }
+
+        @Test
+        void authorize_resourceOfAnotherOrganization_stagesDeniedOutOfScope() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
+                    .expectError(IssuanceNotFoundException.class).verify();
+
+            // Then
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.result()).isEqualTo(AuditResult.DENIED);
+            assertThat(entry.reason()).isEqualTo("OutOfScope");
+        }
+
+        @Test
+        void authorize_callerWithoutThePower_stagesDeniedPowerMissing() {
+            // When
+            expectReason(decide(REVOKE, caller(ORG, TENANT), ORG), Reason.OPERATOR_LACKS_ONBOARDING);
+
+            // Then
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.reason()).isEqualTo("PowerMissing");
+            assertThat(entry.details()).containsEntry("user_type", RecognizedCaller.USER);
+        }
+
+        @Test
+        void authorize_tokenOfAnotherTenant_stagesDeniedTenantMismatchWithTheUserTypeItWouldHave() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, "platform", PLATFORM_ADMIN), ORG))
+                    .expectError(TenantMismatchException.class).verify();
+
+            // Then
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.reason()).isEqualTo("TenantMismatch");
+            assertThat(entry.details()).containsKey("user_type");
+        }
+
+        @Test
+        void authorizeIssuance_permitted_stagesOneDecisionForTheProcess() {
+            // When
+            StepVerifier.create(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()))
+                    .expectNextCount(1).verifyComplete();
+
+            // Then
+            assertThat(auditTrail.stagedInNewTransaction()).hasSize(1);
+            AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+            assertThat(entry.resource()).isEqualTo("issuance:process-1");
+            assertThat(entry.result()).isEqualTo(AuditResult.SUCCESS);
         }
     }
 }

@@ -63,6 +63,21 @@ class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
                 .returnResult();
     }
 
+    /** A request from its own address, so the per-address counter of one test does not reach the others. */
+    private EntityExchangeResult<Map<String, Object>> sendFrom(String address, HttpMethod method, String path,
+                                                              String token) {
+        return webTestClient()
+                .method(method).uri(path)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(X_TENANT_HEADER, TENANT)
+                .header("X-Forwarded-For", address)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"reason\":\"x\"}")
+                .exchange()
+                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .returnResult();
+    }
+
     private String person(String organization, String email) {
         return mintUserAccessToken(TENANT, organization, List.of(Map.of("type", "domain", "domain", TENANT,
                 "function", "Onboarding", "action", List.of("Execute"))), email);
@@ -160,5 +175,38 @@ class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
         assertRateLimited(send(HttpMethod.PATCH, patch, ana, "{\"status\":\"REVOKED\"}"));
         // The listing has its own count.
         assertThat(list(ana).getStatus()).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    /**
+     * A valid token issued for another tenant than {@code X-Tenant} has no requester, so its own limit does not
+     * count it: the per-address limit does (100 per minute), and the decision point is not reached any more.
+     */
+    @Test
+    void aValidTokenOfAnotherTenant_isLimitedByAddress_after100Requests() {
+        String otherTenantToken = mintUserAccessToken("e2e-other-tenant", organization(), List.of(Map.of(
+                "type", "domain", "domain", TENANT, "function", "Onboarding", "action", List.of("Execute"))),
+                "ana@example.org");
+        String revocation = "/api/v1/issuances/" + UUID.randomUUID() + "/revocation";
+
+        for (int i = 0; i < 100; i++) {
+            assertThat(sendFrom("198.51.100.10", HttpMethod.POST, revocation, otherTenantToken).getStatus())
+                    .isEqualTo(HttpStatus.FORBIDDEN);
+        }
+        assertThat(sendFrom("198.51.100.10", HttpMethod.POST, revocation, otherTenantToken).getStatus())
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    /** A route of the management APIs with no operation is not counted by its requester: the address limit is. */
+    @Test
+    void aRouteWithoutOperation_isLimitedByAddress_after100Requests() {
+        String ana = person(organization(), "ana@example.org");
+        String path = "/api/v1/issuances/" + UUID.randomUUID();
+
+        for (int i = 0; i < 100; i++) {
+            assertThat(sendFrom("198.51.100.11", HttpMethod.PUT, path, ana).getStatus())
+                    .isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        }
+        assertThat(sendFrom("198.51.100.11", HttpMethod.PUT, path, ana).getStatus())
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
 }

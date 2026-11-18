@@ -7,6 +7,9 @@ import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException.Reason;
 import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuthorizationAuditEvents;
+import es.in2.issuer.backend.shared.domain.model.audit.AuthorizationAuditEvents.Decision;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.port.AuthorizationMatrixProvider;
 import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
@@ -20,7 +23,7 @@ import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
@@ -30,6 +33,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Objects;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.PLATFORM_TENANT;
@@ -49,6 +53,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     static final String POWER_ALIAS_CONFLICT = "power_alias_conflict";
 
     private static final String ACTION = "action";
+    private static final String RESOURCE_ORGANIZATION = "resourceOrganization";
 
     /** Denial code of each action that is not simply "the caller has no power for it". */
     private static final Map<String, Reason> DENIAL_REASONS = Map.of(
@@ -61,8 +66,8 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
 
     private final AuthorizationMatrixProvider matrixProvider;
     private final CallerProvider callerProvider;
-    private final TenantCredentialProfileService tenantCredentialProfileService;
     private final AuditService auditService;
+    private final AuditTrailPort auditTrail;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -88,33 +93,48 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     @Override
     public Mono<AuthorizationDecision> authorize(String actionId, Caller caller, String resourceOrganization,
                                                  String resourceId) {
-        return requestTenant().flatMap(tenant -> Mono.defer(() -> {
-            AuthorizationMatrix matrix = matrixProvider.current();
+        return requestTenant().flatMap(tenant -> {
             Trace trace = new Trace(actionId, caller, tenant)
-                    .with("resourceOrganization", resourceOrganization)
+                    .with(RESOURCE_ORGANIZATION, resourceOrganization)
                     .with("resourceId", resourceId);
-            requireTenantMatch(caller, tenant, trace);
-            RecognizedCaller recognized = recognize(matrix, caller, tenant);
-            trace.recognized(recognized, recognizingPower(matrix, recognized));
-            // FR-13: probing ids reads as such. The cross-tenant view may still find it in another schema.
-            if (resourceId != null && resourceOrganization == null && !recognized.crossTenantView()) {
-                trace.with("resourceFound", false);
-            }
+            return recorded(trace, resourceOf(tenant, resourceOrganization, resourceId),
+                    Mono.defer(() -> decide(trace, actionId, caller, tenant, resourceOrganization, resourceId)));
+        });
+    }
 
-            Scope scope;
-            try {
-                scope = evaluate(matrix.action(actionId), actionId, recognized, trace);
-            } catch (LearIssuancePolicyException denied) {
-                return Mono.error(denied);
-            }
-            if (scope == Scope.OWN_ORGANIZATION && resourceOrganization != null
-                    && !resourceOrganization.equals(recognized.organizationIdentifier())) {
-                deny(trace, RESOURCE_OUT_OF_SCOPE);
-                return Mono.error(new IssuanceNotFoundException("No issuance found for the given id"));
-            }
-            permit(trace.with("scope", scope.value()));
-            return Mono.just(new AuthorizationDecision(actionId, recognized, scope));
-        }));
+    /** The object a decision is about, as the catalogue's {@code <kind>:<id>} resource. */
+    private static String resourceOf(String tenant, String resourceOrganization, String resourceId) {
+        if (resourceId != null) {
+            return "issuance:" + resourceId;
+        }
+        return resourceOrganization != null ? "organization:" + resourceOrganization : "tenant:" + tenant;
+    }
+
+    private Mono<AuthorizationDecision> decide(Trace trace, String actionId, Caller caller, String tenant,
+                                               String resourceOrganization, String resourceId) {
+        AuthorizationMatrix matrix = matrixProvider.current();
+        // Recognized first: a denial for a token of another tenant also says what the caller is.
+        RecognizedCaller recognized = recognize(matrix, caller, tenant);
+        trace.recognized(recognized, recognizingPower(matrix, recognized));
+        requireTenantMatch(caller, tenant, trace);
+        // FR-13: probing ids reads as such. The cross-tenant view may still find it in another schema.
+        if (resourceId != null && resourceOrganization == null && !recognized.crossTenantView()) {
+            trace.with("resourceFound", false);
+        }
+
+        Scope scope;
+        try {
+            scope = evaluate(matrix.action(actionId), actionId, recognized, trace);
+        } catch (LearIssuancePolicyException denied) {
+            return Mono.error(denied);
+        }
+        if (scope == Scope.OWN_ORGANIZATION && resourceOrganization != null
+                && !resourceOrganization.equals(recognized.organizationIdentifier())) {
+            deny(trace, RESOURCE_OUT_OF_SCOPE);
+            return Mono.error(new IssuanceNotFoundException("No issuance found for the given id"));
+        }
+        permit(trace.with("scope", scope.value()));
+        return Mono.just(new AuthorizationDecision(actionId, recognized, scope));
     }
 
     @Override
@@ -127,13 +147,19 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
 
     private Mono<IssuanceAuthorization> decideIssuance(String processId, String credentialConfigurationId, String credentialType,
                                                        String requestedOrganization, JsonNode payload, Caller caller, String tenant) {
-        AuthorizationMatrix matrix = matrixProvider.current();
         Trace trace = new Trace(ISSUE_OWN, caller, tenant)
                 .with("processId", processId)
                 .with("credentialConfigurationId", credentialConfigurationId);
-        requireTenantMatch(caller, tenant, trace);
+        return recorded(trace, "issuance:" + processId, Mono.defer(() -> decideIssuance(
+                trace, credentialConfigurationId, credentialType, requestedOrganization, payload, caller, tenant)));
+    }
+
+    private Mono<IssuanceAuthorization> decideIssuance(Trace trace, String credentialConfigurationId, String credentialType,
+                                                       String requestedOrganization, JsonNode payload, Caller caller, String tenant) {
+        AuthorizationMatrix matrix = matrixProvider.current();
         RecognizedCaller recognized = recognize(matrix, caller, tenant);
         trace.recognized(recognized, recognizingPower(matrix, recognized));
+        requireTenantMatch(caller, tenant, trace);
 
         String organization = requestedOrganization == null || requestedOrganization.isBlank()
                 ? caller.organizationIdentifier() : requestedOrganization;
@@ -158,11 +184,67 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         }
         trace.action(String.join(",", actionIds));
 
-        return requireTypeEnabled(credentialConfigurationId, trace)
-                .then(Mono.fromSupplier(() -> {
-                    permit(trace);
-                    return new IssuanceAuthorization(recognized, organization, actionIds);
-                }));
+        // Whether the tenant issues the type is the catalog's decision, checked by the issuance before
+        // the schema and this decision (EUD-254 §3; EUD-253 1.0.0 retired its AC-15).
+        permit(trace);
+        return Mono.just(new IssuanceAuthorization(recognized, organization, actionIds));
+    }
+
+    @Override
+    public Mono<IssuanceAuthorization> authorizeReissue(Caller caller, String processId, String credentialConfigurationId,
+                                                        String credentialType, String resourceOrganization, JsonNode payload) {
+        return requestTenant().flatMap(tenant -> Mono.defer(() -> decideReissue(
+                caller, processId, credentialConfigurationId, credentialType, resourceOrganization, payload, tenant)));
+    }
+
+    /**
+     * The actions of {@link #decideIssuance} on a stored process -- base, E2, grants -- then the alias
+     * check of {@link #decideIssuance}. Whether the type is still enabled in the tenant is not a decision by
+     * powers: the renewal checks it after this (EUD-268, decision of the Tech Lead). The caller decides first, without the stored type
+     * or content, whether it may issue anything and whether it has scope (E2) on the process, so a
+     * denial here only reaches who may issue in its organization (EUD-295 ac.md, "Permiso y ámbito").
+     * A denied E2 still reads as not found, in case a caller does not check the scope first.
+     */
+    private Mono<IssuanceAuthorization> decideReissue(Caller caller, String processId, String credentialConfigurationId,
+                                                      String credentialType, String resourceOrganization, JsonNode payload,
+                                                      String tenant) {
+        AuthorizationMatrix matrix = matrixProvider.current();
+        String organization = Objects.requireNonNullElse(resourceOrganization, "");
+        Trace trace = new Trace(ISSUE_OWN, caller, tenant)
+                .with("reissue", true)
+                .with(RESOURCE_ORGANIZATION, organization)
+                .with("resourceId", processId)
+                .with("credentialConfigurationId", credentialConfigurationId);
+        requireTenantMatch(caller, tenant, trace);
+        RecognizedCaller recognized = recognize(matrix, caller, tenant);
+        trace.recognized(recognized, recognizingPower(matrix, recognized));
+
+        List<String> actionIds = issuanceActions(matrix, List.of(credentialConfigurationId, String.valueOf(credentialType)),
+                organization, caller, payload, tenant);
+        for (String actionId : actionIds) {
+            trace.action(actionId);
+            try {
+                evaluate(matrix.action(actionId), actionId, recognized, trace);
+            } catch (LearIssuancePolicyException denied) {
+                // E2 denied to who may issue for its own organization: out of scope, read as not found.
+                return Mono.error(ISSUE_ON_BEHALF.equals(actionId)
+                        ? new IssuanceNotFoundException("No issuance found for the given id")
+                        : denied);
+            }
+        }
+        trace.action(String.join(",", actionIds));
+        // A Draft created before EUD-272 may carry a power whose field and tmf_ alias differ: it could not
+        // be issued today, so it is not reissued either. Checked once the scope is decided, so a process out
+        // of scope still answers as not found (EUD-295 review W2).
+        if (hasPowerWithConflictingAlias(payload)) {
+            deny(trace, POWER_ALIAS_CONFLICT);
+            return Mono.error(new PayloadValidationException("A power names a field twice with different values",
+                    List.of(new PayloadValidationException.Violation("$.power",
+                            "a field and its tmf_ alias must have the same value"))));
+        }
+
+        permit(trace);
+        return Mono.just(new IssuanceAuthorization(recognized, organization, actionIds));
     }
 
     /**
@@ -229,8 +311,9 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     }
 
     /**
-     * The powers the attestation grants. A power with a field and its {@code tmf_} alias that differ was
-     * rejected before this, so each power has one reading, the one its consumers get.
+     * The powers the attestation grants, each with the reading its consumers get. A power whose field and
+     * {@code tmf_} alias differ has two readings: an issuance rejects it before this, a reissue once its
+     * scope is decided, so neither goes ahead on the reading this gives.
      */
     private List<Power> grantedPowers(JsonNode payload) {
         JsonNode powers = payload != null ? payload.path("power") : null;
@@ -345,18 +428,6 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         }
     }
 
-    /** FR-07: only the types enabled in the tenant are issued. */
-    private Mono<Void> requireTypeEnabled(String credentialConfigurationId, Trace trace) {
-        return tenantCredentialProfileService.isProfileAllowed(credentialConfigurationId)
-                .flatMap(allowed -> {
-                    if (Boolean.TRUE.equals(allowed)) {
-                        return Mono.empty();
-                    }
-                    return Mono.error(deny(trace, Reason.CREDENTIAL_TYPE_NOT_ENABLED,
-                            "credential type " + credentialConfigurationId + " is not enabled in the tenant"));
-                });
-    }
-
     /** The tenant of the request, set from {@code X-Tenant} by {@code TenantDomainWebFilter} (FR-01). */
     private static Mono<String> requestTenant() {
         return Mono.deferContextual(ctx -> {
@@ -373,7 +444,24 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         return new LearIssuancePolicyException(reason, "Authorization denied: " + message);
     }
 
+    /**
+     * Stages the {@code AuthorizationDecision} of the decision once it is taken, whichever way it went. The
+     * event is best effort: a broken audit channel must not turn a decision into an error.
+     */
+    private <T> Mono<T> recorded(Trace trace, String resource, Mono<T> decision) {
+        return decision
+                .onErrorResume(error -> stageDecision(trace, resource).then(Mono.<T>error(error)))
+                .flatMap(value -> stageDecision(trace, resource).thenReturn(value));
+    }
+
+    private Mono<Void> stageDecision(Trace trace, String resource) {
+        return Mono.defer(() -> trace.toAuditEntry(resource)
+                .map(auditTrail::stageBestEffort)
+                .orElseGet(Mono::empty));
+    }
+
     private void deny(Trace trace, String reason) {
+        trace.denied(reason);
         try {
             auditService.auditFailure(EVENT_DENY, trace.actor(), reason, trace.details());
         } catch (RuntimeException e) {
@@ -394,6 +482,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         private final Map<String, Object> details = new LinkedHashMap<>();
         private final Caller caller;
         private String actionId;
+        private String deniedWith;
 
         Trace(String actionId, Caller caller, String tenant) {
             this.caller = caller;
@@ -415,6 +504,50 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             with("recognizedByPower", recognizedByPower);
             with("actsAs", recognized.actsAs());
             return with("securityAction", recognized.securityAction());
+        }
+
+        /** What a refusal is called in the catalogue; empty for one that is not a decision by powers. */
+        private static Optional<String> catalogueReasonOf(String code) {
+            if ("tenant_mismatch".equals(code)) {
+                return Optional.of(AuthorizationAuditEvents.REASON_TENANT_MISMATCH);
+            }
+            if (RESOURCE_OUT_OF_SCOPE.equals(code)) {
+                return Optional.of(AuthorizationAuditEvents.REASON_OUT_OF_SCOPE);
+            }
+            if (Reason.PLATFORM_TENANT_READ_ONLY.getCode().equals(code)) {
+                return Optional.of(AuthorizationAuditEvents.REASON_PLATFORM_TENANT_READ_ONLY);
+            }
+            if (POWER_ALIAS_CONFLICT.equals(code) || Reason.AUTHORIZATION_RULE_MISSING.getCode().equals(code)) {
+                return Optional.empty();
+            }
+            return Optional.of(AuthorizationAuditEvents.REASON_POWER_MISSING);
+        }
+
+        void denied(String code) {
+            this.deniedWith = code;
+        }
+
+        /**
+         * The catalogue entry of the decision, or empty when it cannot be one: the caller was not recognized
+         * (so the required user type is unknown), or the refusal was not about powers.
+         */
+        Optional<AuditEntry> toAuditEntry(String resource) {
+            Object userType = details.get("userType");
+            if (userType == null) {
+                return Optional.empty();
+            }
+            Object target = details.getOrDefault(RESOURCE_ORGANIZATION, details.get("organization"));
+            Decision decision = new Decision(actionId, text(details.get("powerEvaluated")), userType.toString(),
+                    text(target));
+            if (deniedWith == null) {
+                return Optional.of(AuthorizationAuditEvents.permitted(resource, decision));
+            }
+            return catalogueReasonOf(deniedWith)
+                    .map(reason -> AuthorizationAuditEvents.denied(resource, reason, decision));
+        }
+
+        private static String text(Object value) {
+            return value == null ? null : value.toString();
         }
 
         Trace with(String key, Object value) {

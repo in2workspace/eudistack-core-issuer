@@ -5,6 +5,7 @@ import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.ClientAttestationHeaders;
 import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
+import es.in2.issuer.backend.shared.infrastructure.service.NoOpAuditTrailAdapter;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
@@ -95,7 +96,8 @@ class TokenServiceImplAuthCodeTest {
                 issuanceMetrics,
                 issuerStateCacheStore,
                 apiClientAuthenticationService,
-                clientAttestationValidationService
+                clientAttestationValidationService,
+                new NoOpAuditTrailAdapter()
         );
     }
 
@@ -462,5 +464,30 @@ class TokenServiceImplAuthCodeTest {
                 .verify();
 
         verify(issuerStateCacheStore, never()).get(anyString());
+    }
+
+    /**
+     * EUD-295 AC-05: renewing an offer deletes the previous issuer_state from the store, so a code
+     * obtained with it -- before or after the renewal -- no longer yields a token.
+     */
+    @Test
+    void exchangeToken_authCode_issuerStateNoLongerInTheStore_returnsInvalidGrant() {
+        when(authorizationCodeCacheStore.get("code-of-a-retired-offer")).thenReturn(Mono.just(codeIssuedTo("client")));
+        when(authorizationCodeCacheStore.delete("code-of-a-retired-offer")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(noClientAuthProfile());
+        doNothing().when(pkceVerifier).verifyS256("verifier", "challenge");
+        when(issuerStateCacheStore.get("issuer-state-1")).thenReturn(Mono.empty());
+
+        TokenRequest request = authCodeRequest("code-of-a-retired-offer", "https://wallet/callback", "verifier");
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorSatisfies(error -> {
+                    OAuthTokenException ex = assertInstanceOf(OAuthTokenException.class, error);
+                    assertEquals("invalid_grant", ex.getErrorCode());
+                    assertEquals("Invalid or expired issuer_state", ex.getMessage());
+                })
+                .verify();
+
+        verify(jwtService, never()).issueJWT(anyString());
     }
 }

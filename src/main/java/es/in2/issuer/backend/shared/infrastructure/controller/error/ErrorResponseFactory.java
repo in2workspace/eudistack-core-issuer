@@ -1,8 +1,10 @@
 package es.in2.issuer.backend.shared.infrastructure.controller.error;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.RequestPath;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
@@ -45,6 +47,18 @@ public class ErrorResponseFactory {
             String type, String title, HttpStatus status, String detail
     ) {
         return Mono.deferContextual(ctx -> asProblem(ctx, request, buildError(type, title, status, detail, ex, request, null)));
+    }
+
+    /**
+     * {@link #handleSafe} with field violations: the detail is the one given, never the exception
+     * message -- a bind error's message carries the rejected values the client sent.
+     */
+    public Mono<GlobalErrorMessage> handleSafeWithViolations(
+            Exception ex, ServerHttpRequest request,
+            String type, String title, HttpStatus status, String detail,
+            List<GlobalErrorMessage.FieldViolation> violations
+    ) {
+        return Mono.deferContextual(ctx -> asProblem(ctx, request, buildError(type, title, status, detail, ex, request, violations)));
     }
 
     public Mono<GlobalErrorMessage> handleWithViolations(
@@ -97,6 +111,23 @@ public class ErrorResponseFactory {
                             exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON));
         }
         return Mono.just(body);
+    }
+
+    /**
+     * A problem response with {@code Content-Type: application/problem+json}. The detail is the one
+     * given, never the exception message. {@code retryAfterSeconds} adds {@code Retry-After} when
+     * not {@code null}.
+     */
+    public ResponseEntity<GlobalErrorMessage> problem(
+            Exception ex, ServerHttpRequest request,
+            String type, String title, HttpStatus status, String detail, Integer retryAfterSeconds
+    ) {
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON);
+        if (retryAfterSeconds != null) {
+            response.header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds));
+        }
+        return response.body(buildError(type, title, status, detail, ex, request, null));
     }
 
     private String resolveDetail(Exception ex, String fallback) {

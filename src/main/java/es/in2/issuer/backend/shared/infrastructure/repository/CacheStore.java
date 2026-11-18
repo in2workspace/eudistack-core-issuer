@@ -54,6 +54,12 @@ public class CacheStore<T> implements TransientStore<T> {
         }).filter(Objects::nonNull);  // Only emit if the result is non-null
     }
 
+    @Override
+    public Mono<T> replace(String key, T value) {
+        // asMap().put is atomic per key and returns the replaced value (Guava LocalCache).
+        return Mono.fromCallable(() -> cache.asMap().put(key, value));
+    }
+
     /**
      * Gets the cache expiry duration in seconds.
      *

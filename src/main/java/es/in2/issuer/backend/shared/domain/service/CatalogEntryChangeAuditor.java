@@ -1,11 +1,15 @@
 package es.in2.issuer.backend.shared.domain.service;
 
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.LinkedHashMap;
@@ -42,6 +46,8 @@ public class CatalogEntryChangeAuditor {
     static final String EVENT = "CatalogEntryChanged";
     static final String RESOURCE_TYPE = "attestation-catalog";
     static final String UNKNOWN = "unknown";
+    private static final String DETAIL_OPERATION = "operation";
+    private static final String DETAIL_CONFIGURATION_ID = "credential_configuration_id";
     /** The caller is not allowed to write the catalog. */
     public static final String POLICY_DENIED = "PolicyDenied";
     /** The write was rejected for a business reason: the configuration is not valid for the schema. */
@@ -49,6 +55,7 @@ public class CatalogEntryChangeAuditor {
 
     private final AuditService auditService;
     private final CallerProvider callerProvider;
+    private final AuditTrailPort auditTrail;
 
     public Mono<Void> audit(CatalogEntryChange change) {
         return auditAll(List.of(change));
@@ -65,7 +72,7 @@ public class CatalogEntryChangeAuditor {
                             .doOnNext(who -> changes.forEach(change ->
                                     auditService.auditSuccess(EVENT, who.getT1(), who.getT2(), RESOURCE_TYPE,
                                             tenant, details(change))))
-                            .then();
+                            .then(Flux.fromIterable(changes).concatMap(this::stageChange).then());
                 })
                 .onErrorResume(e -> {
                     log.warn("Catalog audit: could not record {} change(s), error={}", changes.size(), e.toString());
@@ -85,26 +92,57 @@ public class CatalogEntryChangeAuditor {
                                   String reason) {
         return Mono.zip(resolveActor(), resolveOrganization())
                 .doOnNext(who -> {
-                    Map<String, Object> details = new LinkedHashMap<>();
-                    if (operation != null) {
-                        details.put("operation", operation.value());
-                    }
-                    if (credentialConfigurationId != null) {
-                        details.put("credential_configuration_id", credentialConfigurationId);
-                    }
-                    auditService.auditFailure(EVENT, who.getT1(), who.getT2(), reason, details);
+                    auditService.auditFailure(EVENT, who.getT1(), who.getT2(), reason,
+                            deniedDetails(operation, credentialConfigurationId));
                 })
-                .then()
+                .then(stageDenied(operation, credentialConfigurationId, reason))
                 .onErrorResume(e -> {
                     log.warn("Catalog audit: could not record a denied {}, error={}", reason, e.toString());
                     return Mono.empty();
                 });
     }
 
+    /**
+     * The same change for the audit store. Once the change has committed, so best effort: a broken audit
+     * channel must neither undo it nor fail the request. The actor and organization come from the audit
+     * context of the request, which reads them from the verified access token.
+     */
+    private Mono<Void> stageChange(CatalogEntryChange change) {
+        return auditTrail.stageBestEffort(AuditEntry.success(AuditEventType.CATALOG_ENTRY_CHANGED,
+                resourceOf(change.credentialConfigurationId()), details(change)));
+    }
+
+    /** Only when the entry is known: the catalogue's resource names it, and a refusal may come before that. */
+    private Mono<Void> stageDenied(CatalogEntryChange.Operation operation, String credentialConfigurationId,
+                                   String reason) {
+        if (credentialConfigurationId == null) {
+            return Mono.empty();
+        }
+        return auditTrail.stageBestEffort(AuditEntry.forReason(AuditEventType.CATALOG_ENTRY_CHANGED,
+                resourceOf(credentialConfigurationId), reason, deniedDetails(operation, credentialConfigurationId)));
+    }
+
+    private static String resourceOf(String credentialConfigurationId) {
+        return "catalog-entry:" + credentialConfigurationId;
+    }
+
+    /** What is known of a refused write: each field only when it is known at that point. */
+    private static Map<String, Object> deniedDetails(CatalogEntryChange.Operation operation,
+                                                     String credentialConfigurationId) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        if (operation != null) {
+            details.put(DETAIL_OPERATION, operation.value());
+        }
+        if (credentialConfigurationId != null) {
+            details.put(DETAIL_CONFIGURATION_ID, credentialConfigurationId);
+        }
+        return details;
+    }
+
     private static Map<String, Object> details(CatalogEntryChange change) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("operation", change.operation().value());
-        details.put("credential_configuration_id", change.credentialConfigurationId());
+        details.put(DETAIL_OPERATION, change.operation().value());
+        details.put(DETAIL_CONFIGURATION_ID, change.credentialConfigurationId());
         if (change.operation() == CatalogEntryChange.Operation.UPDATE) {
             details.put("changes", change.changes());
         }

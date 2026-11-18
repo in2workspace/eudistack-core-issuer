@@ -6,7 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.policy.service.impl.PowerAuthorizationServiceImpl;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -17,10 +17,9 @@ public class PowerAuthorizationConfig {
     @Bean
     public PowerAuthorizationService powerAuthorizationService(AuthorizationMatrixProvider matrixProvider,
                                                                CallerProvider callerProvider,
-                                                               TenantCredentialProfileService tenantCredentialProfileService,
                                                                AuditService auditService,
+                                                               AuditTrailPort auditTrail,
                                                                ObjectMapper objectMapper) {
-        return new PowerAuthorizationServiceImpl(matrixProvider, callerProvider, tenantCredentialProfileService,
-                auditService, objectMapper);
+        return new PowerAuthorizationServiceImpl(matrixProvider, callerProvider, auditService, auditTrail, objectMapper);
     }
 }
