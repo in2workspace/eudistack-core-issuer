@@ -2,11 +2,16 @@ package es.in2.issuer.backend.shared.domain.model.entities;
 
 import jakarta.annotation.Nullable;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import lombok.*;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Domain model for a credential issuance. Framework-free by design (EUDISTACK-650 / H-05):
@@ -77,4 +82,22 @@ public class Issuance {
 
     private String updatedBy;
     // ----------------------------------------------------------------
+
+    /**
+     * The single mode in which a renewed offer is delivered (EUD-295): {@code ui} if the stored
+     * delivery includes it, otherwise {@code email}, otherwise none ({@code direct} has no offer).
+     * Provisional while a process can still store a list of modes (TD-01).
+     */
+    public Optional<DeliveryMode> offerDeliveryMode() {
+        if (delivery == null) {
+            return Optional.empty();
+        }
+        Set<String> modes = Arrays.stream(delivery.split(","))
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        if (modes.contains(DeliveryMode.UI.value)) {
+            return Optional.of(DeliveryMode.UI);
+        }
+        return modes.contains(DeliveryMode.EMAIL.value) ? Optional.of(DeliveryMode.EMAIL) : Optional.empty();
+    }
 }

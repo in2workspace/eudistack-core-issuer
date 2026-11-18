@@ -53,6 +53,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     static final String POWER_ALIAS_CONFLICT = "power_alias_conflict";
 
     private static final String ACTION = "action";
+    private static final String RESOURCE_ORGANIZATION = "resourceOrganization";
 
     /** Denial code of each action that is not simply "the caller has no power for it". */
     private static final Map<String, Reason> DENIAL_REASONS = Map.of(
@@ -94,7 +95,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                                                  String resourceId) {
         return requestTenant().flatMap(tenant -> {
             Trace trace = new Trace(actionId, caller, tenant)
-                    .with("resourceOrganization", resourceOrganization)
+                    .with(RESOURCE_ORGANIZATION, resourceOrganization)
                     .with("resourceId", resourceId);
             return recorded(trace, resourceOf(tenant, resourceOrganization, resourceId),
                     Mono.defer(() -> decide(trace, actionId, caller, tenant, resourceOrganization, resourceId)));
@@ -189,6 +190,63 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         return Mono.just(new IssuanceAuthorization(recognized, organization, actionIds));
     }
 
+    @Override
+    public Mono<IssuanceAuthorization> authorizeReissue(Caller caller, String processId, String credentialConfigurationId,
+                                                        String credentialType, String resourceOrganization, JsonNode payload) {
+        return requestTenant().flatMap(tenant -> Mono.defer(() -> decideReissue(
+                caller, processId, credentialConfigurationId, credentialType, resourceOrganization, payload, tenant)));
+    }
+
+    /**
+     * The actions of {@link #decideIssuance} on a stored process -- base, E2, grants -- then the alias
+     * check of {@link #decideIssuance}. Whether the type is still enabled in the tenant is not a decision by
+     * powers: the renewal checks it after this (EUD-268, decision of the Tech Lead). The caller decides first, without the stored type
+     * or content, whether it may issue anything and whether it has scope (E2) on the process, so a
+     * denial here only reaches who may issue in its organization (EUD-295 ac.md, "Permiso y ámbito").
+     * A denied E2 still reads as not found, in case a caller does not check the scope first.
+     */
+    private Mono<IssuanceAuthorization> decideReissue(Caller caller, String processId, String credentialConfigurationId,
+                                                      String credentialType, String resourceOrganization, JsonNode payload,
+                                                      String tenant) {
+        AuthorizationMatrix matrix = matrixProvider.current();
+        String organization = Objects.requireNonNullElse(resourceOrganization, "");
+        Trace trace = new Trace(ISSUE_OWN, caller, tenant)
+                .with("reissue", true)
+                .with(RESOURCE_ORGANIZATION, organization)
+                .with("resourceId", processId)
+                .with("credentialConfigurationId", credentialConfigurationId);
+        requireTenantMatch(caller, tenant, trace);
+        RecognizedCaller recognized = recognize(matrix, caller, tenant);
+        trace.recognized(recognized, recognizingPower(matrix, recognized));
+
+        List<String> actionIds = issuanceActions(matrix, List.of(credentialConfigurationId, String.valueOf(credentialType)),
+                organization, caller, payload, tenant);
+        for (String actionId : actionIds) {
+            trace.action(actionId);
+            try {
+                evaluate(matrix.action(actionId), actionId, recognized, trace);
+            } catch (LearIssuancePolicyException denied) {
+                // E2 denied to who may issue for its own organization: out of scope, read as not found.
+                return Mono.error(ISSUE_ON_BEHALF.equals(actionId)
+                        ? new IssuanceNotFoundException("No issuance found for the given id")
+                        : denied);
+            }
+        }
+        trace.action(String.join(",", actionIds));
+        // A Draft created before EUD-272 may carry a power whose field and tmf_ alias differ: it could not
+        // be issued today, so it is not reissued either. Checked once the scope is decided, so a process out
+        // of scope still answers as not found (EUD-295 review W2).
+        if (hasPowerWithConflictingAlias(payload)) {
+            deny(trace, POWER_ALIAS_CONFLICT);
+            return Mono.error(new PayloadValidationException("A power names a field twice with different values",
+                    List.of(new PayloadValidationException.Violation("$.power",
+                            "a field and its tmf_ alias must have the same value"))));
+        }
+
+        permit(trace);
+        return Mono.just(new IssuanceAuthorization(recognized, organization, actionIds));
+    }
+
     /**
      * The actions an issuance needs: the base one for its type (E6 for product certifications, E1
      * otherwise), E2 when it is for another organization, and one grant action per power it carries.
@@ -253,8 +311,9 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     }
 
     /**
-     * The powers the attestation grants. A power with a field and its {@code tmf_} alias that differ was
-     * rejected before this, so each power has one reading, the one its consumers get.
+     * The powers the attestation grants, each with the reading its consumers get. A power whose field and
+     * {@code tmf_} alias differ has two readings: an issuance rejects it before this, a reissue once its
+     * scope is decided, so neither goes ahead on the reading this gives.
      */
     private List<Power> grantedPowers(JsonNode payload) {
         JsonNode powers = payload != null ? payload.path("power") : null;
@@ -477,7 +536,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             if (userType == null) {
                 return Optional.empty();
             }
-            Object target = details.getOrDefault("resourceOrganization", details.get("organization"));
+            Object target = details.getOrDefault(RESOURCE_ORGANIZATION, details.get("organization"));
             Decision decision = new Decision(actionId, text(details.get("powerEvaluated")), userType.toString(),
                     text(target));
             if (deniedWith == null) {

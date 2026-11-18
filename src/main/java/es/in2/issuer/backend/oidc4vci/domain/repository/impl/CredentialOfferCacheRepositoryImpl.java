@@ -37,6 +37,13 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     }
 
     @Override
+    public Mono<Void> invalidateCredentialOffer(String id) {
+        return cacheStore.get(id)
+                .flatMap(credentialOfferData -> cacheStore.add(id, credentialOfferData.markConsumed()))
+                .then();
+    }
+
+    @Override
     public Instant newOfferExpiry() {
         return clock.instant().plus(CREDENTIAL_OFFER_LIFETIME);
     }
