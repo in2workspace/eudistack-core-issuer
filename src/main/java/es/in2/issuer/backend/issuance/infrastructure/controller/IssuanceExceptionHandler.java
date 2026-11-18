@@ -185,7 +185,7 @@ public class IssuanceExceptionHandler {
                 GlobalErrorTypes.INVALID_HOLDER_KEY.getCode(),
                 "Invalid holder key",
                 HttpStatus.BAD_REQUEST,
-                "The holder key is missing or malformed (expected a jwk member with an EC P-256 public key)"
+                "The holder key is missing or is not an EC P-256 public JWK"
         );
     }
 

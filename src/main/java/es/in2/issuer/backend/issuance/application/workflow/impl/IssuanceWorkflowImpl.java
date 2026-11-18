@@ -361,13 +361,13 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * <p>Gated on !profile.requiresHolderBinding() as well as the id prefix (F4/S4): the prefix match alone
      * would also fire for a future profile of the same family that recovers proof_types_supported, which
      * would make holder_key required again for a type the schema now binds through a real key proof --
-     * exactly the invariant AD-9 exists to protect. HolderKey.fromJson requires the jwk member
+     * exactly the invariant AD-9 exists to protect. HolderKey.fromRequest takes the public JWK only
      * (code-review F1a/D3): kid/x5c carry no key material this path -- no wallet, no OID4VCI proof -- could
      * ever verify.
      */
     private static Map<String, Object> holderCnf(String configId, CredentialProfile profile, IssuanceRequest request) {
         return HolderBindingExemption.isExempt(configId) && !profile.requiresHolderBinding()
-                ? HolderKey.fromJson(request.holderKey()).cnf() : null;
+                ? HolderKey.fromRequest(request.holderKey()).cnf() : null;
     }
 
     /**

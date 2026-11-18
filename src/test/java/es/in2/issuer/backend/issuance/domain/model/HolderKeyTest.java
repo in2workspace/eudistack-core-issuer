@@ -32,13 +32,15 @@ class HolderKeyTest {
     // arbitrary placeholder string is not a valid fixture here.
     private static final String VALID_EC_X = "jIoYu_tVQYeSX_WAXLz219rFkqGV6c4FTb4_cQdOaQg";
     private static final String VALID_EC_Y = "BBkUW2sUZX2kW7keQ-qZV3PCKCLOZesPpszoNGciDL4";
+    private static final String VALID_JWK =
+            "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y + "\"}";
+
+    // --- fromRequest: holder_key is the public JWK itself (EUD-254 contract, design AD-7) ---
 
     @Test
     @SuppressWarnings("unchecked")
-    void fromJson_withJwk_returnsCnfCarryingCanonicalJwkObject() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y + "\"}}");
-
-        Map<String, Object> cnf = HolderKey.fromJson(node).cnf();
+    void fromRequest_withBareJwk_returnsCnfCarryingCanonicalJwkObject() {
+        Map<String, Object> cnf = HolderKey.fromRequest(json(VALID_JWK)).cnf();
 
         assertEquals(1, cnf.size());
         Map<String, Object> jwk = (Map<String, Object>) cnf.get("jwk");
@@ -46,39 +48,37 @@ class HolderKeyTest {
     }
 
     @Test
-    void fromJson_withJavaNull_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(null));
+    void fromRequest_withTheFormerJwkEnvelope_throwsInvalidHolderKey() {
+        // AD-7: no compatibility with {"jwk": {...}} -- it is not a JWK.
+        JsonNode envelope = json("{\"jwk\":" + VALID_JWK + "}");
+
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(envelope));
     }
 
     @Test
-    void fromJson_withNullNode_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(NullNode.getInstance()));
+    void fromRequest_withJavaNull_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(null));
     }
 
     @Test
-    void fromJson_withEmptyObject_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{}")));
+    void fromRequest_withNullNode_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(NullNode.getInstance()));
     }
 
     @Test
-    void fromJson_withNonObjectNode_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("\"just-a-string\"")));
+    void fromRequest_withEmptyObject_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(json("{}")));
     }
 
     @Test
-    void fromJson_withJwkNotObject_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"jwk\":\"not-an-object\"}")));
-    }
-
-    @Test
-    void fromJson_withEmptyJwkObject_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"jwk\":{}}")));
+    void fromRequest_withNonObjectNode_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(json("\"just-a-string\"")));
     }
 
     @ParameterizedTest(name = "Unsupported holder key #{index}: {0}")
     @MethodSource("unsupportedHolderKeyNodes")
-    void fromJson_withUnsupportedHolderKey_throwsInvalidHolderKey(String description, JsonNode node) {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    void fromRequest_withUnsupportedHolderKey_throwsInvalidHolderKey(String description, JsonNode node) {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(node));
     }
 
     private static Stream<Arguments> unsupportedHolderKeyNodes() {
@@ -89,45 +89,31 @@ class HolderKeyTest {
         );
     }
 
-    @Test
-    @SuppressWarnings("unchecked")
-    void fromJson_withJwkAndAnIrrelevantSiblingField_usesTheJwkAndIgnoresTheSibling() {
-        // Once kid/x5c stopped being recognized forms, a sibling field next to jwk is no longer a
-        // competing claim to resolve -- just noise the caller sent, silently ignored.
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y
-                + "\"},\"kid\":\"irrelevant\"}");
-
-        Map<String, Object> cnf = HolderKey.fromJson(node).cnf();
-
-        Map<String, Object> jwk = (Map<String, Object>) cnf.get("jwk");
-        assertEquals(VALID_EC_X, jwk.get("x"));
-    }
-
     // --- Nimbus JWK content validation (EUD-168 F1, S1) ---
 
     @ParameterizedTest(name = "Invalid JWK #{index}")
     @MethodSource("invalidJwkNodes")
-    void fromJson_withInvalidJwk_throwsInvalidHolderKey(JsonNode node) {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    void fromRequest_withInvalidJwk_throwsInvalidHolderKey(JsonNode node) {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(node));
     }
 
     private static Stream<JsonNode> invalidJwkNodes() {
         return Stream.of(
-                json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X
+                json("{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X
                         + "\",\"y\":\"" + VALID_EC_Y
-                        + "\",\"d\":\"PtiOr4fsLlHZ2QdHKcO2HoslwwlEXka6_ksM1fSDTdg\"}}"),
-                json("{\"jwk\":{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}}"),
-                json("{\"jwk\":{\"kty\":\"unsupported\",\"x\":\"abc\"}}"),
-                json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"secp256k1\",\"x\":\"abc\",\"y\":\"def\"}}"),
-                json("{\"jwk\":{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\"}}")
+                        + "\",\"d\":\"PtiOr4fsLlHZ2QdHKcO2HoslwwlEXka6_ksM1fSDTdg\"}"),
+                json("{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}"),
+                json("{\"kty\":\"unsupported\",\"x\":\"abc\"}"),
+                json("{\"kty\":\"EC\",\"crv\":\"secp256k1\",\"x\":\"abc\",\"y\":\"def\"}"),
+                json("{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\"}")
         );
     }
 
     @Test
-    void fromJson_withOversizedJwkNode_throwsInvalidHolderKey() {
+    void fromRequest_withOversizedJwkNode_throwsInvalidHolderKey() {
         String oversizedCoordinate = "A".repeat(10_000);
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + oversizedCoordinate + "\",\"y\":\"def\"}}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+        JsonNode node = json("{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + oversizedCoordinate + "\",\"y\":\"def\"}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(node));
     }
 
     // --- Allowlist narrowed to EC P-256 only (code-review F2a): DidKeyDerivation can only turn a
@@ -135,27 +121,27 @@ class HolderKeyTest {
     // Nimbus-valid jwk through validation and then fail did:key derivation silently downstream. ---
 
     @Test
-    void fromJson_withRsaKey_throwsInvalidHolderKey() {
+    void fromRequest_withRsaKey_throwsInvalidHolderKey() {
         // A real-size RSA key, rejected purely for its kty -- not for size, unlike the undersized
         // case above.
-        JsonNode node = json("{\"jwk\":{\"kty\":\"RSA\",\"n\":\"" + "s".repeat(342) + "\",\"e\":\"AQAB\"}}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+        JsonNode node = json("{\"kty\":\"RSA\",\"n\":\"" + "s".repeat(342) + "\",\"e\":\"AQAB\"}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(node));
     }
 
     @Test
-    void fromJson_withOkpKey_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\"}}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    void fromRequest_withOkpKey_throwsInvalidHolderKey() {
+        JsonNode node = json("{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\"}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(node));
     }
 
     @Test
-    void fromJson_withEcP384Curve_throwsInvalidHolderKey() {
+    void fromRequest_withEcP384Curve_throwsInvalidHolderKey() {
         // A structurally valid, non-P-256 EC curve -- P-256 is the only one accepted, not "any EC
         // curve Nimbus recognizes".
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-384\","
+        JsonNode node = json("{\"kty\":\"EC\",\"crv\":\"P-384\","
                 + "\"x\":\"2jCG5DmpbcqB4NBhngT8V1yr3ZapEvOr3EDRLPqQvSjHhpJZTGKzO51_TeR0aWje\","
-                + "\"y\":\"pDT9YKuTQzR1DzZLU_gcxA3ubMFxRW-eZm-eZzDp9-Ie55mYRIzMR15Fq3JBz3JR\"}}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+                + "\"y\":\"pDT9YKuTQzR1DzZLU_gcxA3ubMFxRW-eZm-eZzDp9-Ie55mYRIzMR15Fq3JBz3JR\"}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromRequest(node));
     }
 
     // --- Canonical serialization (code-review F1b/D2): the signed cnf must be built explicitly
@@ -164,12 +150,12 @@ class HolderKeyTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void fromJson_withJwkCarryingUnrecognizedAndRecognizedExtraMembers_keepsOnlyTheFourCanonicalOnes() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y
+    void fromRequest_withJwkCarryingUnrecognizedAndRecognizedExtraMembers_keepsOnlyTheFourCanonicalOnes() {
+        JsonNode node = json("{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y
                 + "\",\"smuggled\":\"payload\",\"x5u\":\"http://169.254.169.254/latest/meta-data/\","
-                + "\"kid\":\"<script>alert(1)</script>\",\"use\":\"sig\",\"alg\":\"ES256\"}}");
+                + "\"kid\":\"<script>alert(1)</script>\",\"use\":\"sig\",\"alg\":\"ES256\"}");
 
-        Map<String, Object> jwk = (Map<String, Object>) HolderKey.fromJson(node).cnf().get("jwk");
+        Map<String, Object> jwk = (Map<String, Object>) HolderKey.fromRequest(node).cnf().get("jwk");
 
         assertEquals(Map.of("kty", "EC", "crv", "P-256", "x", VALID_EC_X, "y", VALID_EC_Y), jwk);
         assertFalse(jwk.containsKey("smuggled"));
@@ -188,17 +174,46 @@ class HolderKeyTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void fromJson_withNonCanonicalLengthCoordinate_reEncodesToTheFixedCurveLength() {
+    void fromRequest_withNonCanonicalLengthCoordinate_reEncodesToTheFixedCurveLength() {
         String nonCanonicalX = "AMOk-XIh19undc22JKlmKhjUipQFwtI9JkWF_dWHvLUl"; // 33 raw bytes
         String canonicalX = "w6T5ciHX26d1zbYkqWYqGNSKlAXC0j0mRYX91Ye8tSU"; // same value, 32 bytes
         String y = "L8HP4e9THGZ9Bft_RbYd8FIRM1eYUbDIrt29UyZrE4Q"; // already 32 bytes
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + nonCanonicalX + "\",\"y\":\"" + y + "\"}}");
+        JsonNode node = json("{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + nonCanonicalX + "\",\"y\":\"" + y + "\"}");
 
         // Must not throw: Nimbus accepts this point as mathematically valid on the curve.
-        Map<String, Object> jwk = (Map<String, Object>) HolderKey.fromJson(node).cnf().get("jwk");
+        Map<String, Object> jwk = (Map<String, Object>) HolderKey.fromRequest(node).cnf().get("jwk");
 
         assertEquals(canonicalX, jwk.get("x"));
         assertEquals(32, java.util.Base64.getUrlDecoder().decode((String) jwk.get("x")).length);
         assertEquals(32, java.util.Base64.getUrlDecoder().decode((String) jwk.get("y")).length);
+    }
+
+    // --- fromCnf: the cnf claim as the issuance row stores it, {"jwk": {...}} ---
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fromCnf_withStoredJwkEnvelope_returnsTheCanonicalCnf() {
+        Map<String, Object> cnf = HolderKey.fromCnf(json("{\"jwk\":" + VALID_JWK + "}")).cnf();
+
+        assertEquals(Map.of("kty", "EC", "crv", "P-256", "x", VALID_EC_X, "y", VALID_EC_Y),
+                (Map<String, Object>) cnf.get("jwk"));
+    }
+
+    @ParameterizedTest(name = "Malformed stored cnf #{index}: {0}")
+    @MethodSource("malformedStoredCnfNodes")
+    void fromCnf_withMalformedStoredCnf_throwsInvalidHolderKey(String description, JsonNode node) {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromCnf(node));
+    }
+
+    private static Stream<Arguments> malformedStoredCnfNodes() {
+        return Stream.of(
+                Arguments.of("java null", null),
+                Arguments.of("empty object", json("{}")),
+                Arguments.of("bare jwk, no envelope", json(VALID_JWK)),
+                Arguments.of("jwk not an object", json("{\"jwk\":\"not-an-object\"}")),
+                Arguments.of("empty jwk", json("{\"jwk\":{}}")),
+                Arguments.of("private jwk", json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X
+                        + "\",\"y\":\"" + VALID_EC_Y + "\",\"d\":\"PtiOr4fsLlHZ2QdHKcO2HoslwwlEXka6_ksM1fSDTdg\"}}"))
+        );
     }
 }

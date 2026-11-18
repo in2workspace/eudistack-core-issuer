@@ -274,12 +274,12 @@ class IssuanceExceptionHandlerTest {
 
     @Test
     void handleInvalidHolderKey_mapsTo400InvalidHolderKey_usingExceptionMessage() {
-        var ex = new InvalidHolderKeyException("invalid holder_key: expected a jwk member");
+        var ex = new InvalidHolderKeyException("invalid holder_key: jwk is not a well-formed JWK");
 
         String type   = GlobalErrorTypes.INVALID_HOLDER_KEY.getCode();
         String title  = "Invalid holder key";
         HttpStatus st = HttpStatus.BAD_REQUEST;
-        String fallback = "The holder key is missing or malformed (expected a jwk member with an EC P-256 public key)";
+        String fallback = "The holder key is missing or is not an EC P-256 public JWK";
 
         var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
         when(errors.handleWith(ex, request, type, title, st, fallback))
@@ -287,7 +287,7 @@ class IssuanceExceptionHandlerTest {
 
         StepVerifier.create(handler.handleInvalidHolderKey(ex, request))
                 .assertNext(gem -> assertGem(gem, type, title, st,
-                        "invalid holder_key: expected a jwk member"))
+                        "invalid holder_key: jwk is not a well-formed JWK"))
                 .verifyComplete();
 
         assertEquals("invalid_holder_key", type);
@@ -302,7 +302,7 @@ class IssuanceExceptionHandlerTest {
         String type   = GlobalErrorTypes.INVALID_HOLDER_KEY.getCode();
         String title  = "Invalid holder key";
         HttpStatus st = HttpStatus.BAD_REQUEST;
-        String fallback = "The holder key is missing or malformed (expected a jwk member with an EC P-256 public key)";
+        String fallback = "The holder key is missing or is not an EC P-256 public JWK";
 
         var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
         var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());

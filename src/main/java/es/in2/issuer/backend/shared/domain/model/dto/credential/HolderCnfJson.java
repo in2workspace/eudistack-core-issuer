@@ -50,11 +50,11 @@ public final class HolderCnfJson {
     }
 
     /**
-     * Reads the persisted {@code cnf} and re-validates its shape through {@link HolderKey#fromJson}
+     * Reads the persisted {@code cnf} and re-validates its shape through {@link HolderKey#fromCnf}
      * before returning it (EUD-168 TD-13).
      *
      * <p>The only writer of this column always derives its value from
-     * {@code HolderKey.fromJson(...).cnf()}, so a well-formed row is always {@code {"jwk": {kty,
+     * {@code HolderKey.fromRequest(...).cnf()}, so a well-formed row is always {@code {"jwk": {kty,
      * crv, x, y}}} -- but reading it back without re-checking that shape would trust it rather
      * than verify it, and the write path is the sole point that ever held the line (S1).
      * Re-running the same canonicalization pass here closes that gap: a row a client could never
@@ -66,7 +66,7 @@ public final class HolderCnfJson {
      * a type that reached this column without ever populating it, and must fall through to the
      * key-proof binding rather than fail closed. A present-but-empty value ({@code "{}"}) is NOT
      * treated as absent (EUD-168 TD-15): it deserializes as an object with no {@code jwk} member,
-     * so {@link HolderKey#fromJson} rejects it the same as any other malformed shape.
+     * so {@link HolderKey#fromCnf} rejects it the same as any other malformed shape.
      *
      * @throws es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException if the
      *         persisted value is present but not a well-formed EC P-256 public {@code jwk}
@@ -76,6 +76,6 @@ public final class HolderCnfJson {
             return Map.of();
         }
         JsonNode node = OBJECT_MAPPER.valueToTree(read(json));
-        return HolderKey.fromJson(node).cnf();
+        return HolderKey.fromCnf(node).cnf();
     }
 }

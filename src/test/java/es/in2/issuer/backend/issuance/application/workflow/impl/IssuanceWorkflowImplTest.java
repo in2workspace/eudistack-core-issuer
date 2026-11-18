@@ -1428,7 +1428,7 @@ class IssuanceWorkflowImplTest {
     /**
      * Code-review F1a: a bare kid/x5c carries no key material this path can validate or bind to
      * mandatee.id (no wallet, no key proof), so it must be rejected the same way an ambiguous or
-     * malformed holder_key is -- not silently accepted the way HolderKey.fromJson accepts it for the
+     * malformed holder_key is -- not silently accepted the way HolderKey.fromRequest accepts it for the
      * (unrelated) OID4VCI proof path.
      */
     @Test
@@ -2918,12 +2918,11 @@ class IssuanceWorkflowImplTest {
 
     // A real P-256 public point: Nimbus (EUD-168 F1) validates x/y are actually on the declared
     // curve, so an arbitrary placeholder string is not a valid fixture here.
+    // The holder_key of the request is the public JWK itself, with no envelope (EUD-254, AD-7).
     private JsonNode holderKeyJwk() {
-        ObjectMapper m = new ObjectMapper();
-        return m.createObjectNode().set("jwk",
-                m.createObjectNode().put("kty", "EC").put("crv", "P-256")
-                        .put("x", "jIoYu_tVQYeSX_WAXLz219rFkqGV6c4FTb4_cQdOaQg")
-                        .put("y", "BBkUW2sUZX2kW7keQ-qZV3PCKCLOZesPpszoNGciDL4"));
+        return new ObjectMapper().createObjectNode().put("kty", "EC").put("crv", "P-256")
+                .put("x", "jIoYu_tVQYeSX_WAXLz219rFkqGV6c4FTb4_cQdOaQg")
+                .put("y", "BBkUW2sUZX2kW7keQ-qZV3PCKCLOZesPpszoNGciDL4");
     }
 
     private CredentialBuildResult buildResult(Instant validFrom) {
