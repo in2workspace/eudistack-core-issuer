@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.15.0] - 2026-11-18
+
 ### Changed (EUD-268, breaking, version 3.15.0)
 
 - **EUD-268 — One delivery mode per issuance.** `delivery` of `POST /api/v1/issuances` takes exactly `email`, `ui` or `direct` (default `email`). A list of modes (`email,ui` or a JSON array such as `["email","ui"]`), a value that is not a string, an unknown value, an empty one or one with spaces is `400 invalid_delivery_mode`; before, a comma-separated list was accepted and other values were `400 BAD_REQUEST`. The bootstrap issuance still takes only `email` or `ui`. Deploy with the `eudistack-mfe-credential-manager` that sends a single mode.
@@ -72,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **EUD-269 — Idempotency kept in the tenant's database instead of per instance**: the in-memory cache of EUD-277 (one hour, a duplicate waits up to `issuer.api.idempotency-wait-timeout` for the first request) is replaced by the shared store above; a duplicate that arrives while the first is in progress is answered `409 idempotency_in_progress` with `Retry-After: 1` straight away, whichever instance holds the key. The body limit (`413 payload_too_large`) and the `Location` replay of EUD-277 are kept. `TenantDomainWebFilter` now has an explicit order (0), so the filters that read the tenant's schema run after it.
 - **EUD-269 — `issuer.api.idempotency-ttl-seconds` and `issuer.api.idempotency-wait-timeout` are replaced** by `issuer.api.idempotency.retention` (24h) and `issuer.api.idempotency.lease` (2m).
 - **EUD-269 — New required secret `ISSUER_IDEMPOTENCY_SECRET`** (`issuer.api.idempotency.secret`, at least 32 bytes, the same on every instance, from the secrets manager): the issuer does not start without it. The idempotency keys, body digests, response keys and volume counter keys are derived from it with HKDF-SHA256, one key per purpose; no other key is reused. Each kept response carries the id of its secret (`ISSUER_IDEMPOTENCY_SECRET_ID`, 1 by default); to rotate it, set the old one as `ISSUER_IDEMPOTENCY_PREVIOUS_SECRET` with its `ISSUER_IDEMPOTENCY_PREVIOUS_SECRET_ID` for the 24 hours of the retention, and the keys kept with it are still found.
+
+## [Unreleased]
 
 ### Added (EUD-277)
 
