@@ -101,13 +101,14 @@ class CredentialOfferRenewalWorkflowImplTest {
         when(profiles.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
         PowerAuthorizationService decisionPoint = new PowerAuthorizationServiceImpl(
                 new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
-                callerProvider, profiles, decisionAuditService, new RecordingAuditTrail(), MAPPER);
+                callerProvider, decisionAuditService, new RecordingAuditTrail(), MAPPER);
         Map<String, CredentialProfile> loaded = Map.of(LEAR_TYPE, LEAR_PROFILE, LABEL_TYPE, LABEL_PROFILE);
         CredentialProfileCatalog catalog = mock(CredentialProfileCatalog.class);
         when(catalog.getByConfigurationId(anyString()))
                 .thenAnswer(invocation -> loaded.get(invocation.getArgument(0, String.class)));
         workflow = new CredentialOfferRenewalWorkflowImpl(callerProvider, decisionPoint, issuanceService, catalog,
-                new GenericCredentialBuilder(MAPPER, mock(IssuerFactory.class)), credentialOfferService, auditService);
+                new GenericCredentialBuilder(MAPPER, mock(IssuerFactory.class)), credentialOfferService, auditService,
+                profiles);
     }
 
     // ── Successful renewals ───────────────────────────────────────────────────────────────

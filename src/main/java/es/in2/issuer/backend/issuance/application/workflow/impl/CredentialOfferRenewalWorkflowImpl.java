@@ -7,6 +7,7 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalDeliveryFailedExce
 import es.in2.issuer.backend.issuance.domain.exception.RenewalInvalidIssuanceIdException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalIssuanceNotFoundException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedException;
+import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
@@ -70,6 +71,7 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
     private final GenericCredentialBuilder credentialBuilder;
     private final CredentialOfferService credentialOfferService;
     private final AuditService auditService;
+    private final TenantCredentialProfileService tenantCredentialProfileService;
 
     @Override
     @Observed(name = "issuance.renew-offer", contextualName = "renew-credential-offer")
@@ -171,7 +173,8 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
      * Decides the stored process, already in scope, as an issuance of its type and content. A process
      * whose type is no longer known or whose content cannot be read is denied: what it would grant
      * cannot be decided (fail closed, EUD-295 tasks.md note 9). The decision point never sees it, so
-     * the renewal audits it.
+     * the renewal audits it. A type the tenant no longer enables is denied last, as before EUD-268 moved
+     * that check out of the decision point: it is the catalog that decides it, not the caller's powers.
      */
     private Mono<Void> authorizeReissue(Caller caller, Issuance issuance, String resourceId) {
         String configurationId = issuance.getCredentialType();
@@ -187,7 +190,20 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
         String organization = Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), "");
         return powerAuthorizationService.authorizeReissue(caller, resourceId, configurationId,
                         profile.credentialType(), organization, payload.get())
-                .then();
+                .then(Mono.defer(() -> requireTypeEnabled(configurationId, resourceId)));
+    }
+
+    private Mono<Void> requireTypeEnabled(String configurationId, String resourceId) {
+        return tenantCredentialProfileService.isProfileAllowed(configurationId)
+                .flatMap(enabled -> {
+                    if (Boolean.TRUE.equals(enabled)) {
+                        return Mono.<Void>empty();
+                    }
+                    log.info("Credential offer renewal denied: issuance={} type={} is no longer enabled in the tenant",
+                            resourceId, configurationId);
+                    return Mono.error(new RenewalPermissionDeniedException(
+                            "The type of the issuance is no longer enabled in the tenant"));
+                });
     }
 
     // ── Status and delivery mode ────────────────────────────────────────────────────────────

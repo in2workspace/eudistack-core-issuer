@@ -21,7 +21,6 @@ import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
-import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -48,7 +47,6 @@ import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizat
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -73,7 +71,6 @@ class PowerAuthorizationServiceImplTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private CallerProvider callerProvider;
-    private TenantCredentialProfileService tenantCredentialProfileService;
     private AuditService auditService;
     private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
     private PowerAuthorizationServiceImpl service;
@@ -81,11 +78,9 @@ class PowerAuthorizationServiceImplTest {
     @BeforeEach
     void setUp() {
         callerProvider = mock(CallerProvider.class);
-        tenantCredentialProfileService = mock(TenantCredentialProfileService.class);
         auditService = mock(AuditService.class);
-        when(tenantCredentialProfileService.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
         service = new PowerAuthorizationServiceImpl(new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
-                callerProvider, tenantCredentialProfileService, auditService, auditTrail, objectMapper);
+                callerProvider, auditService, auditTrail, objectMapper);
     }
 
     // --- helpers ---
@@ -621,18 +616,6 @@ class PowerAuthorizationServiceImplTest {
                     null, objectMapper.createObjectNode()), TENANT)).expectNextCount(1).verifyComplete();
         }
 
-        /** AC-15: denied like any other rule, with its stable reason (N3). */
-        @Test
-        void PowerAuthorizationService_authorizeIssuance_typeNotEnabledInTheTenantIsDenied() {
-            // Given
-            when(tenantCredentialProfileService.isProfileAllowed("config-id")).thenReturn(Mono.just(false));
-
-            // When / Then
-            expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()),
-                    Reason.CREDENTIAL_TYPE_NOT_ENABLED);
-            lastDenyDetails(Reason.CREDENTIAL_TYPE_NOT_ENABLED.getCode());
-        }
-
         /** AC-11. */
         @Test
         void PowerAuthorizationService_authorizeIssuance_platformAdminFromThePlatformTenantCannotIssue() {
@@ -725,15 +708,6 @@ class PowerAuthorizationServiceImplTest {
             assertThat(lastDenyDetails(PowerAuthorizationServiceImpl.POWER_ALIAS_CONFLICT))
                     .containsEntry("reissue", true)
                     .containsEntry("resourceId", "issuance-1");
-        }
-
-        /** FR-07: a type no longer enabled in the tenant is not offered again. */
-        @Test
-        void PowerAuthorizationService_authorizeReissue_typeNotEnabledInTheTenantIsDenied() {
-            when(tenantCredentialProfileService.isProfileAllowed("config-id")).thenReturn(Mono.just(false));
-
-            expectReason(reissue(caller(ORG, TENANT, ORG_ADMIN), "config-id", EMPLOYEE_TYPE, ORG, payloadGranting()),
-                    Reason.CREDENTIAL_TYPE_NOT_ENABLED);
         }
 
         @Test
@@ -952,19 +926,6 @@ class PowerAuthorizationServiceImplTest {
             AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
             assertThat(entry.resource()).isEqualTo("issuance:process-1");
             assertThat(entry.result()).isEqualTo(AuditResult.SUCCESS);
-        }
-
-        @Test
-        void authorizeIssuance_typeNotEnabledInTheTenant_stagesNothingBecauseItIsNotADecisionByPowers() {
-            // Given
-            when(tenantCredentialProfileService.isProfileAllowed("config-id")).thenReturn(Mono.just(false));
-
-            // When
-            expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()),
-                    Reason.CREDENTIAL_TYPE_NOT_ENABLED);
-
-            // Then
-            assertThat(auditTrail.all()).isEmpty();
         }
     }
 }

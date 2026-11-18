@@ -37,26 +37,36 @@ public record HolderKey(Map<String, Object> cnf) {
     }
 
     /**
-     * Parses a {@code holder_key} JSON node into a {@link HolderKey}. Requires the {@code jwk}
-     * member -- {@code kid}/{@code x5c} are RFC 7800 confirmation forms this issuer never actually
-     * accepts here: they carry no key material this path can verify without a wallet, and the
-     * OID4VCI key-proof path (the other place a {@code cnf} form matters) builds its own
-     * {@code BindingInfo} directly in {@code Oid4VciCredentialWorkflowImpl} and never calls this
-     * class. An earlier version of this parser accepted all three RFC 7800 forms on the theory that
-     * the other two were needed elsewhere; code-review (F1a, D3) found they were not, and dead,
-     * unvalidated code that even looks needed is worse than no code -- it is exactly what would have
-     * let a future caller reintroduce F1a by accident.
+     * Parses the {@code holder_key} of an issuance request: the public JWK itself ({@code kty},
+     * {@code crv}, {@code x}, {@code y}), with no envelope (EUD-254 contract, design AD-7). The
+     * former {@code {"jwk": {...}}} envelope is no longer accepted: it is not a JWK, so it is
+     * rejected like any other malformed key. The returned {@code cnf} is the RFC 7800 confirmation
+     * claim, {@code {"jwk": {...}}}, as the credential carries it and the issuance row stores it.
+     *
+     * <p>{@code kid}/{@code x5c} are RFC 7800 confirmation forms this issuer never accepts here:
+     * they carry no key material this path can verify without a wallet, and the OID4VCI key-proof
+     * path builds its own {@code BindingInfo} in {@code Oid4VciCredentialWorkflowImpl} and never
+     * calls this class (code-review F1a, D3).
      */
-    public static HolderKey fromJson(JsonNode node) {
+    public static HolderKey fromRequest(JsonNode node) {
         if (node == null || node.isNull() || node.isMissingNode()) {
             throw new InvalidHolderKeyException(
                     "holder_key is required for this credential type, in every delivery mode: its schema "
                             + "declares no proof_types_supported, so no wallet key proof will ever "
                             + "arrive and the request is the only source of a holder key");
         }
-        JsonNode jwkNode = node.isObject() ? node.get("jwk") : null;
+        return new HolderKey(Map.of("jwk", validateAndCanonicalizeJwk(node)));
+    }
+
+    /**
+     * Re-validates a {@code cnf} claim as the issuance row stores it, {@code {"jwk": {...}}} (the
+     * output of {@link #fromRequest}), and returns it canonicalized. Read by {@link
+     * es.in2.issuer.backend.shared.domain.model.dto.credential.HolderCnfJson} only.
+     */
+    public static HolderKey fromCnf(JsonNode node) {
+        JsonNode jwkNode = node != null && node.isObject() ? node.get("jwk") : null;
         if (jwkNode == null || jwkNode.isNull()) {
-            throw new InvalidHolderKeyException("invalid holder_key: expected a jwk member");
+            throw new InvalidHolderKeyException("invalid holder cnf: expected a jwk member");
         }
         return new HolderKey(Map.of("jwk", validateAndCanonicalizeJwk(jwkNode)));
     }

@@ -31,7 +31,7 @@ class CredentialOfferRenewalErrorHandlingTest {
 
     @BeforeEach
     void setUp() {
-        handler = new IssuanceExceptionHandler(new ErrorResponseFactory());
+        handler = new IssuanceExceptionHandler(new ErrorResponseFactory(), 5);
         request = MockServerHttpRequest.post("/api/v1/issuances/" + ID + "/credential-offer").build();
     }
 

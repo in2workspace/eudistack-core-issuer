@@ -23,7 +23,6 @@ import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -67,7 +66,6 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
 
     private final AuthorizationMatrixProvider matrixProvider;
     private final CallerProvider callerProvider;
-    private final TenantCredentialProfileService tenantCredentialProfileService;
     private final AuditService auditService;
     private final AuditTrailPort auditTrail;
     private final ObjectMapper objectMapper;
@@ -186,11 +184,10 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         }
         trace.action(String.join(",", actionIds));
 
-        return requireTypeEnabled(credentialConfigurationId, trace)
-                .then(Mono.fromSupplier(() -> {
-                    permit(trace);
-                    return new IssuanceAuthorization(recognized, organization, actionIds);
-                }));
+        // Whether the tenant issues the type is the catalog's decision, checked by the issuance before
+        // the schema and this decision (EUD-254 §3; EUD-253 1.0.0 retired its AC-15).
+        permit(trace);
+        return Mono.just(new IssuanceAuthorization(recognized, organization, actionIds));
     }
 
     @Override
@@ -202,7 +199,8 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
 
     /**
      * The actions of {@link #decideIssuance} on a stored process -- base, E2, grants -- then the alias
-     * check of {@link #decideIssuance} and the type. The caller decides first, without the stored type
+     * check of {@link #decideIssuance}. Whether the type is still enabled in the tenant is not a decision by
+     * powers: the renewal checks it after this (EUD-268, decision of the Tech Lead). The caller decides first, without the stored type
      * or content, whether it may issue anything and whether it has scope (E2) on the process, so a
      * denial here only reaches who may issue in its organization (EUD-295 ac.md, "Permiso y ámbito").
      * A denied E2 still reads as not found, in case a caller does not check the scope first.
@@ -245,11 +243,8 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                             "a field and its tmf_ alias must have the same value"))));
         }
 
-        return requireTypeEnabled(credentialConfigurationId, trace)
-                .then(Mono.fromSupplier(() -> {
-                    permit(trace);
-                    return new IssuanceAuthorization(recognized, organization, actionIds);
-                }));
+        permit(trace);
+        return Mono.just(new IssuanceAuthorization(recognized, organization, actionIds));
     }
 
     /**
@@ -433,18 +428,6 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         }
     }
 
-    /** FR-07: only the types enabled in the tenant are issued. */
-    private Mono<Void> requireTypeEnabled(String credentialConfigurationId, Trace trace) {
-        return tenantCredentialProfileService.isProfileAllowed(credentialConfigurationId)
-                .flatMap(allowed -> {
-                    if (Boolean.TRUE.equals(allowed)) {
-                        return Mono.empty();
-                    }
-                    return Mono.error(deny(trace, Reason.CREDENTIAL_TYPE_NOT_ENABLED,
-                            "credential type " + credentialConfigurationId + " is not enabled in the tenant"));
-                });
-    }
-
     /** The tenant of the request, set from {@code X-Tenant} by {@code TenantDomainWebFilter} (FR-01). */
     private static Mono<String> requestTenant() {
         return Mono.deferContextual(ctx -> {
@@ -534,8 +517,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             if (Reason.PLATFORM_TENANT_READ_ONLY.getCode().equals(code)) {
                 return Optional.of(AuthorizationAuditEvents.REASON_PLATFORM_TENANT_READ_ONLY);
             }
-            if (POWER_ALIAS_CONFLICT.equals(code) || Reason.AUTHORIZATION_RULE_MISSING.getCode().equals(code)
-                    || Reason.CREDENTIAL_TYPE_NOT_ENABLED.getCode().equals(code)) {
+            if (POWER_ALIAS_CONFLICT.equals(code) || Reason.AUTHORIZATION_RULE_MISSING.getCode().equals(code)) {
                 return Optional.empty();
             }
             return Optional.of(AuthorizationAuditEvents.REASON_POWER_MISSING);
