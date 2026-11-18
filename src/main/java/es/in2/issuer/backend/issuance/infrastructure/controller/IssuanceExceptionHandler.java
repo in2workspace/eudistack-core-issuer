@@ -18,7 +18,6 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidValidityException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.UnknownOrganizationException;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
-import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
