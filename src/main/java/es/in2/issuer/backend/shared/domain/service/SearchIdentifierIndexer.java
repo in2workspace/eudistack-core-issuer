@@ -42,8 +42,10 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  *       key cannot be read, nothing is written.</li>
  *   <li><b>In the background</b> ({@link #reindexTenant}): the processes already issued are fingerprinted again
  *       from the attestation data each one stores, for every entry that has not been indexed yet (the initial load),
- *       whose identifiers changed (one added, changed or removed), or whose tenant key was rotated. It runs once a
- *       catalog change commits ({@link #reindexInBackground}) and periodically, which also retries what failed.</li>
+ *       whose identifiers changed (one added, changed or removed), or whose tenant key was rotated. Each fingerprint
+ *       records the key it was computed with, so a process fingerprinted with a rotated key by an instance that had
+ *       not read the new one yet is also computed again. It runs once a catalog change commits
+ *       ({@link #reindexInBackground}) and periodically, which also retries what failed.</li>
  * </ul>
  * Neither a value nor a fingerprint is logged, returned or traced.
  */
@@ -92,11 +94,14 @@ public class SearchIdentifierIndexer {
                     .defaultIfEmpty(List.of())
                     .flatMap(identifiers -> identifiers.isEmpty()
                             ? issuancePort.insert(issuance)
-                            : tenantSecretKeyPort.keyOf(tenant)
-                                    .map(key -> fingerprintsOf(key, identifiers, issuance.getCredentialDataSet()))
-                                    .flatMap(fingerprints -> issuancePort.insert(issuance)
-                                            .flatMap(saved -> store.insertAll(saved.getIssuanceId(), fingerprints)
-                                                    .thenReturn(saved))));
+                            : tenantSecretKeyPort.keyOf(tenant).flatMap(key -> {
+                                List<SearchIdentifierFingerprint> fingerprints =
+                                        fingerprintsOf(key, identifiers, issuance.getCredentialDataSet());
+                                String keyId = SearchIdentifierFingerprinter.keyId(key);
+                                return issuancePort.insert(issuance)
+                                        .flatMap(saved -> store.insertAll(saved.getIssuanceId(), keyId, fingerprints)
+                                                .thenReturn(saved));
+                            }));
             return transactionalOperator.transactional(write)
                     .doOnSuccess(saved -> log.info("Created issuance: {}", saved.getIssuanceId()));
         });
@@ -162,14 +167,27 @@ public class SearchIdentifierIndexer {
             Mono<Map<String, SearchIdentifierIndexState>> states = store.findAllStates()
                     .collectMap(SearchIdentifierIndexState::credentialConfigurationId, Function.identity());
             Mono<List<CatalogEntry>> entries = catalogEntryPort.findAll().collectList();
-            // The key is read only if an entry declares identifiers, and once per run.
-            Mono<byte[]> key = Mono.defer(() -> tenantSecretKeyPort.keyOf(tenant)).cache();
+            // The key is read only if an entry declares identifiers, and once per run. When an entry was indexed
+            // with another key, the key may have been rotated since this instance read it: it is read again from
+            // its source (once per run) before indexing, so instances with a cached old key and with the new one do
+            // not index the tenant back and forth until the cache expires.
+            Mono<byte[]> cachedKey = Mono.defer(() -> tenantSecretKeyPort.keyOf(tenant)).cache();
+            Mono<byte[]> refreshedKey = Mono.defer(() -> tenantSecretKeyPort.refreshedKeyOf(tenant)).cache();
             return Mono.zip(entries, states)
                     .flatMapMany(both -> Flux.fromIterable(both.getT1())
-                            .concatMap(entry -> reindexIfStale(entry, both.getT2().get(entry.credentialConfigurationId()),
-                                    key)))
+                            .concatMap(entry -> {
+                                SearchIdentifierIndexState state = both.getT2().get(entry.credentialConfigurationId());
+                                Mono<byte[]> key = cachedKey.flatMap(cached ->
+                                        indexedWithAnotherKey(state, cached) ? refreshedKey : Mono.just(cached));
+                                return reindexIfStale(entry, state, key);
+                            }))
                     .then();
         });
+    }
+
+    private static boolean indexedWithAnotherKey(SearchIdentifierIndexState state, byte[] key) {
+        return state != null && state.keyId() != null
+                && !state.keyId().equals(SearchIdentifierFingerprinter.keyId(key));
     }
 
     private Mono<Void> reindexIfStale(CatalogEntry entry, SearchIdentifierIndexState state, Mono<byte[]> key) {
@@ -187,36 +205,51 @@ public class SearchIdentifierIndexer {
         return key.flatMap(tenantKey -> {
             String keyId = SearchIdentifierFingerprinter.keyId(tenantKey);
             if (state != null && signature.equals(state.searchIdentifiers()) && keyId.equals(state.keyId())) {
-                return Mono.empty();
+                // Indexed with these identifiers and this key. A process can still carry a fingerprint of a rotated
+                // key, written by an instance that had not read the new key yet: those are computed again.
+                return reindexPages(entry, tenantKey, keyId,
+                        after -> store.processesWithAnotherKey(id, keyId, after, PAGE_SIZE))
+                        .doOnNext(count -> {
+                            if (count > 0) {
+                                log.info("Search identifiers of entry '{}' computed again with the current key for {}"
+                                        + " process(es) fingerprinted with another one", id, count);
+                            }
+                        })
+                        .then();
             }
-            return reindexEntry(entry, tenantKey)
+            return reindexPages(entry, tenantKey, keyId, after -> store.processesOfType(id, after, PAGE_SIZE))
                     .flatMap(count -> store.saveState(new SearchIdentifierIndexState(id, signature, keyId))
                             .doOnSuccess(done -> log.info(
                                     "Search identifiers of entry '{}' computed for {} issued process(es)", id, count)));
         });
     }
 
-    /** Fingerprints again every process of the entry, page by page; emits how many processes it went through. */
-    private Mono<Long> reindexEntry(CatalogEntry entry, byte[] tenantKey) {
-        return page(entry, tenantKey, null, 0L);
+    /**
+     * Fingerprints again, page by page, the processes of the entry that {@code pages} gives (the page after an id,
+     * {@code null} for the first one); emits how many processes it went through.
+     */
+    private Mono<Long> reindexPages(CatalogEntry entry, byte[] tenantKey, String keyId,
+                                    Function<UUID, Flux<StoredAttestation>> pages) {
+        return page(entry, tenantKey, keyId, pages, null, 0L);
     }
 
-    private Mono<Long> page(CatalogEntry entry, byte[] tenantKey, UUID after, long done) {
-        return store.processesOfType(entry.credentialConfigurationId(), after, PAGE_SIZE).collectList()
+    private Mono<Long> page(CatalogEntry entry, byte[] tenantKey, String keyId,
+                            Function<UUID, Flux<StoredAttestation>> pages, UUID after, long done) {
+        return pages.apply(after).collectList()
                 .flatMap(processes -> {
                     if (processes.isEmpty()) {
                         return Mono.just(done);
                     }
                     UUID last = processes.getLast().issuanceId();
                     return Flux.fromIterable(processes)
-                            .concatMap(process -> reindexProcess(entry, tenantKey, process))
+                            .concatMap(process -> reindexProcess(entry, tenantKey, keyId, process))
                             .then(Mono.defer(() -> processes.size() < PAGE_SIZE
                                     ? Mono.just(done + processes.size())
-                                    : page(entry, tenantKey, last, done + processes.size())));
+                                    : page(entry, tenantKey, keyId, pages, last, done + processes.size())));
                 });
     }
 
-    private Mono<Void> reindexProcess(CatalogEntry entry, byte[] tenantKey, StoredAttestation process) {
+    private Mono<Void> reindexProcess(CatalogEntry entry, byte[] tenantKey, String keyId, StoredAttestation process) {
         List<SearchIdentifierFingerprint> fingerprints;
         try {
             fingerprints = fingerprintsOf(tenantKey, entry.searchIdentifiers(), process.credentialDataSet());
@@ -226,7 +259,7 @@ public class SearchIdentifierIndexer {
                     process.issuanceId());
             return Mono.empty();
         }
-        return transactionalOperator.transactional(store.replaceAll(process.issuanceId(), fingerprints));
+        return transactionalOperator.transactional(store.replaceAll(process.issuanceId(), keyId, fingerprints));
     }
 
     // ---- shared -----------------------------------------------------------------------------------------------

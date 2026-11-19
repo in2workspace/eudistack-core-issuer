@@ -25,6 +25,8 @@ import java.util.regex.Pattern;
  *
  * <p>Keys are kept in a Caffeine cache bounded in size and time (SEC-27): at most {@value #MAX_TENANTS} tenants, an
  * hour after being read. A key that is not found or cannot be read is not cached, so the next request reads again.
+ * {@link #refreshedKeyOf} skips the cache and replaces what it holds: a rotated key is picked up on the next
+ * background calculation instead of an hour later.
  * The client is built on the first read, on a scheduler that may block (resolving the region may query the instance
  * metadata), like the KMS one. Neither the key nor the parameter value is ever logged.
  */
@@ -53,11 +55,21 @@ public class SsmTenantSecretKeyAdapter implements TenantSecretKeyPort {
 
     @Override
     public Mono<byte[]> keyOf(String tenant) {
+        return read(tenant, true);
+    }
+
+    /** Reads the parameter again, so a rotated key is used before the cached one expires. */
+    @Override
+    public Mono<byte[]> refreshedKeyOf(String tenant) {
+        return read(tenant, false);
+    }
+
+    private Mono<byte[]> read(String tenant, boolean fromCache) {
         return Mono.defer(() -> {
             if (tenant == null || !TENANT.matcher(tenant).matches()) {
                 return Mono.error(new TenantSecretKeyUnavailableException("Not a tenant whose secret key can be read"));
             }
-            byte[] cached = keys.getIfPresent(tenant);
+            byte[] cached = fromCache ? keys.getIfPresent(tenant) : null;
             if (cached != null) {
                 return Mono.just(cached.clone());
             }

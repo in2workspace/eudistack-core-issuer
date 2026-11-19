@@ -56,6 +56,22 @@ class SsmTenantSecretKeyAdapterTest {
     }
 
     @Test
+    void refreshedKeyOf_readsTheParameterAgain_andReplacesTheCachedKey() {
+        byte[] rotated = "the-rotated-tenant-key-32-bytes!".getBytes(StandardCharsets.UTF_8);
+        when(ssm.getParameter(any(GetParameterRequest.class)))
+                .thenReturn(value(Base64.getEncoder().encodeToString(KEY)))
+                .thenReturn(value(Base64.getEncoder().encodeToString(rotated)));
+        SsmTenantSecretKeyAdapter adapter = adapter(PARAMETER);
+        StepVerifier.create(adapter.keyOf("cgcom")).assertNext(key -> assertThat(key).isEqualTo(KEY)).verifyComplete();
+
+        StepVerifier.create(adapter.refreshedKeyOf("cgcom"))
+                .assertNext(key -> assertThat(key).isEqualTo(rotated)).verifyComplete();
+        // The cache now holds the rotated key.
+        StepVerifier.create(adapter.keyOf("cgcom")).assertNext(key -> assertThat(key).isEqualTo(rotated)).verifyComplete();
+        verify(ssm, times(2)).getParameter(any(GetParameterRequest.class));
+    }
+
+    @Test
     void keyOf_aMissingParameter_isUnavailable_andNotCached() {
         when(ssm.getParameter(any(GetParameterRequest.class)))
                 .thenReturn(CompletableFuture.failedFuture(ParameterNotFoundException.builder().message("nope").build()))

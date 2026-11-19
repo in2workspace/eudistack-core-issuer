@@ -24,9 +24,11 @@ public class R2dbcSearchIdentifierStore implements SearchIdentifierStore {
     private static final String ISSUANCE_ID = "issuanceId";
     private static final String TYPE = "type";
 
+    private static final String KEY_ID = "keyId";
+
     private static final String INSERT_SQL = """
-            INSERT INTO issuance_search_identifier (issuance_id, identifier_type, fingerprint)
-            VALUES (:issuanceId, :type, :fingerprint)
+            INSERT INTO issuance_search_identifier (issuance_id, identifier_type, fingerprint, key_id)
+            VALUES (:issuanceId, :type, :fingerprint, :keyId)
             """;
 
     private static final String DELETE_OF_PROCESS_SQL =
@@ -45,6 +47,19 @@ public class R2dbcSearchIdentifierStore implements SearchIdentifierStore {
             LIMIT :limit
             """;
 
+    // Driven by the index on key_id: written as two ranges, so the usual case (every fingerprint with the current
+    // key) reads no row of issuance_search_identifier.
+    private static final String PROCESSES_WITH_ANOTHER_KEY_SQL = """
+            SELECT i.issuance_id, i.credential_data_set FROM issuance i
+            WHERE i.issuance_id IN (
+                    SELECT s.issuance_id FROM issuance_search_identifier s
+                    WHERE s.key_id < :keyId OR s.key_id > :keyId)
+              AND i.credential_type = :type
+              AND (CAST(:after AS uuid) IS NULL OR i.issuance_id > CAST(:after AS uuid))
+            ORDER BY i.issuance_id
+            LIMIT :limit
+            """;
+
     private static final String SAVE_STATE_SQL = """
             INSERT INTO search_identifier_index_state
                 (credential_configuration_id, search_identifiers, key_id, indexed_at)
@@ -58,24 +73,35 @@ public class R2dbcSearchIdentifierStore implements SearchIdentifierStore {
     private final DatabaseClient databaseClient;
 
     @Override
-    public Mono<Void> insertAll(UUID issuanceId, List<SearchIdentifierFingerprint> fingerprints) {
+    public Mono<Void> insertAll(UUID issuanceId, String keyId, List<SearchIdentifierFingerprint> fingerprints) {
         return Flux.fromIterable(fingerprints)
                 .concatMap(fingerprint -> databaseClient.sql(INSERT_SQL)
                         .bind(ISSUANCE_ID, issuanceId)
                         .bind(TYPE, fingerprint.identifierType())
                         .bind("fingerprint", fingerprint.fingerprint())
+                        .bind(KEY_ID, keyId)
                         .fetch()
                         .rowsUpdated())
                 .then();
     }
 
     @Override
-    public Mono<Void> replaceAll(UUID issuanceId, List<SearchIdentifierFingerprint> fingerprints) {
+    public Mono<Void> replaceAll(UUID issuanceId, String keyId, List<SearchIdentifierFingerprint> fingerprints) {
         return databaseClient.sql(DELETE_OF_PROCESS_SQL)
                 .bind(ISSUANCE_ID, issuanceId)
                 .fetch()
                 .rowsUpdated()
-                .then(insertAll(issuanceId, fingerprints));
+                .then(insertAll(issuanceId, keyId, fingerprints));
+    }
+
+    @Override
+    public Flux<StoredAttestation> processesWithAnotherKey(String credentialType, String keyId, UUID after,
+                                                           int limit) {
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(PROCESSES_WITH_ANOTHER_KEY_SQL)
+                .bind(TYPE, credentialType)
+                .bind(KEY_ID, keyId)
+                .bind("limit", limit);
+        return storedAttestations(spec, after);
     }
 
     @Override
@@ -92,8 +118,13 @@ public class R2dbcSearchIdentifierStore implements SearchIdentifierStore {
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(PROCESSES_SQL)
                 .bind(TYPE, credentialType)
                 .bind("limit", limit);
-        spec = after == null ? spec.bindNull("after", String.class) : spec.bind("after", after.toString());
-        return spec.map((row, metadata) -> new StoredAttestation(
+        return storedAttestations(spec, after);
+    }
+
+    private static Flux<StoredAttestation> storedAttestations(DatabaseClient.GenericExecuteSpec spec, UUID after) {
+        DatabaseClient.GenericExecuteSpec bound =
+                after == null ? spec.bindNull("after", String.class) : spec.bind("after", after.toString());
+        return bound.map((row, metadata) -> new StoredAttestation(
                         row.get("issuance_id", UUID.class), row.get("credential_data_set", String.class)))
                 .all();
     }
@@ -114,7 +145,7 @@ public class R2dbcSearchIdentifierStore implements SearchIdentifierStore {
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(SAVE_STATE_SQL)
                 .bind("id", state.credentialConfigurationId())
                 .bind("identifiers", state.searchIdentifiers());
-        spec = state.keyId() == null ? spec.bindNull("keyId", String.class) : spec.bind("keyId", state.keyId());
+        spec = state.keyId() == null ? spec.bindNull(KEY_ID, String.class) : spec.bind(KEY_ID, state.keyId());
         return spec.fetch().rowsUpdated().then();
     }
 }

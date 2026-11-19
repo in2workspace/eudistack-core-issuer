@@ -14,11 +14,26 @@ import java.util.UUID;
  */
 public interface SearchIdentifierStore {
 
-    /** Stores the fingerprints of a new process. Runs in the transaction that inserts the process. */
-    Mono<Void> insertAll(UUID issuanceId, List<SearchIdentifierFingerprint> fingerprints);
+    /**
+     * Stores the fingerprints of a new process. Runs in the transaction that inserts the process.
+     *
+     * @param keyId {@link es.in2.issuer.backend.shared.domain.model.searchidentifier.SearchIdentifierFingerprinter#keyId}
+     *              of the tenant key the fingerprints were computed with
+     */
+    Mono<Void> insertAll(UUID issuanceId, String keyId, List<SearchIdentifierFingerprint> fingerprints);
 
-    /** Replaces every fingerprint of a process with these ones (none: the process has no fingerprint left). */
-    Mono<Void> replaceAll(UUID issuanceId, List<SearchIdentifierFingerprint> fingerprints);
+    /**
+     * Replaces every fingerprint of a process with these ones, computed with the key {@code keyId} (none: the
+     * process has no fingerprint left).
+     */
+    Mono<Void> replaceAll(UUID issuanceId, String keyId, List<SearchIdentifierFingerprint> fingerprints);
+
+    /**
+     * A page of the processes of a credential type with at least one fingerprint computed with another key than
+     * {@code keyId}, by ascending id: those after {@code after} ({@code null} for the first page), at most
+     * {@code limit}.
+     */
+    Flux<StoredAttestation> processesWithAnotherKey(String credentialType, String keyId, UUID after, int limit);
 
     /** Deletes the fingerprints of every process of a credential type. */
     Mono<Void> deleteAllOfType(String credentialType);

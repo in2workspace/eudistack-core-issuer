@@ -22,6 +22,8 @@ class R2dbcSearchIdentifierStoreIT extends PostgresIntegrationBase {
 
     private static final String TENANT = "e2e-tenant-a";
     private static final String SCHEMA = "\"" + TENANT + SCHEMA_SUFFIX + "\"";
+    private static final String KEY_ID = "0011223344556677";
+    private static final String ROTATED_KEY_ID = "8899aabbccddeeff";
 
     @Autowired private R2dbcSearchIdentifierStore store;
 
@@ -64,22 +66,22 @@ class R2dbcSearchIdentifierStoreIT extends PostgresIntegrationBase {
     void insertAll_andReplaceAll_keepOneFingerprintPerIdentifierOfAProcess() {
         UUID id = process(type(), "{}");
 
-        inTenant(store.insertAll(id, List.of(fingerprint("dni", 1), fingerprint("colegiado", 2))));
+        inTenant(store.insertAll(id, KEY_ID, List.of(fingerprint("dni", 1), fingerprint("colegiado", 2))));
         assertThat(typesOf(id)).containsExactly("colegiado", "dni");
 
-        inTenant(store.replaceAll(id, List.of(fingerprint("dni", 3))));
+        inTenant(store.replaceAll(id, KEY_ID, List.of(fingerprint("dni", 3))));
         assertThat(typesOf(id)).containsExactly("dni");
 
-        inTenant(store.replaceAll(id, List.of()));
+        inTenant(store.replaceAll(id, KEY_ID, List.of()));
         assertThat(typesOf(id)).isEmpty();
     }
 
     @Test
     void aProcessHasAtMostOneFingerprintPerIdentifier_andTheyGoWithIt() {
         UUID id = process(type(), "{}");
-        inTenant(store.insertAll(id, List.of(fingerprint("dni", 1))));
+        inTenant(store.insertAll(id, KEY_ID, List.of(fingerprint("dni", 1))));
 
-        assertThatThrownBy(() -> inTenant(store.insertAll(id, List.of(fingerprint("dni", 2)))))
+        assertThatThrownBy(() -> inTenant(store.insertAll(id, KEY_ID, List.of(fingerprint("dni", 2)))))
                 .isInstanceOf(RuntimeException.class);
 
         databaseClient.sql("DELETE FROM " + SCHEMA + ".issuance WHERE issuance_id = :id").bind("id", id).then().block();
@@ -91,8 +93,8 @@ class R2dbcSearchIdentifierStoreIT extends PostgresIntegrationBase {
         String type = type();
         UUID ofType = process(type, "{}");
         UUID ofAnother = process(type(), "{}");
-        inTenant(store.insertAll(ofType, List.of(fingerprint("dni", 1))));
-        inTenant(store.insertAll(ofAnother, List.of(fingerprint("dni", 1))));
+        inTenant(store.insertAll(ofType, KEY_ID, List.of(fingerprint("dni", 1))));
+        inTenant(store.insertAll(ofAnother, KEY_ID, List.of(fingerprint("dni", 1))));
 
         inTenant(store.deleteAllOfType(type));
 
@@ -115,6 +117,47 @@ class R2dbcSearchIdentifierStoreIT extends PostgresIntegrationBase {
         assertThat(java.util.stream.Stream.concat(first.stream(), rest.stream()).map(StoredAttestation::issuanceId))
                 .containsExactlyInAnyOrderElementsOf(ids);
         assertThat(first.getFirst().credentialDataSet()).startsWith("{\"a\":");
+    }
+
+    @Test
+    void processesWithAnotherKey_findsOnlyTheProcessesOfTheTypeWithAFingerprintOfAnotherKey() {
+        String type = type();
+        UUID current = process(type, "{\"a\":1}");
+        UUID rotated = process(type, "{\"a\":2}");
+        UUID partlyRotated = process(type, "{\"a\":3}");
+        UUID withoutFingerprints = process(type, "{\"a\":4}");
+        UUID rotatedOfAnotherType = process(type(), "{}");
+        inTenant(store.insertAll(current, ROTATED_KEY_ID, List.of(fingerprint("dni", 1))));
+        inTenant(store.insertAll(rotated, KEY_ID, List.of(fingerprint("dni", 2))));
+        inTenant(store.insertAll(partlyRotated, ROTATED_KEY_ID, List.of(fingerprint("dni", 3))));
+        inTenant(store.insertAll(partlyRotated, KEY_ID, List.of(fingerprint("colegiado", 3))));
+        inTenant(store.insertAll(rotatedOfAnotherType, KEY_ID, List.of(fingerprint("dni", 4))));
+
+        List<StoredAttestation> found = inTenant(store.processesWithAnotherKey(type, ROTATED_KEY_ID, null, 10));
+
+        assertThat(found).extracting(StoredAttestation::issuanceId)
+                .containsExactlyInAnyOrder(rotated, partlyRotated)
+                .doesNotContain(current, withoutFingerprints, rotatedOfAnotherType);
+        assertThat(found).allSatisfy(process -> assertThat(process.credentialDataSet()).startsWith("{\"a\":"));
+    }
+
+    @Test
+    void processesWithAnotherKey_noneLeftOnceReplacedWithTheCurrentKey_andPagesAfterAnId() {
+        String type = type();
+        UUID first = process(type, "{}");
+        UUID second = process(type, "{}");
+        inTenant(store.insertAll(first, KEY_ID, List.of(fingerprint("dni", 1))));
+        inTenant(store.insertAll(second, KEY_ID, List.of(fingerprint("dni", 2))));
+
+        List<StoredAttestation> page = inTenant(store.processesWithAnotherKey(type, ROTATED_KEY_ID, null, 1));
+        List<StoredAttestation> next =
+                inTenant(store.processesWithAnotherKey(type, ROTATED_KEY_ID, page.getFirst().issuanceId(), 1));
+        assertThat(java.util.stream.Stream.concat(page.stream(), next.stream()).map(StoredAttestation::issuanceId))
+                .containsExactlyInAnyOrder(first, second);
+
+        inTenant(store.replaceAll(first, ROTATED_KEY_ID, List.of(fingerprint("dni", 5))));
+        inTenant(store.replaceAll(second, ROTATED_KEY_ID, List.of(fingerprint("dni", 6))));
+        assertThat(inTenant(store.processesWithAnotherKey(type, ROTATED_KEY_ID, null, 10))).isEmpty();
     }
 
     @Test

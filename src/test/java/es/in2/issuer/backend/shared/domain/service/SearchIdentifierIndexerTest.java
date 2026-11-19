@@ -54,6 +54,7 @@ class SearchIdentifierIndexerTest {
     private static final String TYPE = "doctorid.sd.1";
     private static final byte[] KEY = "a-tenant-secret-key-of-32-bytes!".getBytes(StandardCharsets.UTF_8);
     private static final byte[] ROTATED_KEY = "the-rotated-tenant-key-32-bytes!".getBytes(StandardCharsets.UTF_8);
+    private static final String KEY_ID = SearchIdentifierFingerprinter.keyId(KEY);
     private static final CatalogEntry.SearchIdentifier DNI =
             new CatalogEntry.SearchIdentifier("dni", ClaimPath.of("credentialSubject", "dni"));
     private static final CatalogEntry.SearchIdentifier COLEGIADO =
@@ -74,8 +75,12 @@ class SearchIdentifierIndexerTest {
                 transactionalOperator, new ObjectMapper());
         lenient().when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(store.saveState(any())).thenReturn(Mono.empty());
-        lenient().when(store.replaceAll(any(), anyList())).thenReturn(Mono.empty());
+        lenient().when(store.replaceAll(any(), anyString(), anyList())).thenReturn(Mono.empty());
         lenient().when(store.deleteAllOfType(anyString())).thenReturn(Mono.empty());
+        lenient().when(store.processesWithAnotherKey(anyString(), anyString(), any(), anyInt())).thenReturn(Flux.empty());
+        // Without a cache, reading the key again gives the same key.
+        lenient().when(tenantSecretKeyPort.refreshedKeyOf(anyString()))
+                .thenAnswer(inv -> tenantSecretKeyPort.keyOf(inv.getArgument(0)));
     }
 
     private static CatalogEntry entry(List<CatalogEntry.SearchIdentifier> identifiers) {
@@ -102,13 +107,13 @@ class SearchIdentifierIndexerTest {
         when(catalogEntryPort.findByIdForShare(TYPE)).thenReturn(Mono.just(entry(List.of(DNI, COLEGIADO))));
         when(tenantSecretKeyPort.keyOf(TENANT)).thenReturn(Mono.just(KEY));
         when(issuancePort.insert(issuance)).thenReturn(Mono.just(issuance));
-        when(store.insertAll(any(), anyList())).thenReturn(Mono.empty());
+        when(store.insertAll(any(), anyString(), anyList())).thenReturn(Mono.empty());
 
         StepVerifier.create(inTenant(indexer.saveWithFingerprints(issuance))).expectNext(issuance).verifyComplete();
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SearchIdentifierFingerprint>> stored = ArgumentCaptor.forClass(List.class);
-        verify(store).insertAll(eq(issuance.getIssuanceId()), stored.capture());
+        verify(store).insertAll(eq(issuance.getIssuanceId()), eq(KEY_ID), stored.capture());
         assertThat(stored.getValue()).containsExactly(
                 new SearchIdentifierFingerprint("dni", fingerprint(KEY, "12345678Z")),
                 new SearchIdentifierFingerprint("colegiado", fingerprint(KEY, "28/12345")));
@@ -121,11 +126,11 @@ class SearchIdentifierIndexerTest {
         when(catalogEntryPort.findByIdForShare(TYPE)).thenReturn(Mono.just(entry(List.of(DNI, COLEGIADO))));
         when(tenantSecretKeyPort.keyOf(TENANT)).thenReturn(Mono.just(KEY));
         when(issuancePort.insert(issuance)).thenReturn(Mono.just(issuance));
-        when(store.insertAll(any(), anyList())).thenReturn(Mono.empty());
+        when(store.insertAll(any(), anyString(), anyList())).thenReturn(Mono.empty());
 
         StepVerifier.create(inTenant(indexer.saveWithFingerprints(issuance))).expectNextCount(1).verifyComplete();
 
-        verify(store).insertAll(issuance.getIssuanceId(),
+        verify(store).insertAll(issuance.getIssuanceId(), KEY_ID,
                 List.of(new SearchIdentifierFingerprint("dni", fingerprint(KEY, "12345678Z"))));
     }
 
@@ -138,7 +143,7 @@ class SearchIdentifierIndexerTest {
         StepVerifier.create(inTenant(indexer.saveWithFingerprints(issuance))).expectNext(issuance).verifyComplete();
 
         verify(tenantSecretKeyPort, never()).keyOf(anyString());
-        verify(store, never()).insertAll(any(), anyList());
+        verify(store, never()).insertAll(any(), anyString(), anyList());
     }
 
     @Test
@@ -149,7 +154,7 @@ class SearchIdentifierIndexerTest {
 
         StepVerifier.create(inTenant(indexer.saveWithFingerprints(issuance))).expectNext(issuance).verifyComplete();
 
-        verify(store, never()).insertAll(any(), anyList());
+        verify(store, never()).insertAll(any(), anyString(), anyList());
     }
 
     @Test
@@ -163,7 +168,7 @@ class SearchIdentifierIndexerTest {
                 .verifyError(TenantSecretKeyUnavailableException.class);
 
         verify(issuancePort, never()).insert(any());
-        verify(store, never()).insertAll(any(), anyList());
+        verify(store, never()).insertAll(any(), anyString(), anyList());
     }
 
     @Test
@@ -172,7 +177,7 @@ class SearchIdentifierIndexerTest {
         when(catalogEntryPort.findByIdForShare(TYPE)).thenReturn(Mono.just(entry(List.of(DNI))));
         when(tenantSecretKeyPort.keyOf(TENANT)).thenReturn(Mono.just(KEY));
         when(issuancePort.insert(issuance)).thenReturn(Mono.just(issuance));
-        when(store.insertAll(any(), anyList())).thenReturn(Mono.error(new IllegalStateException("db down")));
+        when(store.insertAll(any(), anyString(), anyList())).thenReturn(Mono.error(new IllegalStateException("db down")));
 
         StepVerifier.create(inTenant(indexer.saveWithFingerprints(issuance)))
                 .verifyErrorMessage("db down");
@@ -210,10 +215,10 @@ class SearchIdentifierIndexerTest {
 
         StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
 
-        verify(store).replaceAll(first, List.of(
+        verify(store).replaceAll(first, KEY_ID, List.of(
                 new SearchIdentifierFingerprint("dni", fingerprint(KEY, "12345678Z")),
                 new SearchIdentifierFingerprint("colegiado", fingerprint(KEY, "28/12345"))));
-        verify(store).replaceAll(second, List.of(new SearchIdentifierFingerprint("colegiado", fingerprint(KEY, "28/1"))));
+        verify(store).replaceAll(second, KEY_ID, List.of(new SearchIdentifierFingerprint("colegiado", fingerprint(KEY, "28/1"))));
         verify(store).saveState(new SearchIdentifierIndexState(TYPE,
                 SearchIdentifierIndexer.signatureOf(List.of(DNI, COLEGIADO)), SearchIdentifierFingerprinter.keyId(KEY)));
     }
@@ -228,7 +233,80 @@ class SearchIdentifierIndexerTest {
         StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
 
         verify(store, never()).processesOfType(anyString(), any(), anyInt());
+        verify(store).processesWithAnotherKey(TYPE, KEY_ID, null, SearchIdentifierIndexer.PAGE_SIZE);
+        verify(store, never()).replaceAll(any(), anyString(), anyList());
         verify(store, never()).saveState(any());
+    }
+
+    @Test
+    void reindexTenant_anEntryUpToDate_fingerprintsAgainTheProcessesFingerprintedWithARotatedKey() {
+        // After a rotation, an instance that had not read the new key yet issued this process with the old one,
+        // once the entry was already recorded with the new key.
+        catalog(entry(List.of(DNI)));
+        states(new SearchIdentifierIndexState(TYPE, SearchIdentifierIndexer.signatureOf(List.of(DNI)),
+                SearchIdentifierFingerprinter.keyId(ROTATED_KEY)));
+        when(tenantSecretKeyPort.keyOf(TENANT)).thenReturn(Mono.just(ROTATED_KEY));
+        String rotatedKeyId = SearchIdentifierFingerprinter.keyId(ROTATED_KEY);
+        UUID issuedWithTheOldKey = UUID.randomUUID();
+        when(store.processesWithAnotherKey(eq(TYPE), eq(rotatedKeyId), isNull(), anyInt()))
+                .thenReturn(Flux.just(new StoredAttestation(issuedWithTheOldKey, BOTH)));
+
+        StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
+
+        verify(store).replaceAll(issuedWithTheOldKey, rotatedKeyId,
+                List.of(new SearchIdentifierFingerprint("dni", fingerprint(ROTATED_KEY, "12345678Z"))));
+        verify(store, never()).processesOfType(anyString(), any(), anyInt());
+        verify(store, never()).saveState(any());
+    }
+
+    @Test
+    void reindexTenant_anEntryIndexedWithAnotherKey_readsTheKeyAgain_andLeavesItAloneWhenItWasRotated() {
+        // This instance still has the old key cached; another one already indexed the entry with the rotated key.
+        catalog(entry(List.of(DNI)));
+        states(new SearchIdentifierIndexState(TYPE, SearchIdentifierIndexer.signatureOf(List.of(DNI)),
+                SearchIdentifierFingerprinter.keyId(ROTATED_KEY)));
+        when(tenantSecretKeyPort.keyOf(TENANT)).thenReturn(Mono.just(KEY));
+        when(tenantSecretKeyPort.refreshedKeyOf(TENANT)).thenReturn(Mono.just(ROTATED_KEY));
+
+        StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
+
+        // No full calculation back to the old key: only the processes of another key are looked for.
+        verify(store, never()).processesOfType(anyString(), any(), anyInt());
+        verify(store).processesWithAnotherKey(TYPE, SearchIdentifierFingerprinter.keyId(ROTATED_KEY), null,
+                SearchIdentifierIndexer.PAGE_SIZE);
+        verify(store, never()).saveState(any());
+    }
+
+    @Test
+    void reindexTenant_anEntryIndexedWithItsKey_doesNotReadTheKeyAgain() {
+        catalog(entry(List.of(DNI)));
+        states(new SearchIdentifierIndexState(TYPE, SearchIdentifierIndexer.signatureOf(List.of(DNI)), KEY_ID));
+        when(tenantSecretKeyPort.keyOf(TENANT)).thenReturn(Mono.just(KEY));
+
+        StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
+
+        verify(tenantSecretKeyPort, never()).refreshedKeyOf(anyString());
+    }
+
+    @Test
+    void reindexTenant_processesWithAnotherKey_goesThroughEveryPage() {
+        catalog(entry(List.of(DNI)));
+        states(new SearchIdentifierIndexState(TYPE, SearchIdentifierIndexer.signatureOf(List.of(DNI)), KEY_ID));
+        when(tenantSecretKeyPort.keyOf(TENANT)).thenReturn(Mono.just(KEY));
+        List<StoredAttestation> firstPage = new ArrayList<>();
+        IntStream.range(0, SearchIdentifierIndexer.PAGE_SIZE)
+                .forEach(i -> firstPage.add(new StoredAttestation(UUID.randomUUID(), BOTH)));
+        UUID lastOfFirstPage = firstPage.getLast().issuanceId();
+        UUID onSecondPage = UUID.randomUUID();
+        when(store.processesWithAnotherKey(eq(TYPE), eq(KEY_ID), isNull(), anyInt()))
+                .thenReturn(Flux.fromIterable(firstPage));
+        when(store.processesWithAnotherKey(TYPE, KEY_ID, lastOfFirstPage, SearchIdentifierIndexer.PAGE_SIZE))
+                .thenReturn(Flux.just(new StoredAttestation(onSecondPage, BOTH)));
+
+        StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
+
+        verify(store, times(SearchIdentifierIndexer.PAGE_SIZE + 1)).replaceAll(any(), eq(KEY_ID), anyList());
+        verify(store).replaceAll(eq(onSecondPage), eq(KEY_ID), anyList());
     }
 
     @Test
@@ -245,7 +323,7 @@ class SearchIdentifierIndexerTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SearchIdentifierFingerprint>> stored = ArgumentCaptor.forClass(List.class);
-        verify(store).replaceAll(eq(issued), stored.capture());
+        verify(store).replaceAll(eq(issued), eq(KEY_ID), stored.capture());
         assertThat(stored.getValue()).extracting(SearchIdentifierFingerprint::identifierType)
                 .containsExactly("dni", "colegiado");
     }
@@ -261,7 +339,7 @@ class SearchIdentifierIndexerTest {
 
         StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
 
-        verify(store).replaceAll(issued, List.of(new SearchIdentifierFingerprint("dni", fingerprint(ROTATED_KEY, "12345678Z"))));
+        verify(store).replaceAll(issued, SearchIdentifierFingerprinter.keyId(ROTATED_KEY), List.of(new SearchIdentifierFingerprint("dni", fingerprint(ROTATED_KEY, "12345678Z"))));
         verify(store).saveState(new SearchIdentifierIndexState(TYPE, SearchIdentifierIndexer.signatureOf(List.of(DNI)),
                 SearchIdentifierFingerprinter.keyId(ROTATED_KEY)));
     }
@@ -306,8 +384,8 @@ class SearchIdentifierIndexerTest {
 
         StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
 
-        verify(store, times(SearchIdentifierIndexer.PAGE_SIZE + 1)).replaceAll(any(), anyList());
-        verify(store).replaceAll(eq(onSecondPage), anyList());
+        verify(store, times(SearchIdentifierIndexer.PAGE_SIZE + 1)).replaceAll(any(), anyString(), anyList());
+        verify(store).replaceAll(eq(onSecondPage), anyString(), anyList());
     }
 
     @Test
@@ -322,8 +400,8 @@ class SearchIdentifierIndexerTest {
 
         StepVerifier.create(inTenant(indexer.reindexTenant())).verifyComplete();
 
-        verify(store, never()).replaceAll(eq(broken), anyList());
-        verify(store).replaceAll(eq(fine), anyList());
+        verify(store, never()).replaceAll(eq(broken), anyString(), anyList());
+        verify(store).replaceAll(eq(fine), anyString(), anyList());
         verify(store).saveState(any());
     }
 

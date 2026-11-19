@@ -28,6 +28,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 
@@ -156,7 +157,7 @@ class SearchIdentifierIndexerIT extends PostgresIntegrationBase {
         entry(type, List.of(DNI));
         Issuance issued = issuance(type, "{\"dni\":\"12345678Z\"}");
         doReturn(Mono.error(new IllegalStateException("fingerprint write failed")))
-                .when(store).insertAll(eq(issued.getIssuanceId()), anyList());
+                .when(store).insertAll(eq(issued.getIssuanceId()), anyString(), anyList());
 
         assertThatThrownBy(() -> inTenant(indexer.saveWithFingerprints(issued)))
                 .hasMessageContaining("fingerprint write failed");
@@ -196,5 +197,37 @@ class SearchIdentifierIndexerIT extends PostgresIntegrationBase {
 
         assertThat(fingerprintsOf(first.getIssuanceId())).isEmpty();
         assertThat(fingerprintsOf(second.getIssuanceId())).isEmpty();
+    }
+
+    @Test
+    void aProcessFingerprintedWithARotatedKey_afterItsEntryWasIndexed_isComputedAgainWithTheCurrentKey() {
+        // A key rotation with several instances: the entry is already indexed with the current key, and another
+        // instance, which still had the old key in its cache, stored a process with a fingerprint of that key.
+        String type = type();
+        entry(type, List.of(DNI));
+        Issuance upToDate = issuance(type, "{\"dni\":\"11111111H\"}");
+        Issuance withTheOldKey = issuance(type, "{\"dni\":\"22222222J\"}");
+        inTenant(indexer.saveWithFingerprints(upToDate));
+        inTenant(indexer.saveWithFingerprints(withTheOldKey));
+        inTenant(indexer.reindexTenant());
+        databaseClient.sql("UPDATE " + SCHEMA + ".issuance_search_identifier SET fingerprint = :old, key_id = 'old-key'"
+                        + " WHERE issuance_id = :id")
+                .bind("old", new byte[32])
+                .bind("id", withTheOldKey.getIssuanceId())
+                .then().block();
+
+        inTenant(indexer.reindexTenant());
+
+        assertThat(fingerprintsOf(withTheOldKey.getIssuanceId()).get("dni")).isEqualTo(expected("22222222J"));
+        assertThat(fingerprintsOf(upToDate.getIssuanceId()).get("dni")).isEqualTo(expected("11111111H"));
+        assertThat(keyIdsOf(withTheOldKey.getIssuanceId()))
+                .containsExactly(SearchIdentifierFingerprinter.keyId(inTenant(tenantSecretKeyPort.keyOf(TENANT))));
+    }
+
+    private List<String> keyIdsOf(UUID issuanceId) {
+        return databaseClient.sql("SELECT key_id FROM " + SCHEMA + ".issuance_search_identifier WHERE issuance_id = :id")
+                .bind("id", issuanceId)
+                .map((row, metadata) -> row.get("key_id", String.class))
+                .all().collectList().block();
     }
 }

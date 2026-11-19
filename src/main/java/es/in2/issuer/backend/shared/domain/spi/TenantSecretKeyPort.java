@@ -16,4 +16,13 @@ public interface TenantSecretKeyPort {
      *         the {@code Mono}) when the key is not configured or cannot be read
      */
     Mono<byte[]> keyOf(String tenant);
+
+    /**
+     * The key of the tenant read again from its source, skipping any cached copy, which is then replaced. Used when
+     * there are signs the key was rotated since it was read (another instance indexed with another key). By default,
+     * {@link #keyOf}: a source without cache is always current.
+     */
+    default Mono<byte[]> refreshedKeyOf(String tenant) {
+        return keyOf(tenant);
+    }
 }

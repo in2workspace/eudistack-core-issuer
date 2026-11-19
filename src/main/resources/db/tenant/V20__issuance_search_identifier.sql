@@ -13,10 +13,14 @@
 --                    database), of the normalized value: no whitespace and upper
 --                    case (Locale.ROOT), every other character kept. A blind
 --                    index: it is never decrypted, and the value is not stored.
+--   key_id           a fingerprint of the tenant key it was computed with (never
+--                    the key), so that one computed with a key since rotated is
+--                    found and computed again, whichever instance wrote it.
 CREATE TABLE IF NOT EXISTS issuance_search_identifier (
     issuance_id      UUID        NOT NULL REFERENCES issuance (issuance_id) ON DELETE CASCADE,
     identifier_type  VARCHAR(50) NOT NULL,
     fingerprint      BYTEA       NOT NULL,
+    key_id           VARCHAR(64) NOT NULL,
     PRIMARY KEY (issuance_id, identifier_type),
     CONSTRAINT chk_issuance_search_identifier_fingerprint CHECK (octet_length(fingerprint) = 32)
 );
@@ -24,6 +28,11 @@ CREATE TABLE IF NOT EXISTS issuance_search_identifier (
 -- The search of the query API: an identifier type and a fingerprint.
 CREATE INDEX IF NOT EXISTS idx_issuance_search_identifier_lookup
     ON issuance_search_identifier (identifier_type, fingerprint);
+
+-- The background calculation looks for the fingerprints of another key than the
+-- current one (key_id < k OR key_id > k): two range scans that touch only them.
+CREATE INDEX IF NOT EXISTS idx_issuance_search_identifier_key
+    ON issuance_search_identifier (key_id);
 
 -- What the fingerprints of the processes of each catalog entry were computed
 -- with, so that the background calculation knows what is still to do: an entry
