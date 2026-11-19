@@ -253,7 +253,7 @@ public class SearchIdentifierIndexer {
         List<SearchIdentifierFingerprint> fingerprints;
         try {
             fingerprints = fingerprintsOf(tenantKey, entry.searchIdentifiers(), process.credentialDataSet());
-        } catch (IllegalStateException e) {
+        } catch (IllegalStateException _) {
             // A process whose stored data is not an attestation cannot be searched; the others go on.
             log.warn("Search identifiers of process {} not computed: its attestation data cannot be read",
                     process.issuanceId());
@@ -273,7 +273,7 @@ public class SearchIdentifierIndexer {
         JsonNode attestation;
         try {
             attestation = objectMapper.readTree(credentialDataSet);
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException _) {
             // The message of the parser would quote the data: it is not kept.
             throw new IllegalStateException("The attestation data of the process is not JSON");
         }

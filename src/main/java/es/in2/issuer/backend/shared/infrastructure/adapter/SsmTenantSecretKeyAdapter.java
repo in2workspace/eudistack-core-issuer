@@ -108,7 +108,7 @@ public class SsmTenantSecretKeyAdapter implements TenantSecretKeyPort {
         byte[] key;
         try {
             key = Base64.getDecoder().decode(value == null ? "" : value.strip());
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             throw new TenantSecretKeyUnavailableException("The secret key of tenant '" + tenant + "' is not base64");
         }
         if (key.length < SearchIdentifierFingerprinter.FINGERPRINT_BYTES) {

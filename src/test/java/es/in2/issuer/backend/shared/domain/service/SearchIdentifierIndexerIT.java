@@ -126,9 +126,9 @@ class SearchIdentifierIndexerIT extends PostgresIntegrationBase {
 
         Map<String, byte[]> fingerprints = fingerprintsOf(issued.getIssuanceId());
         assertThat(fingerprints).containsOnlyKeys("dni", "colegiado");
-        assertThat(fingerprints.get("dni")).isEqualTo(expected("12345678z"));
+        assertThat(fingerprints).containsEntry("dni", expected("12345678z"));
         // Normalized as the client searches it: 28/12345.
-        assertThat(fingerprints.get("colegiado")).isEqualTo(expected("28/12345"));
+        assertThat(fingerprints).containsEntry("colegiado", expected("28/12345"));
         // Never the value in clear.
         assertThat(new String(fingerprints.get("dni"), StandardCharsets.ISO_8859_1)).doesNotContain("12345678");
     }
@@ -184,7 +184,7 @@ class SearchIdentifierIndexerIT extends PostgresIntegrationBase {
         inTenant(indexer.reindexTenant());
 
         assertThat(fingerprintsOf(first.getIssuanceId())).containsOnlyKeys("dni");
-        assertThat(fingerprintsOf(first.getIssuanceId()).get("dni")).isEqualTo(expected("11111111H"));
+        assertThat(fingerprintsOf(first.getIssuanceId())).containsEntry("dni", expected("11111111H"));
         assertThat(fingerprintsOf(second.getIssuanceId())).containsOnlyKeys("dni");
         assertThat(fingerprintsOf(withoutDni.getIssuanceId())).isEmpty();
 
@@ -218,8 +218,8 @@ class SearchIdentifierIndexerIT extends PostgresIntegrationBase {
 
         inTenant(indexer.reindexTenant());
 
-        assertThat(fingerprintsOf(withTheOldKey.getIssuanceId()).get("dni")).isEqualTo(expected("22222222J"));
-        assertThat(fingerprintsOf(upToDate.getIssuanceId()).get("dni")).isEqualTo(expected("11111111H"));
+        assertThat(fingerprintsOf(withTheOldKey.getIssuanceId())).containsEntry("dni", expected("22222222J"));
+        assertThat(fingerprintsOf(upToDate.getIssuanceId())).containsEntry("dni", expected("11111111H"));
         assertThat(keyIdsOf(withTheOldKey.getIssuanceId()))
                 .containsExactly(SearchIdentifierFingerprinter.keyId(inTenant(tenantSecretKeyPort.keyOf(TENANT))));
     }

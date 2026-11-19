@@ -81,7 +81,8 @@ class R2dbcSearchIdentifierStoreIT extends PostgresIntegrationBase {
         UUID id = process(type(), "{}");
         inTenant(store.insertAll(id, KEY_ID, List.of(fingerprint("dni", 1))));
 
-        assertThatThrownBy(() -> inTenant(store.insertAll(id, KEY_ID, List.of(fingerprint("dni", 2)))))
+        Mono<Void> secondOfTheSameType = store.insertAll(id, KEY_ID, List.of(fingerprint("dni", 2)));
+        assertThatThrownBy(() -> inTenant(secondOfTheSameType))
                 .isInstanceOf(RuntimeException.class);
 
         databaseClient.sql("DELETE FROM " + SCHEMA + ".issuance WHERE issuance_id = :id").bind("id", id).then().block();

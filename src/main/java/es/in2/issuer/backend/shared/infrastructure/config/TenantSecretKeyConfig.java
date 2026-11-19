@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Profile;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
 import software.amazon.awssdk.services.ssm.SsmAsyncClient;
 import software.amazon.awssdk.services.ssm.SsmAsyncClientBuilder;
 
@@ -59,7 +61,11 @@ public class TenantSecretKeyConfig {
     @Lazy
     @Bean(destroyMethod = "close")
     SsmAsyncClient ssmAsyncClient(SearchIdentifierProperties properties) {
+        // The region and credentials the SDK would resolve anyway (environment, then the ECS task or the instance),
+        // set explicitly so they are resolved once, here.
         SsmAsyncClientBuilder builder = SsmAsyncClient.builder()
+                .region(DefaultAwsRegionProviderChain.builder().build().getRegion())
+                .credentialsProvider(DefaultCredentialsProvider.builder().build())
                 .overrideConfiguration(c -> c.apiCallTimeout(API_CALL_TIMEOUT));
         if (properties.endpoint() != null) {
             builder.endpointOverride(properties.endpoint());
