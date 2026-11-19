@@ -274,7 +274,8 @@ issuer:
       read: { systems-per-organization: 300, per-person: 30 }
     request-control-cleanup-cron: ${ISSUER_API_REQUEST_CONTROL_CLEANUP_CRON:0 */10 * * * *}
   # EUD-267: the secret key of each tenant, for the fingerprints of the search identifiers. In AWS a SecureString of
-  # Parameter Store with 32 random bytes in base64, created by infra when the tenant is provisioned (EUD-274). The
+  # Parameter Store with 32 random bytes in base64, created by hand for each tenant with the tool-ssm-<env> workflow
+  # of eudistack-platform-iac, under /eudistack/<env>/config/apps/issuer-core/search-identifier-keys/<tenant>. The
   # name has {tenant} where the tenant goes. Empty: only issuances of types with search identifiers fail. Locally the
   # key is derived from a seed, only with the local profile (local-key-seed is refused otherwise). An emulator such as
   # LocalStack is reached with ISSUER_SEARCHIDENTIFIERS_ENDPOINT (issuer.search-identifiers.endpoint).

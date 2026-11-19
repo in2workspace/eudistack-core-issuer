@@ -7,8 +7,8 @@ import java.net.URI;
 /**
  * The secret key of each tenant, for the fingerprints of the search identifiers (EUD-267; §6 of the EUD-254 design).
  *
- * @param keyParameter  the Parameter Store name of a tenant's key, with {@code {tenant}} where the tenant goes, for
- *                      example {@code /eudistack/dev/config/tenants/{tenant}/issuer/search-identifier-key}. The
+ * @param keyParameter  the Parameter Store name of a tenant's key, with {@code {tenant}} where the tenant goes;
+ *                      in AWS {@code /eudistack/<env>/config/apps/issuer-core/search-identifier-keys/{tenant}}. The
  *                      parameter is a {@code SecureString} with 32 random bytes in base64. Empty: no key can be read,
  *                      and only an issuance of a type with search identifiers fails
  * @param endpoint      Parameter Store endpoint, only for emulators such as LocalStack
