@@ -125,10 +125,11 @@ class SearchIdentifierIndexerIT extends PostgresIntegrationBase {
         inTenant(indexer.saveWithFingerprints(issued));
 
         Map<String, byte[]> fingerprints = fingerprintsOf(issued.getIssuanceId());
-        assertThat(fingerprints).containsOnlyKeys("dni", "colegiado");
-        assertThat(fingerprints).containsEntry("dni", expected("12345678z"));
-        // Normalized as the client searches it: 28/12345.
-        assertThat(fingerprints).containsEntry("colegiado", expected("28/12345"));
+        // The colegiado is normalized as the client searches it: 28/12345.
+        assertThat(fingerprints)
+                .containsOnlyKeys("dni", "colegiado")
+                .containsEntry("dni", expected("12345678z"))
+                .containsEntry("colegiado", expected("28/12345"));
         // Never the value in clear.
         assertThat(new String(fingerprints.get("dni"), StandardCharsets.ISO_8859_1)).doesNotContain("12345678");
     }
@@ -183,8 +184,9 @@ class SearchIdentifierIndexerIT extends PostgresIntegrationBase {
         changeIdentifiers(entry, List.of(DNI));
         inTenant(indexer.reindexTenant());
 
-        assertThat(fingerprintsOf(first.getIssuanceId())).containsOnlyKeys("dni");
-        assertThat(fingerprintsOf(first.getIssuanceId())).containsEntry("dni", expected("11111111H"));
+        assertThat(fingerprintsOf(first.getIssuanceId()))
+                .containsOnlyKeys("dni")
+                .containsEntry("dni", expected("11111111H"));
         assertThat(fingerprintsOf(second.getIssuanceId())).containsOnlyKeys("dni");
         assertThat(fingerprintsOf(withoutDni.getIssuanceId())).isEmpty();
 
