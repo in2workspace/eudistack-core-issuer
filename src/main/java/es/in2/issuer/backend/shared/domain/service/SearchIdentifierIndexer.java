@@ -103,7 +103,8 @@ public class SearchIdentifierIndexer {
                                                 .thenReturn(saved));
                             }));
             return transactionalOperator.transactional(write)
-                    .doOnSuccess(saved -> log.info("Created issuance: {}", saved.getIssuanceId()));
+                    .doOnSuccess(saved -> log.info("Created issuance: {}", saved.getIssuanceId()))
+                    .doOnError(e -> log.error("Error saving issuance: {}", e.toString()));
         });
     }
 

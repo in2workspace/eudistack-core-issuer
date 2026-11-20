@@ -91,45 +91,6 @@ class IssuanceServiceImplTest {
     // (not AppConfig) and those tests mock TenantConfigService directly when needed.
 
     @Test
-    void saveIssuance_shouldPersistAndReturnIssuance() {
-        // Given
-        String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\"]}}";
-        String organizationIdentifier = "org-123";
-        UUID issuanceId = UUID.randomUUID();
-
-        Issuance issuance = Issuance.builder()
-                .issuanceId(issuanceId)
-                .credentialStatus(CredentialStatusEnum.DRAFT)
-                .credentialDataSet(credentialDataSet)
-                .credentialFormat("jwt_vc_json")
-                .organizationIdentifier(organizationIdentifier)
-                .credentialType("learcredential.employee.w3c.4")
-                .subject("TestSubject")
-                .validUntil(new Timestamp(Instant.now().toEpochMilli() + 1000))
-                .email("test@example.com")
-                .delivery("email")
-                .credentialOfferRefreshToken(UUID.randomUUID().toString())
-                .build();
-
-        when(issuancePort.insert(any(Issuance.class)))
-                .thenReturn(Mono.just(issuance));
-
-        // When
-        Mono<Issuance> result = issuanceService.saveIssuance(issuance);
-
-        // Then
-        StepVerifier.create(result)
-                .expectNextMatches(saved ->
-                        saved.getIssuanceId().equals(issuanceId) &&
-                                saved.getCredentialStatus() == CredentialStatusEnum.DRAFT &&
-                                saved.getCredentialDataSet().equals(credentialDataSet) &&
-                                saved.getOrganizationIdentifier().equals(organizationIdentifier))
-                .verifyComplete();
-
-        verify(issuancePort, times(1)).insert(any(Issuance.class));
-    }
-
-    @Test
     void getCredentialTypeByIssuanceId_shouldReturnNonDefaultType() throws Exception {
         // Given
         String issuanceId = UUID.randomUUID().toString();

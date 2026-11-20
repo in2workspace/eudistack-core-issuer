@@ -31,6 +31,15 @@ public class R2dbcSearchIdentifierStore implements SearchIdentifierStore {
             VALUES (:issuanceId, :type, :fingerprint, :keyId)
             """;
 
+    // The background calculation may run on several instances at once (the same cron on each): one that waited for
+    // another's DELETE of the same process does not see the rows it then inserted, so its own rows overwrite them
+    // instead of failing on the primary key. Both computed the same values with the same key.
+    private static final String UPSERT_SQL = INSERT_SQL + """
+            ON CONFLICT (issuance_id, identifier_type) DO UPDATE SET
+                fingerprint = EXCLUDED.fingerprint,
+                key_id = EXCLUDED.key_id
+            """;
+
     private static final String DELETE_OF_PROCESS_SQL =
             "DELETE FROM issuance_search_identifier WHERE issuance_id = :issuanceId";
 
@@ -74,15 +83,7 @@ public class R2dbcSearchIdentifierStore implements SearchIdentifierStore {
 
     @Override
     public Mono<Void> insertAll(UUID issuanceId, String keyId, List<SearchIdentifierFingerprint> fingerprints) {
-        return Flux.fromIterable(fingerprints)
-                .concatMap(fingerprint -> databaseClient.sql(INSERT_SQL)
-                        .bind(ISSUANCE_ID, issuanceId)
-                        .bind(TYPE, fingerprint.identifierType())
-                        .bind("fingerprint", fingerprint.fingerprint())
-                        .bind(KEY_ID, keyId)
-                        .fetch()
-                        .rowsUpdated())
-                .then();
+        return write(INSERT_SQL, issuanceId, keyId, fingerprints);
     }
 
     @Override
@@ -91,7 +92,20 @@ public class R2dbcSearchIdentifierStore implements SearchIdentifierStore {
                 .bind(ISSUANCE_ID, issuanceId)
                 .fetch()
                 .rowsUpdated()
-                .then(insertAll(issuanceId, keyId, fingerprints));
+                .then(write(UPSERT_SQL, issuanceId, keyId, fingerprints));
+    }
+
+    private Mono<Void> write(String sql, UUID issuanceId, String keyId,
+                             List<SearchIdentifierFingerprint> fingerprints) {
+        return Flux.fromIterable(fingerprints)
+                .concatMap(fingerprint -> databaseClient.sql(sql)
+                        .bind(ISSUANCE_ID, issuanceId)
+                        .bind(TYPE, fingerprint.identifierType())
+                        .bind("fingerprint", fingerprint.fingerprint())
+                        .bind(KEY_ID, keyId)
+                        .fetch()
+                        .rowsUpdated())
+                .then();
     }
 
     @Override

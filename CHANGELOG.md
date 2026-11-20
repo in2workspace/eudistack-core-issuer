@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **EUD-267 — Recipient pseudonym with the tenant's secret key** (TD-20 of EUD-254): `RecipientPseudonymizer` uses a key derived from the tenant's secret key instead of the tenant id. The requester of the volume limits and idempotency (EUD-269) no longer uses it: it is a SHA-256 scoped to the tenant, stored only as an HMAC with the idempotency secret.
 - **EUD-267 — With `main` (EUD-244, EUD-268): the process, its fingerprints and its `IssuanceRequested` commit in one transaction**, in `direct` and in `email` / `ui`. Without the tenant key, the issuance of a type with search identifiers is answered `500 persistence_failed` and nothing is stored.
 - **EUD-267 — The requester digest of the volume limits and idempotency changes** (EUD-269): on the first deploy, the counters of the current minute restart and an idempotency key sent before it is not recognised for 24 hours.
+- **EUD-267 — `IssuanceService.saveIssuance` is removed**: every process is created through `SearchIdentifierIndexer.saveWithFingerprints`, so none can be stored without its fingerprints. A failed insert is still logged.
+- **EUD-267 — Several instances recomputing the same process at once** (the background calculation runs on the same cron in each) overwrite each other's fingerprints (`ON CONFLICT ... DO UPDATE`) instead of failing on the primary key and stopping the tenant's calculation until the next run.
 - **EUD-267 — Build: the test JVM gets 1 GB**, and the ArchUnit rule of the `shared` classes reuses the classes ArchUnit already imported: the cached Spring contexts of the integration tests no longer fitted in Gradle's default 512 MB.
 
 ### Changed (EUD-268, breaking, version 3.15.0)

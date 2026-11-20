@@ -6,9 +6,11 @@ import es.in2.issuer.backend.shared.domain.spi.SearchIdentifierStore.StoredAttes
 import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,6 +28,7 @@ class R2dbcSearchIdentifierStoreIT extends PostgresIntegrationBase {
     private static final String ROTATED_KEY_ID = "8899aabbccddeeff";
 
     @Autowired private R2dbcSearchIdentifierStore store;
+    @Autowired private TransactionalOperator transactionalOperator;
 
     private <T> T inTenant(Mono<T> mono) {
         return mono.contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT)).block();
@@ -74,6 +77,35 @@ class R2dbcSearchIdentifierStoreIT extends PostgresIntegrationBase {
 
         inTenant(store.replaceAll(id, KEY_ID, List.of()));
         assertThat(typesOf(id)).isEmpty();
+    }
+
+    /**
+     * Two instances recompute the same process at once (the background calculation runs on the same cron in each): the
+     * second waits for the first one's DELETE, does not see the rows the first then inserted, and must overwrite them
+     * instead of failing on the primary key.
+     */
+    @Test
+    void replaceAll_inTwoConcurrentTransactions_bothCommitWithOneFingerprintPerIdentifier() {
+        UUID id = process(type(), "{}");
+        inTenant(store.insertAll(id, ROTATED_KEY_ID, List.of(fingerprint("dni", 1))));
+
+        Mono<Void> first = transactionalOperator.transactional(
+                store.replaceAll(id, KEY_ID, List.of(fingerprint("dni", 2)))
+                        .then(Mono.delay(Duration.ofMillis(800)).then()));
+        Mono<Void> second = Mono.delay(Duration.ofMillis(200))
+                .then(transactionalOperator.transactional(store.replaceAll(id, KEY_ID, List.of(fingerprint("dni", 2)))));
+
+        inTenant(Mono.when(first, second));
+
+        assertThat(typesOf(id)).containsExactly("dni");
+        assertThat(inTenant(store.processesWithAnotherKey(typeOf(id), KEY_ID, null, 10))).isEmpty();
+    }
+
+    private String typeOf(UUID issuanceId) {
+        return databaseClient.sql("SELECT credential_type FROM " + SCHEMA + ".issuance WHERE issuance_id = :id")
+                .bind("id", issuanceId)
+                .map((row, metadata) -> row.get("credential_type", String.class))
+                .one().block();
     }
 
     @Test

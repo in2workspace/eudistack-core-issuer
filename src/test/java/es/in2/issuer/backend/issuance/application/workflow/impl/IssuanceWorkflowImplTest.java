@@ -2472,7 +2472,7 @@ class IssuanceWorkflowImplTest {
      * successful {@code allocateEntry}, between the two stages the original {@code onErrorResume}
      * covered -- a malformed {@code enrichedDataSet} throwing there used to leak the entry
      * {@code allocateEntry} had just reserved, because the release only wrapped
-     * {@code signCredential -> saveIssuance}.
+     * {@code signCredential -> saveWithFingerprints}.
      */
     @Test
     void directDeliveryInjectCredentialStatusFailureShouldReleaseTheAllocatedEntry() {
