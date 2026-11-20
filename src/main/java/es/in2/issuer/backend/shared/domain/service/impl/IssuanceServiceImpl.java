@@ -54,13 +54,6 @@ public class IssuanceServiceImpl implements IssuanceService {
     private final TransactionalOperator transactionalOperator;
 
     @Override
-    public Mono<Issuance> saveIssuance(Issuance issuance) {
-        return issuancePort.insert(issuance)
-                .doOnSuccess(saved -> log.info("Created issuance: {}", saved.getIssuanceId()))
-                .doOnError(e -> log.error("Error saving issuance", e));
-    }
-
-    @Override
     public Mono<String> getCredentialTypeByIssuanceId(String issuanceId) {
         return issuancePort.findById(UUID.fromString(issuanceId))
                 .flatMap(this::getCredentialType);

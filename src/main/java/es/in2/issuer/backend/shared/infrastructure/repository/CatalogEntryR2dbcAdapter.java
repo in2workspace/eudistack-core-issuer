@@ -75,6 +75,14 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
     }
 
     @Override
+    public Mono<CatalogEntry> findByIdForShare(String credentialConfigurationId) {
+        return databaseClient.sql(SELECT + " WHERE credential_configuration_id = :id FOR SHARE")
+                .bind("id", credentialConfigurationId)
+                .map((row, metadata) -> toEntry(row))
+                .one();
+    }
+
+    @Override
     public Mono<CatalogEntry> insert(CatalogEntry entry) {
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql("""
                 INSERT INTO tenant_credential_profile (

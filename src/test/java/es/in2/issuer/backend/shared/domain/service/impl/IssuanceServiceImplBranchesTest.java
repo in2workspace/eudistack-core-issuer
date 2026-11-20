@@ -395,16 +395,6 @@ class IssuanceServiceImplBranchesTest {
         StepVerifier.create(service.findFailedDeliveries(now)).expectNext(issuance).verifyComplete();
     }
 
-    @Test
-    void saveIssuance_whenInsertFails_propagatesError() {
-        Issuance issuance = issuance(CredentialStatusEnum.DRAFT, "{}");
-        when(issuancePort.insert(issuance)).thenReturn(Mono.error(new IllegalStateException("db down")));
-
-        StepVerifier.create(service.saveIssuance(issuance))
-                .expectErrorMessage("db down")
-                .verify();
-    }
-
     // --- helpers ---
 
     private static Issuance issuance(CredentialStatusEnum status, String dataSet) {
