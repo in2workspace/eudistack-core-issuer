@@ -111,6 +111,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final TransactionalOperator transactionalOperator;
     private final TenantCredentialProfileService tenantCredentialProfileService;
     private final TenantOrganizationService tenantOrganizationService;
+    private final SearchIdentifierIndexer searchIdentifierIndexer;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -526,7 +527,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                 // The process is created and delivered at once, so IssuanceRequested and
                                                                 // IssuanceCompleted commit with it (RQ-01, EC-10): a failed outbox insert
                                                                 // rolls the issuance back and fails the delivery as persistence_failed.
-                                                                return transactionalOperator.transactional(issuanceService.saveIssuance(issuance)
+                                                                // EUD-267: the fingerprints of its search identifiers join that transaction.
+                                                                return transactionalOperator.transactional(searchIdentifierIndexer.saveWithFingerprints(issuance)
                                                                                 .flatMap(saved -> auditTrail.stage(directRequest(issuanceId, request, buildResult))
                                                                                         .then(issuanceCompletionRecorder.recordCompletion(
                                                                                                 issuanceId.toString(),
@@ -691,8 +693,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 IssuanceAuditEvents.deliveryMethodOf(delivery),
                 Holder.ofAttestation(buildResult.subject(), request.email(), buildResult.credentialDataSet()),
                 credentialOfferService.newOfferExpiry());
+        // EUD-267: the draft, the fingerprints of its search identifiers and its IssuanceRequested, together.
         return transactionalOperator.transactional(
-                issuanceService.saveIssuance(draft)
+                searchIdentifierIndexer.saveWithFingerprints(draft)
                         .flatMap(saved -> auditTrail.stage(requested).thenReturn(saved)));
     }
 

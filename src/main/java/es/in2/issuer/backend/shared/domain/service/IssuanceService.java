@@ -14,8 +14,6 @@ import java.util.UUID;
 import java.time.Instant;
 
 public interface IssuanceService {
-    Mono<Issuance> saveIssuance(Issuance issuance);
-
     Mono<String> getCredentialTypeByIssuanceId(String issuanceId);
 
     Mono<String> getCredentialStatusByIssuanceId(String issuanceId);
