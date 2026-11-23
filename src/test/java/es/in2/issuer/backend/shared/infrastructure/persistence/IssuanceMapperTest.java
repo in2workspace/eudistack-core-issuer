@@ -139,4 +139,14 @@ class IssuanceMapperTest {
     void shouldReturnNullWhenMappingNullDomainToEntity() {
         assertThat(IssuanceMapper.toEntity(null)).isNull();
     }
+
+    /** EUD-255 AD-9: the search form is derived from the subject on every save, never taken from elsewhere. */
+    @Test
+    void shouldDeriveTheSearchFormOfTheSubject() {
+        IssuanceEntity named = IssuanceMapper.toEntity(Issuance.builder().subject("María  García").build());
+        IssuanceEntity unnamed = IssuanceMapper.toEntity(Issuance.builder().build());
+
+        assertThat(named.getSubjectSearch()).isEqualTo("maria garcia");
+        assertThat(unnamed.getSubjectSearch()).isNull();
+    }
 }

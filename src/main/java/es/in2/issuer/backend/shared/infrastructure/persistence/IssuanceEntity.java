@@ -45,6 +45,12 @@ public class IssuanceEntity {
     @Nullable
     private String subject;
 
+    // EUD-255 AD-9 (V22): the subject as the search by name compares it, written from subject on
+    // every save by IssuanceMapper, never read back into the domain.
+    @Column("subject_search")
+    @Nullable
+    private String subjectSearch;
+
     @Column("credential_type")
     private String credentialType;
 
