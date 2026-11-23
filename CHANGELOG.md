@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (EUD-371, version 3.16.1)
+
+- **EUD-371 — A revocation requested without a reason keeps its audit event.** The `Revocation` event of a requested revocation (`revocation_origin = Request`) carries `revocation_reason = not-provided` when the request has no reason, or one that is empty once cleaned (EUD-247 design AD-2). It went without the field, which the audit API rejects (`AuditEventRejected`, `InvalidEvent`), so a revocation asked for through the obsolete `POST /w3c/v1/credentials/status/revoke` left no event in the tenant's audit trail. A reason that comes is sent as before; a revocation caused by a wallet notification keeps none.
+
 ### Added (EUD-267, version 3.16.0)
 
 - **EUD-267 — Fingerprints of the search identifiers of each issuance process** (FR-11 and AC-14 of EUD-254, FR-09 and AC-10 of EUD-169): when a process is created, one fingerprint is stored for each search identifier that its catalog entry declares and its attestation contains (`issuance_search_identifier`, migration V20), in the same transaction as the process: no process is stored without its fingerprints, and none is stored for missing data. The value is normalized (every whitespace removed, upper case with `Locale.ROOT`, every other character kept) and fingerprinted with HMAC-SHA256 and the tenant's secret key, kept outside the database (Parameter Store `SecureString`, `issuer.search-identifiers.key-parameter` with `{tenant}`; derived from a seed only with the `local` profile). The single component (`SearchIdentifierFingerprinter`) is the one the query API will use to search. Fingerprints appear in no response, log or trace. Without the key, an issuance of a type with search identifiers fails with 500 and writes nothing; other types do not need it.
