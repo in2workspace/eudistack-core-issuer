@@ -8,9 +8,13 @@ import es.in2.issuer.backend.statuslist.domain.audit.RevocationAuditEvents.Origi
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -48,6 +52,28 @@ class RevocationAuditEventsTest {
             // Assert
             assertEquals("WalletNotification", entry.details().get("revocation_origin"));
             assertFalse(entry.details().containsKey("revocation_reason"));
+        }
+
+        @ParameterizedTest
+        @NullSource
+        @ValueSource(strings = {"", "   ", "\n\t"})
+        void applied_requestedRevocationWithoutReason_carriesTheNotProvidedSentinel(String reason) {
+            // Arrange & Act
+            AuditEntry entry = RevocationAuditEvents.applied(ISSUANCE_ID, Origin.REQUEST, reason, HOLDER);
+
+            // Assert
+            assertThat(entry.details())
+                    .containsEntry("revocation_origin", "Request")
+                    .containsEntry("revocation_reason", RevocationAuditEvents.REASON_NOT_PROVIDED);
+        }
+
+        @Test
+        void applied_revocationCausedByTheWalletWithoutReason_stillOmitsTheReason() {
+            // Arrange & Act
+            AuditEntry entry = RevocationAuditEvents.applied(ISSUANCE_ID, Origin.WALLET_NOTIFICATION, null, HOLDER);
+
+            // Assert
+            assertThat(entry.details()).doesNotContainKey("revocation_reason");
         }
 
         @Test
@@ -111,6 +137,16 @@ class RevocationAuditEventsTest {
             assertEquals("IssuanceNotFound", entry.reason());
             assertEquals("key compromised", entry.details().get("revocation_reason"));
             assertFalse(entry.details().containsKey("holder"));
+        }
+
+        @Test
+        void refused_requestedRevocationWithoutReason_carriesTheNotProvidedSentinel() {
+            // Arrange & Act
+            AuditEntry entry = RevocationAuditEvents.refused(
+                    ISSUANCE_ID, Origin.REQUEST, "AlreadyRevoked", null, HOLDER);
+
+            // Assert
+            assertThat(entry.details()).containsEntry("revocation_reason", RevocationAuditEvents.REASON_NOT_PROVIDED);
         }
 
         @Test

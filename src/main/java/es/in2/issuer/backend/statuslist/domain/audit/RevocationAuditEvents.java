@@ -12,7 +12,8 @@ import java.util.regex.Pattern;
 /**
  * Builds the {@code Revocation} entry of a revocation. There is one per request, with its final result:
  * the revocation is applied, or it is refused with a reason of the catalogue. A reason is only sent when
- * the revocation was asked for (origin {@code Request}); a revocation caused by a wallet notification has
+ * the revocation was asked for (origin {@code Request}), and then the catalogue requires it: a request that
+ * came without one carries {@link #REASON_NOT_PROVIDED}. A revocation caused by a wallet notification has
  * none, and the holder is left out when the process could not be resolved.
  */
 public final class RevocationAuditEvents {
@@ -31,6 +32,9 @@ public final class RevocationAuditEvents {
 
     /** Longest {@code revocation_reason} the catalogue accepts. */
     public static final int MAX_REASON_LENGTH = 280;
+
+    /** The {@code revocation_reason} of a requested revocation that came without one (EUD-247 AD-2). */
+    public static final String REASON_NOT_PROVIDED = "not-provided";
 
     /**
      * A compact JWS or JWE typed into the free-text reason. The audit starter rejects such a value and the
@@ -64,9 +68,12 @@ public final class RevocationAuditEvents {
 
     private static String limited(String reason) {
         if (reason == null) {
-            return null;
+            return REASON_NOT_PROVIDED;
         }
         String withoutControlCharacters = JWT_SHAPED.matcher(reason.replaceAll("\\p{Cntrl}", " ")).replaceAll(REDACTED).strip();
+        if (withoutControlCharacters.isEmpty()) {
+            return REASON_NOT_PROVIDED;
+        }
         // The limit counts code points, like the validation of the request, so a pair of surrogates is never cut.
         return withoutControlCharacters.codePointCount(0, withoutControlCharacters.length()) > MAX_REASON_LENGTH
                 ? withoutControlCharacters.substring(0, withoutControlCharacters.offsetByCodePoints(0, MAX_REASON_LENGTH))
