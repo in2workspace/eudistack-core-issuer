@@ -21,6 +21,7 @@ import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.SearchIdentifierIndexer;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.issuance.domain.service.TenantOrganizationService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
@@ -81,6 +82,7 @@ class DirectDeliveryCeilingTest {
     private PayloadSchemaValidator payloadSchemaValidator;
     private PowerAuthorizationService powerAuthorizationService;
     private IssuanceService issuanceService;
+    private SearchIdentifierIndexer searchIdentifierIndexer;
     private CredentialOfferService credentialOfferService;
     private CredentialSignerWorkflow credentialSignerWorkflow;
     private StatusListWorkflow statusListWorkflow;
@@ -98,6 +100,7 @@ class DirectDeliveryCeilingTest {
         powerAuthorizationService = mock(PowerAuthorizationService.class);
         IssuancePayloadNormalizer issuancePayloadNormalizer = mock(IssuancePayloadNormalizer.class);
         issuanceService = mock(IssuanceService.class);
+        searchIdentifierIndexer = mock(SearchIdentifierIndexer.class);
         credentialOfferService = mock(CredentialOfferService.class);
         credentialSignerWorkflow = mock(CredentialSignerWorkflow.class);
         statusListWorkflow = mock(StatusListWorkflow.class);
@@ -145,7 +148,8 @@ class DirectDeliveryCeilingTest {
                 mock(IssuanceCompletionRecorder.class),
                 mock(TransactionalOperator.class),
                 tenantCredentialProfileService,
-                mock(TenantOrganizationService.class)
+                mock(TenantOrganizationService.class),
+                searchIdentifierIndexer
         );
 
         UrlResolver urlResolver = mock(UrlResolver.class);
@@ -195,6 +199,7 @@ class DirectDeliveryCeilingTest {
         verifyNoInteractions(credentialSignerWorkflow);
         verifyNoInteractions(statusListWorkflow);
         verifyNoInteractions(issuanceService);
+        verifyNoInteractions(searchIdentifierIndexer);
         verifyNoInteractions(credentialOfferService);
         verifyNoInteractions(genericCredentialBuilder);
     }
@@ -251,6 +256,7 @@ class DirectDeliveryCeilingTest {
         verifyNoInteractions(credentialSignerWorkflow);
         verifyNoInteractions(statusListWorkflow);
         verifyNoInteractions(issuanceService);
+        verifyNoInteractions(searchIdentifierIndexer);
         verifyNoInteractions(credentialOfferService);
     }
 

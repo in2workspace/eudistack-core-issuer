@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.model.requestcontrol.Requester;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
-import es.in2.issuer.backend.shared.domain.util.RecipientPseudonymizer;
+import es.in2.issuer.backend.shared.domain.util.Sha256;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -26,8 +26,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  *       authorization by powers), named by the id of its attestation or, without one, by the token's
  *       {@code sub} -- never by an email, which several systems of an organization may share; any other
  *       token is a person, named by the mandatee's email or the {@code sub};</li>
- *   <li>the person or the system is kept only as a pseudonym scoped to the tenant (as
- *       {@link RecipientPseudonymizer} does for the audit), never in clear.</li>
+ *   <li>the person or the system is kept only as a digest scoped to the tenant, never in clear; what is stored
+ *       of it (the counter key and the idempotency key) is an HMAC of that digest with the idempotency secret.</li>
  * </ul>
  * Empty when the request has no verified token naming an organization (among them the M2M intake tokens,
  * which name none and are not allowed on these APIs): such a request is not counted, and is rejected
@@ -39,7 +39,6 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 public class RequesterResolver {
 
     private final CallerProvider callerProvider;
-    private final RecipientPseudonymizer pseudonymizer = new RecipientPseudonymizer();
 
     public Mono<Requester> current() {
         return callerProvider.current()
@@ -60,7 +59,7 @@ public class RequesterResolver {
             }
             String scope = tenant.toLowerCase(Locale.ROOT);
             return identifier(caller)
-                    .map(who -> pseudonymizer.hash(scope, who.trim().toLowerCase(Locale.ROOT)))
+                    .map(who -> Sha256.hex(scope + "|" + who.trim().toLowerCase(Locale.ROOT)))
                     .map(Optional::of)
                     .defaultIfEmpty(Optional.empty())
                     .map(callerKey -> caller.isSystem()

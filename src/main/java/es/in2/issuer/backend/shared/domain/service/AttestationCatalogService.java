@@ -35,7 +35,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * {@link PreconditionFailedException}. Every write runs in a transaction and drops the
  * {@link TenantCredentialProfileService} cache of this instance once it has committed, so issuance and
  * the OID4VCI metadata stop seeing what was disabled. Once committed, each change is also audited, one
- * event per entry (AC-12, see {@link CatalogEntryChangeAuditor}). A write rejected for a business reason
+ * event per entry (AC-12, see {@link CatalogEntryChangeAuditor}), and a change of its search identifiers starts the
+ * background calculation of their fingerprints for what was already issued (EUD-267, {@link SearchIdentifierIndexer}).
+ * A write rejected for a business reason
  * (a {@link CatalogConfigurationException} with a business code) is audited as denied, too.
  *
  * <p>A row that predates the entry configuration (seeded while the issuer was running) is completed
@@ -57,6 +59,7 @@ public class AttestationCatalogService {
     private final TenantCredentialProfileService tenantCredentialProfileService;
     private final TransactionalOperator transactionalOperator;
     private final CatalogEntryChangeAuditor changeAuditor;
+    private final SearchIdentifierIndexer searchIdentifierIndexer;
 
     /** The entries of the tenant, only the enabled or only the disabled ones when {@code enabled} is given. */
     public Flux<CatalogEntry> list(Boolean enabled) {
@@ -237,8 +240,17 @@ public class AttestationCatalogService {
                         return Mono.just(change);
                     }
                     tenantCredentialProfileService.invalidateCache(tenant);
+                    if (changesSearchIdentifiers(change)) {
+                        // EUD-267, FR-09 of EUD-169: what was already issued is fingerprinted in the background.
+                        searchIdentifierIndexer.reindexInBackground(tenant);
+                    }
                     return changeAuditor.audit(change).thenReturn(change);
                 });
+    }
+
+    /** {@code true} when the change adds, changes or removes a search identifier of the entry. */
+    static boolean changesSearchIdentifiers(CatalogEntryChange change) {
+        return change.changes().containsKey("search_identifiers");
     }
 
     /**
