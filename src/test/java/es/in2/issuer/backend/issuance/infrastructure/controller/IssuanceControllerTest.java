@@ -30,6 +30,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
@@ -476,12 +477,11 @@ class IssuanceControllerTest {
                 .value(body -> assertThat(body).doesNotContain(ISSUANCE_ID));
     }
 
-    /** EUD-255 FR-06: decided with the organization stored with the process, answered with the shape of the contract. */
+    /** EUD-255 FR-06: answered with the shape of the contract; the use case decides and traces (AD-7). */
     @Test
-    void IssuanceController_getIssuance_decidesWithTheOrganizationStoredWithTheAttestation() {
+    void IssuanceController_getIssuance_answersTheShapeOfTheContract() {
         // Given
         UUID issuanceId = UUID.randomUUID();
-        AuthorizationDecision authCtx = organizationAdminDecision("VATES-STORED");
         IssuanceDetail detail = new IssuanceDetail(IssuanceSummary.builder()
                 .id(issuanceId)
                 .organizationIdentifier("VATES-STORED")
@@ -490,10 +490,7 @@ class IssuanceControllerTest {
                 .created(Instant.parse("2026-10-01T09:10:02Z"))
                 .updated(Instant.parse("2026-10-01T09:12:44Z"))
                 .build(), objectMapper.createObjectNode().put("given_name", "Ana"));
-        when(issuanceService.getIssuanceById(issuanceId.toString())).thenReturn(Mono.just(storedIn("VATES-STORED")));
-        when(powerAuthorizationService.authorizeQuery("VATES-STORED", issuanceId.toString()))
-                .thenReturn(Mono.just(authCtx));
-        when(issuanceQueryService.detail(authCtx, issuanceId)).thenReturn(Mono.just(detail));
+        when(issuanceQueryService.detail(issuanceId)).thenReturn(Mono.just(detail));
 
         // When / Then: the fields of the listing at the top level, plus the attestation data
         webTestClient
@@ -513,18 +510,14 @@ class IssuanceControllerTest {
                 .jsonPath("$.lifeCycleStatus").doesNotExist();
     }
 
-    /** An id that is not in the tenant is decided without a resource (the platform administrator's cross-tenant view). */
+    /** EUD-255 AD-7, AC-10: a read that could not be traced answers internal_error and nothing of the read. */
     @Test
-    void IssuanceController_getIssuance_decidesWithoutResourceWhenTheTenantHasNoSuchAttestation() {
+    void IssuanceController_getIssuance_whoseTraceFails_isAnInternalErrorWithoutData() {
         // Given
         UUID issuanceId = UUID.randomUUID();
-        AuthorizationDecision authCtx = organizationAdminDecision("org");
-        when(issuanceService.getIssuanceById(issuanceId.toString())).thenReturn(Mono.empty());
-        when(powerAuthorizationService.authorizeQuery(null, issuanceId.toString()))
-                .thenReturn(Mono.just(authCtx));
-        when(issuanceQueryService.detail(authCtx, issuanceId)).thenReturn(Mono.just(new IssuanceDetail(
-                IssuanceSummary.builder().id(issuanceId).lifeCycleStatus("VALID").build(),
-                objectMapper.createObjectNode())));
+        delegateProblemsToTheRealFactory();
+        when(issuanceQueryService.detail(issuanceId)).thenReturn(Mono.error(
+                new AuditTrailUnavailableException(new IllegalStateException("outbox unavailable"))));
 
         // When / Then
         webTestClient
@@ -532,7 +525,13 @@ class IssuanceControllerTest {
                 .uri(ISSUANCES_PATH + "/{id}", issuanceId)
                 .header("Authorization", "Bearer testToken")
                 .exchange()
-                .expectStatus().isOk();
+                .expectStatus().isEqualTo(500)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("internal_error")
+                .jsonPath("$.detail").isEqualTo("The request could not be completed")
+                .jsonPath("$.id").doesNotExist()
+                .jsonPath("$.credential").doesNotExist();
     }
 
     @Test
@@ -799,6 +798,26 @@ class IssuanceControllerTest {
         assertThat(violations.getValue()).extracting(GlobalErrorMessage.FieldViolation::field)
                 .containsExactly("life_cycle_status", "limit", "cursor");
         verifyNoInteractions(powerAuthorizationService, issuanceQueryService);
+    }
+
+    /** EUD-255 AD-7, AC-10: a page that could not be traced answers internal_error and no process. */
+    @Test
+    void listIssuances_whoseTraceFails_isAnInternalErrorWithoutData() {
+        AuthorizationDecision decision = organizationAdminDecision("VATES-LIST");
+        delegateProblemsToTheRealFactory();
+        when(powerAuthorizationService.authorizeQuery(isNull(), isNull())).thenReturn(Mono.just(decision));
+        when(issuanceQueryService.list(eq(decision), any())).thenReturn(Mono.error(
+                new AuditTrailUnavailableException(new IllegalStateException("outbox unavailable"))));
+
+        webTestClient.get()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isEqualTo(500)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("internal_error")
+                .jsonPath("$.issuances").doesNotExist();
     }
 
     /** The 403 mapping of the denial is SharedExceptionHandler's (SharedExceptionHandlerTest), not part of this slice. */

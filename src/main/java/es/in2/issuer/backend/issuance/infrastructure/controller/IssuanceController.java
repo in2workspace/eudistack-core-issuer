@@ -31,7 +31,6 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
@@ -95,23 +94,16 @@ public class IssuanceController {
 
     /**
      * The detail of one process (EUD-255 FR-06). The id is checked for shape first (API-10): one that is not
-     * a UUID is an invalid request, never echoed. Then C1/C2 is decided with the organization stored with
-     * the process: another organization's reads as not found and is traced as out of scope (FR-13). An id
-     * that is not in the tenant is decided without a resource -- the platform administrator's cross-tenant
-     * view finds it in another schema, everyone else gets not found from the lookup.
+     * a UUID is an invalid request, never echoed. Then the use case decides C1/C2 on the organization stored
+     * with the process -- another organization's reads as not found (FR-13) -- and traces the access or the
+     * refusal (AD-7).
      */
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<IssuanceDetail> getIssuance(@PathVariable("id") String id) {
-        Optional<UUID> issuanceId = IssuanceIds.parse(id);
-        if (issuanceId.isEmpty()) {
-            return Mono.error(InvalidQueryException.of(ID, "is not an issuance process id"));
-        }
-        return storedOrganization(id)
-                .map(Optional::of)
-                .defaultIfEmpty(Optional.empty())
-                .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), id))
-                .flatMap(decision -> issuanceQueryService.detail(decision, issuanceId.get()));
+        return IssuanceIds.parse(id)
+                .map(issuanceQueryService::detail)
+                .orElseGet(() -> Mono.error(InvalidQueryException.of(ID, "is not an issuance process id")));
     }
 
     /**

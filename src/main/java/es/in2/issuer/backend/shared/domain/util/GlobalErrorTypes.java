@@ -55,6 +55,8 @@ public enum GlobalErrorTypes {
     INVALID_CREDENTIAL_STATUS_TRANSITION("invalid_credential_status_transition"),
     INVALID_DELIVERY_CONFIG("invalid_delivery_config"),
     INVALID_REQUEST("invalid_request"),
+    // A failure of the server the client cannot fix, in the code of the contract (EUD-255 AD-7).
+    INTERNAL_ERROR("internal_error"),
     // The code the public API guides document for a malformed request (EUD-307).
     BAD_REQUEST("BAD_REQUEST"),
     DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),

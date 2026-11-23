@@ -8,6 +8,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -44,6 +46,24 @@ public record IssuanceQuery(
     /** The first page with no filters. */
     public static IssuanceQuery firstPage() {
         return new IssuanceQuery(Set.of(), null, null, DEFAULT_LIMIT, null);
+    }
+
+    /**
+     * The filters the request gave, by their parameter names, for the trace of the query (EUD-255 AD-7).
+     * A filter not given is left out; the page size and the cursor are not filters.
+     */
+    public Map<String, Object> filters() {
+        Map<String, Object> filters = new LinkedHashMap<>();
+        if (!lifeCycleStatuses.isEmpty()) {
+            filters.put("life_cycle_status", lifeCycleStatuses.stream().map(Enum::name).sorted().toList());
+        }
+        if (credentialConfigurationId != null) {
+            filters.put("credential_configuration_id", credentialConfigurationId);
+        }
+        if (tenant != null) {
+            filters.put("tenant", tenant);
+        }
+        return filters;
     }
 
     /**

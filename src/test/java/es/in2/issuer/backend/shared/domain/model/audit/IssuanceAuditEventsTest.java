@@ -168,11 +168,23 @@ class IssuanceAuditEventsTest {
         @Test
         void queried_withoutAnOrganization_namesTheTenantAsTheScope() {
             // Arrange & Act
-            AuditEntry entry = IssuanceAuditEvents.queried(null, 3);
+            AuditEntry entry = IssuanceAuditEvents.queried(null, java.util.Map.of(), 3);
 
             // Assert
             assertEquals("issuance-list:tenant", entry.resource());
             assertEquals(3, entry.details().get("returned_count"));
+        }
+
+        /** EUD-255 AD-7: the filters go as the request gave them. */
+        @Test
+        void queried_carriesTheFiltersGiven() {
+            // Arrange & Act
+            AuditEntry entry = IssuanceAuditEvents.queried("ORG-A",
+                    java.util.Map.of("credential_configuration_id", "doctor.sd.1"), 0);
+
+            // Assert
+            assertEquals(java.util.Map.of("credential_configuration_id", "doctor.sd.1"), entry.details().get("filters"));
+            assertEquals(0, entry.details().get("returned_count"));
         }
     }
 }

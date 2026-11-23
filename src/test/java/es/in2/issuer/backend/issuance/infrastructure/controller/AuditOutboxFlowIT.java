@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -188,6 +189,91 @@ class AuditOutboxFlowIT extends PostgresIntegrationBase {
         assertThat(databaseClient.sql("SELECT count(*) AS n FROM public.audit_outbox "
                         + "WHERE event_type = 'IssuanceDetailAccessed' AND tenant = 'platform'")
                 .fetch().one().block(Duration.ofSeconds(10))).containsEntry("n", 0L);
+    }
+
+    /** EUD-255 AD-7, AC-10: with the outbox refusing the trace, the page is not returned. */
+    @Test
+    void listWithTheOutboxFailing_isAnInternalErrorWithoutAnyProcess() {
+        // Given
+        seedIssuance(CredentialStatusEnum.VALID);
+        outboxRefusingTheTraceOfReads();
+
+        // When / Then
+        webTestClient().get().uri("/api/v1/issuances")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + mintOperatorAccessToken(TENANT, ORGANIZATION))
+                .header(X_TENANT_HEADER, TENANT)
+                .exchange()
+                .expectStatus().isEqualTo(500)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody(String.class)
+                .value(body -> assertThat(body)
+                        .contains("\"type\":\"internal_error\"")
+                        .doesNotContain("\"issuances\"")
+                        .doesNotContain("holder@example.com"));
+        assertThat(rowsPerType()).doesNotContainKey("IssuanceQueried");
+    }
+
+    /** EUD-255 AD-7, AC-10: with the outbox refusing the trace, nothing of the process or its attestation goes out. */
+    @Test
+    void detailWithTheOutboxFailing_isAnInternalErrorWithoutTheProcess() {
+        // Given
+        UUID issuanceId = seedIssuance(CredentialStatusEnum.VALID);
+        outboxRefusingTheTraceOfReads();
+
+        // When / Then
+        webTestClient().get().uri("/api/v1/issuances/{id}", issuanceId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + mintOperatorAccessToken(TENANT, ORGANIZATION))
+                .header(X_TENANT_HEADER, TENANT)
+                .exchange()
+                .expectStatus().isEqualTo(500)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody(String.class)
+                .value(body -> assertThat(body)
+                        .contains("\"type\":\"internal_error\"")
+                        .doesNotContain("credential")
+                        .doesNotContain("life_cycle_status")
+                        .doesNotContain("holder@example.com"));
+        assertThat(rowsPerType()).doesNotContainKey(DETAIL_ACCESSED);
+    }
+
+    /** EUD-255 ES-06: a refusal whose trace fails is an internal error, never the business answer. */
+    @Test
+    void detailOfAnUnknownProcessWithTheOutboxFailing_isAnInternalErrorAndNotNotFound() {
+        // Given
+        outboxRefusingTheTraceOfReads();
+
+        // When / Then
+        webTestClient().get().uri("/api/v1/issuances/{id}", UUID.randomUUID())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + mintOperatorAccessToken(TENANT, ORGANIZATION))
+                .header(X_TENANT_HEADER, TENANT)
+                .exchange()
+                .expectStatus().isEqualTo(500)
+                .expectBody(String.class)
+                .value(body -> assertThat(body)
+                        .contains("\"type\":\"internal_error\"")
+                        .doesNotContain("issuance_not_found"));
+    }
+
+    /**
+     * Makes PostgreSQL refuse every insert of the trace of a read into {@code public.audit_outbox}, as a full disk or
+     * a lost table would; the other types (the decision) still go in. Removed after each test.
+     */
+    private void outboxRefusingTheTraceOfReads() {
+        databaseClient.sql("CREATE OR REPLACE FUNCTION public.audit_outbox_refuse_reads() RETURNS trigger "
+                        + "LANGUAGE plpgsql AS $fn$ BEGIN RAISE EXCEPTION 'audit outbox forced to fail'; END $fn$")
+                .then().block(Duration.ofSeconds(10));
+        databaseClient.sql("CREATE TRIGGER audit_outbox_refuse_reads BEFORE INSERT ON public.audit_outbox "
+                        + "FOR EACH ROW WHEN (NEW.event_type IN ('IssuanceQueried', 'IssuanceDetailAccessed')) "
+                        + "EXECUTE FUNCTION public.audit_outbox_refuse_reads()")
+                .then().block(Duration.ofSeconds(10));
+    }
+
+    @AfterEach
+    void outboxAcceptingEverythingAgain() {
+        databaseClient.sql("DROP TRIGGER IF EXISTS audit_outbox_refuse_reads ON public.audit_outbox")
+                .then().block(Duration.ofSeconds(10));
+        databaseClient.sql("DROP FUNCTION IF EXISTS public.audit_outbox_refuse_reads()")
+                .then().block(Duration.ofSeconds(10));
     }
 
     private void assertOnePerType(Map<String, Long> perType) {

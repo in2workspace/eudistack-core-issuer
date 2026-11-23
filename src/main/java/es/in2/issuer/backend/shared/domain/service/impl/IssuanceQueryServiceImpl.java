@@ -2,11 +2,15 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
+import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
+import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
-import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
-import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceDetail;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceSummary;
@@ -15,6 +19,7 @@ import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.model.query.PageCursor;
 import es.in2.issuer.backend.shared.domain.model.query.PagePosition;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
@@ -28,6 +33,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -50,6 +56,7 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
 
     private final IssuancePort issuancePort;
     private final TenantRegistryService tenantRegistryService;
+    private final PowerAuthorizationService powerAuthorizationService;
     private final AuditTrailPort auditTrail;
     private final ObjectMapper objectMapper;
 
@@ -70,18 +77,58 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
                             .map(issuance -> new Found(null, issuance))
                             .collectList();
             return found.map(rows -> toPage(rows, query))
-                    .flatMap(page -> auditTrail.stageBestEffort(IssuanceAuditEvents.queried(
-                                    decision.caller().organizationIdentifier(), page.issuances().size()))
+                    .flatMap(page -> stageStrictly(IssuanceAuditEvents.queried(
+                                    decision.caller().organizationIdentifier(), query.filters(), page.issuances().size()))
                             .thenReturn(page));
         });
+    }
+
+    /**
+     * The permission is decided with the organization stored with the process in the tenant: one of another
+     * organization reads as not found. An id that is not in the tenant is decided without a resource -- the
+     * platform administrator's cross-tenant view finds it in another schema, everyone else gets not found.
+     * Every refusal with a reason in the catalogue is traced before it is answered.
+     */
+    @Override
+    public Mono<IssuanceDetail> detail(UUID issuanceId) {
+        String id = issuanceId.toString();
+        Mono<IssuanceDetail> detail = issuancePort.findByIssuanceId(issuanceId)
+                .map(stored -> Optional.of(Objects.requireNonNullElse(stored.getOrganizationIdentifier(), "")))
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), id))
+                .flatMap(decision -> find(decision, issuanceId))
+                .switchIfEmpty(Mono.error(() -> new IssuanceNotFoundException("No issuance found for the given id")))
+                .flatMap(process -> toDetail(process)
+                        .flatMap(result -> stageDetailAccessed(process).thenReturn(result)));
+        return detail.onErrorResume(error -> detailRefusalOf(error)
+                .map(reason -> stageStrictly(IssuanceAuditEvents.detailRefused(id, reason)).then(Mono.<IssuanceDetail>error(error)))
+                .orElseGet(() -> Mono.error(error)));
+    }
+
+    /** The reason of the catalogue for a refused detail; empty for an error that is not a refusal. */
+    private static Optional<String> detailRefusalOf(Throwable error) {
+        if (error instanceof IssuanceNotFoundException) {
+            return Optional.of(IssuanceAuditEvents.REASON_ISSUANCE_NOT_FOUND);
+        }
+        if (error instanceof LearIssuancePolicyException || error instanceof TenantMismatchException) {
+            return Optional.of(IssuanceAuditEvents.REASON_POLICY_DENIED);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * AD-7: the trace of a read is staged in a transaction of its own and, if it cannot be, the read fails
+     * and returns nothing. Replaces the best effort of EUD-244 for the queries.
+     */
+    private Mono<Void> stageStrictly(AuditEntry entry) {
+        return auditTrail.stageInNewTransaction(entry).onErrorMap(AuditTrailUnavailableException::new);
     }
 
     /**
      * The tenant isolation comes from the search_path; the scope from the decision. From the platform tenant
      * the process is looked up in the schema of every active tenant, and the one it is in is returned with it.
      */
-    @Override
-    public Mono<IssuanceDetail> detail(AuthorizationDecision decision, UUID issuanceId) {
+    private Mono<Found> find(AuthorizationDecision decision, UUID issuanceId) {
         return Mono.defer(() -> {
             Mono<Found> found;
             if (decision.caller().crossTenantView()) {
@@ -99,24 +146,18 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
                                 issuanceId, decision.caller().organizationIdentifier())
                         .map(issuance -> new Found(null, issuance));
             }
-            Mono<IssuanceDetail> detail = found
-                    .switchIfEmpty(Mono.error(() -> new IssuanceNotFoundException("No issuance found for the given id")))
-                    .flatMap(process -> toDetail(process)
-                            .flatMap(result -> stageDetailAccessed(process).thenReturn(result)));
-            return auditTrail.stageOnError(detail, error -> error instanceof IssuanceNotFoundException
-                    ? Optional.of(IssuanceAuditEvents.detailRefused(issuanceId.toString(), "IssuanceNotFound"))
-                    : Optional.empty());
+            return found;
         });
     }
 
     /**
-     * EUD-244: the access is staged once. When a platform administrator read a process of another tenant, it is
-     * staged under that tenant, which owns the data and the holder in it, and the administrator stays as the
-     * actor (D62).
+     * EUD-244: the access is staged once, strictly (AD-7). When a platform administrator read a process of
+     * another tenant, it is staged under that tenant, which owns the data and the holder in it, and the
+     * administrator stays as the actor (D62).
      */
     private Mono<Void> stageDetailAccessed(Found found) {
         Issuance issuance = found.issuance();
-        Mono<Void> access = auditTrail.stageBestEffort(IssuanceAuditEvents.detailAccessed(
+        Mono<Void> access = stageStrictly(IssuanceAuditEvents.detailAccessed(
                 issuance.getIssuanceId().toString(),
                 Holder.ofAttestation(issuance.getSubject(), issuance.getEmail(), issuance.getCredentialDataSet())));
         return found.tenant() == null ? access : auditTrail.inTenant(found.tenant(), access);

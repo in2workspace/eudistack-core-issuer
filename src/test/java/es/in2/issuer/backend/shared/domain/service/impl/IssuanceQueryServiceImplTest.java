@@ -1,8 +1,10 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceDetail;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
@@ -14,6 +16,7 @@ import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.model.query.PageCursor;
 import es.in2.issuer.backend.shared.domain.model.query.PagePosition;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
@@ -55,6 +58,7 @@ class IssuanceQueryServiceImplTest {
 
     private IssuancePort issuancePort;
     private TenantRegistryService tenantRegistryService;
+    private PowerAuthorizationService powerAuthorizationService;
     private RecordingAuditTrail auditTrail;
     private IssuanceQueryServiceImpl service;
 
@@ -63,7 +67,9 @@ class IssuanceQueryServiceImplTest {
         issuancePort = mock(IssuancePort.class);
         tenantRegistryService = mock(TenantRegistryService.class);
         auditTrail = new RecordingAuditTrail();
-        service = new IssuanceQueryServiceImpl(issuancePort, tenantRegistryService, auditTrail, new ObjectMapper());
+        powerAuthorizationService = mock(PowerAuthorizationService.class);
+        service = new IssuanceQueryServiceImpl(issuancePort, tenantRegistryService, powerAuthorizationService,
+                auditTrail, new ObjectMapper());
     }
 
     @Test
@@ -253,16 +259,62 @@ class IssuanceQueryServiceImplTest {
                 .verify();
     }
 
+    /** AD-7: the trace carries the filters as the request gave them, by their names in the API. */
+    @Test
+    void eachPage_isAudited_withTheFiltersItWasAskedWith() {
+        IssuanceQuery query = new IssuanceQuery(Set.of(CredentialStatusEnum.VALID, CredentialStatusEnum.DRAFT),
+                "doctor.sd.1", null, 50, null);
+        when(issuancePort.findPage(query, "ORG-A", 51)).thenReturn(Flux.empty());
+
+        service.list(organizationAdmin("ORG-A"), query).block();
+
+        assertThat(auditTrail.stagedInNewTransaction()).singleElement().satisfies(entry ->
+                assertThat(entry.details()).containsEntry("filters", Map.of(
+                        "life_cycle_status", List.of("DRAFT", "VALID"),
+                        "credential_configuration_id", "doctor.sd.1")));
+    }
+
+    /** AD-7: a page that cannot be traced is not returned. */
+    @Test
+    void aPageThatCannotBeAudited_isNotReturned() {
+        auditTrail.failingOnNewTransaction();
+        IssuanceQuery query = query(Set.of(), null, 50, null);
+        when(issuancePort.findPage(query, "ORG-A", 51)).thenReturn(Flux.just(issuance(T)));
+
+        StepVerifier.create(service.list(organizationAdmin("ORG-A"), query))
+                .expectError(AuditTrailUnavailableException.class)
+                .verify();
+    }
+
+    @Test
+    void theDetail_isDecidedOnTheOrganizationStoredWithTheProcess() {
+        Issuance stored = issuance(T);
+        stored.setOrganizationIdentifier("ORG-B");
+        stored.setCredentialDataSet("{}");
+        UUID unknown = UUID.randomUUID();
+        when(issuancePort.findByIssuanceId(stored.getIssuanceId())).thenReturn(Mono.just(stored));
+        when(issuancePort.findByIssuanceId(unknown)).thenReturn(Mono.empty());
+        decidedAs(tenantAdmin());
+
+        service.detail(stored.getIssuanceId()).block();
+        StepVerifier.create(service.detail(unknown)).expectError(IssuanceNotFoundException.class).verify();
+
+        verify(powerAuthorizationService).authorizeQuery("ORG-B", stored.getIssuanceId().toString());
+        verify(powerAuthorizationService).authorizeQuery(null, unknown.toString());
+    }
+
     @Test
     void theDetail_ofAnOrganizationAdmin_isLookedUpInItsOrganization_withTheAttestationData() {
         Issuance issuance = issuance(T);
         issuance.setOrganizationIdentifier("ORG-A");
         issuance.setCredentialType("doctor.sd.1");
         issuance.setCredentialDataSet("{\"given_name\":\"Ana\"}");
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
         when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(issuance.getIssuanceId(), "ORG-A"))
                 .thenReturn(Mono.just(issuance));
+        decidedAs(organizationAdmin("ORG-A"));
 
-        IssuanceDetail detail = service.detail(organizationAdmin("ORG-A"), issuance.getIssuanceId()).block();
+        IssuanceDetail detail = service.detail(issuance.getIssuanceId()).block();
 
         assertThat(detail.summary()).isEqualTo(IssuanceSummary.builder()
                 .id(issuance.getIssuanceId())
@@ -272,7 +324,7 @@ class IssuanceQueryServiceImplTest {
                 .updated(T)
                 .build());
         assertThat(detail.credential().path("given_name").asText()).isEqualTo("Ana");
-        verify(issuancePort, never()).findByIssuanceId(any());
+        verify(issuancePort).findByIssuanceIdAndOrganizationIdentifier(issuance.getIssuanceId(), "ORG-A");
     }
 
     @Test
@@ -280,8 +332,9 @@ class IssuanceQueryServiceImplTest {
         Issuance issuance = issuance(T);
         issuance.setCredentialDataSet("{}");
         when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        decidedAs(tenantAdmin());
 
-        StepVerifier.create(service.detail(tenantAdmin(), issuance.getIssuanceId()))
+        StepVerifier.create(service.detail(issuance.getIssuanceId()))
                 .assertNext(detail -> assertThat(detail.summary().tenant()).isNull())
                 .verifyComplete();
         verify(issuancePort, never()).findByIssuanceIdAndOrganizationIdentifier(any(), any());
@@ -293,10 +346,12 @@ class IssuanceQueryServiceImplTest {
         when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, "ORG-A")).thenReturn(Mono.empty());
         when(issuancePort.findByIssuanceId(id)).thenReturn(Mono.empty());
 
-        StepVerifier.create(service.detail(organizationAdmin("ORG-A"), id))
+        decidedAs(organizationAdmin("ORG-A"));
+        StepVerifier.create(service.detail(id))
                 .expectError(IssuanceNotFoundException.class)
                 .verify();
-        StepVerifier.create(service.detail(tenantAdmin(), id))
+        decidedAs(tenantAdmin());
+        StepVerifier.create(service.detail(id))
                 .expectError(IssuanceNotFoundException.class)
                 .verify();
     }
@@ -310,15 +365,17 @@ class IssuanceQueryServiceImplTest {
         List<String> queried = java.util.Collections.synchronizedList(new ArrayList<>());
         when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenAnswer(invocation ->
                 Mono.deferContextual(ctx -> {
-                    String tenant = ctx.get(TENANT_DOMAIN_CONTEXT_KEY);
+                    String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, PLATFORM_TENANT);
                     queried.add(tenant);
                     return "tenant-b".equals(tenant) ? Mono.just(issuance) : Mono.empty();
                 }));
+        decidedAs(platformAdmin());
 
-        IssuanceDetail detail = service.detail(platformAdmin(), issuance.getIssuanceId()).block();
+        IssuanceDetail detail = service.detail(issuance.getIssuanceId()).block();
 
         assertThat(detail.summary().tenant()).isEqualTo("tenant-b");
-        assertThat(queried).containsExactly("tenant-a", "tenant-b");
+        // First the organization stored with it in the request's tenant, then every other tenant in order.
+        assertThat(queried).containsExactly(PLATFORM_TENANT, "tenant-a", "tenant-b");
         verify(issuancePort, never()).findByIssuanceIdAndOrganizationIdentifier(any(), any());
     }
 
@@ -327,8 +384,9 @@ class IssuanceQueryServiceImplTest {
         UUID id = UUID.randomUUID();
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a", "tenant-b")));
         when(issuancePort.findByIssuanceId(id)).thenReturn(Mono.empty());
+        decidedAs(platformAdmin());
 
-        StepVerifier.create(service.detail(platformAdmin(), id))
+        StepVerifier.create(service.detail(id))
                 .expectError(IssuanceNotFoundException.class)
                 .verify();
     }
@@ -340,28 +398,33 @@ class IssuanceQueryServiceImplTest {
         Issuance empty = issuance(T);
         when(issuancePort.findByIssuanceId(broken.getIssuanceId())).thenReturn(Mono.just(broken));
         when(issuancePort.findByIssuanceId(empty.getIssuanceId())).thenReturn(Mono.just(empty));
+        decidedAs(tenantAdmin());
 
-        StepVerifier.create(service.detail(tenantAdmin(), broken.getIssuanceId()))
+        StepVerifier.create(service.detail(broken.getIssuanceId()))
                 .expectError(ParseCredentialJsonException.class)
                 .verify();
-        StepVerifier.create(service.detail(tenantAdmin(), empty.getIssuanceId()))
+        StepVerifier.create(service.detail(empty.getIssuanceId()))
                 .expectError(ParseCredentialJsonException.class)
                 .verify();
+        assertThat(auditTrail.all()).isEmpty();
     }
 
     /** EUD-244: a detail that is returned leaves one access, with the holder in clear, in the request's tenant. */
     @Test
     void theDetail_isAudited_withTheHolderInClear() {
         Issuance issuance = issuance(T);
+        issuance.setOrganizationIdentifier("ORG-A");
         issuance.setCredentialDataSet("{\"vc\":{}}");
         issuance.setSubject("Jane Doe");
         issuance.setEmail("jane@example.com");
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
         when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(issuance.getIssuanceId(), "ORG-A"))
                 .thenReturn(Mono.just(issuance));
+        decidedAs(organizationAdmin("ORG-A"));
 
-        service.detail(organizationAdmin("ORG-A"), issuance.getIssuanceId()).block();
+        service.detail(issuance.getIssuanceId()).block();
 
-        assertThat(auditTrail.all()).singleElement().satisfies(entry -> {
+        assertThat(auditTrail.stagedInNewTransaction()).singleElement().satisfies(entry -> {
             assertThat(entry.type()).isEqualTo(AuditEventType.ISSUANCE_DETAIL_ACCESSED);
             assertThat(entry.result()).isEqualTo(AuditResult.SUCCESS);
             assertThat(entry.resource()).isEqualTo("issuance:" + issuance.getIssuanceId());
@@ -376,28 +439,108 @@ class IssuanceQueryServiceImplTest {
         Issuance issuance = issuance(T);
         issuance.setCredentialDataSet("{}");
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("acme")));
-        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenAnswer(invocation ->
+                Mono.deferContextual(ctx -> ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? Mono.just(issuance) : Mono.empty()));
+        decidedAs(platformAdmin());
 
-        service.detail(platformAdmin(), issuance.getIssuanceId()).block();
+        service.detail(issuance.getIssuanceId()).block();
 
         assertThat(auditTrail.all()).hasSize(1);
         assertThat(auditTrail.tenantScopes()).containsExactly("acme");
     }
 
-    /** EUD-244: a detail that is not found leaves a Denied IssuanceNotFound, and the error goes on. */
+    /** AD-8: a detail that is not found leaves a Denied IssuanceNotFound, and the error goes on. */
     @Test
     void theDetail_notFound_isAuditedAsDenied_andKeepsTheError() {
         UUID id = UUID.randomUUID();
+        when(issuancePort.findByIssuanceId(id)).thenReturn(Mono.empty());
         when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, "ORG-A")).thenReturn(Mono.empty());
+        decidedAs(organizationAdmin("ORG-A"));
 
-        StepVerifier.create(service.detail(organizationAdmin("ORG-A"), id))
+        StepVerifier.create(service.detail(id))
                 .expectError(IssuanceNotFoundException.class)
                 .verify();
 
-        assertThat(auditTrail.all()).singleElement().satisfies(entry -> {
+        assertThat(auditTrail.stagedInNewTransaction()).singleElement().satisfies(entry -> {
             assertThat(entry.result()).isEqualTo(AuditResult.DENIED);
             assertThat(entry.reason()).isEqualTo("IssuanceNotFound");
         });
+    }
+
+    /** AC-08: a process of another organization reads, and is traced, as one that does not exist. */
+    @Test
+    void theDetail_outOfScope_isAuditedAsNotFound() {
+        Issuance other = issuance(T);
+        other.setOrganizationIdentifier("ORG-B");
+        when(issuancePort.findByIssuanceId(other.getIssuanceId())).thenReturn(Mono.just(other));
+        when(powerAuthorizationService.authorizeQuery("ORG-B", other.getIssuanceId().toString()))
+                .thenReturn(Mono.error(new IssuanceNotFoundException("No issuance found for the given id")));
+
+        StepVerifier.create(service.detail(other.getIssuanceId()))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+
+        assertThat(auditTrail.stagedInNewTransaction()).singleElement().satisfies(entry -> {
+            assertThat(entry.type()).isEqualTo(AuditEventType.ISSUANCE_DETAIL_ACCESSED);
+            assertThat(entry.reason()).isEqualTo("IssuanceNotFound");
+            assertThat(entry.details()).isEmpty();
+        });
+    }
+
+    /** ES-05: who may not read processes is refused, and the refusal is traced as PolicyDenied. */
+    @Test
+    void theDetail_withoutThePermission_isAuditedAsPolicyDenied_andKeepsTheError() {
+        UUID id = UUID.randomUUID();
+        when(issuancePort.findByIssuanceId(id)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeQuery(any(), any())).thenReturn(Mono.error(
+                new LearIssuancePolicyException(LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "denied")));
+
+        StepVerifier.create(service.detail(id))
+                .expectError(LearIssuancePolicyException.class)
+                .verify();
+
+        assertThat(auditTrail.stagedInNewTransaction()).singleElement().satisfies(entry -> {
+            assertThat(entry.result()).isEqualTo(AuditResult.DENIED);
+            assertThat(entry.reason()).isEqualTo("PolicyDenied");
+        });
+        verify(issuancePort, never()).findByIssuanceIdAndOrganizationIdentifier(any(), any());
+    }
+
+    /** AD-7, AC-10: a detail whose access cannot be traced is not returned. */
+    @Test
+    void aDetailThatCannotBeAudited_isNotReturned() {
+        auditTrail.failingOnNewTransaction();
+        Issuance issuance = issuance(T);
+        issuance.setCredentialDataSet("{\"given_name\":\"Ana\"}");
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        decidedAs(tenantAdmin());
+
+        StepVerifier.create(service.detail(issuance.getIssuanceId()))
+                .expectError(AuditTrailUnavailableException.class)
+                .verify();
+    }
+
+    /** ES-06: a refusal that cannot be traced fails as the trail, never saying why it was refused. */
+    @Test
+    void aRefusalThatCannotBeAudited_failsWithoutItsReason() {
+        auditTrail.failingOnNewTransaction();
+        UUID id = UUID.randomUUID();
+        when(issuancePort.findByIssuanceId(id)).thenReturn(Mono.empty());
+        decidedAs(tenantAdmin());
+
+        StepVerifier.create(service.detail(id))
+                .expectError(AuditTrailUnavailableException.class)
+                .verify();
+
+        when(powerAuthorizationService.authorizeQuery(any(), any())).thenReturn(Mono.error(
+                new LearIssuancePolicyException(LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "denied")));
+        StepVerifier.create(service.detail(id))
+                .expectError(AuditTrailUnavailableException.class)
+                .verify();
+    }
+
+    private void decidedAs(AuthorizationDecision decision) {
+        when(powerAuthorizationService.authorizeQuery(any(), any())).thenReturn(Mono.just(decision));
     }
 
     /** Answers each tenant's rows according to the tenant in the Reactor context, and records which were asked. */
