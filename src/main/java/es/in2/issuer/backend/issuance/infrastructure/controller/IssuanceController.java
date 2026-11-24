@@ -93,6 +93,20 @@ public class IssuanceController {
     }
 
     /**
+     * A page of the search (EUD-255 FR-05, FR-11): the same scope, filters, order and pagination as the listing,
+     * plus the text searched in the subject. The body carries personal data, so it is read as text and checked
+     * here (API-10, before the permission) without ever being logged or echoed; only the audit trail of the query
+     * records the value searched (AD-5, AD-7). The volume limit of the class {@code search} applies before this.
+     */
+    @PostMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.OK)
+    public Mono<IssuanceList> searchIssuances(@RequestBody(required = false) String body) {
+        return Mono.fromCallable(() -> IssuanceSearchParameters.toQuery(body))
+                .flatMap(query -> powerAuthorizationService.authorizeQuery(null, null)
+                        .flatMap(decision -> issuanceQueryService.list(decision, query)));
+    }
+
+    /**
      * The detail of one process (EUD-255 FR-06). The id is checked for shape first (API-10): one that is not
      * a UUID is an invalid request, never echoed. Then the use case decides C1/C2 on the organization stored
      * with the process -- another organization's reads as not found (FR-13) -- and traces the access or the

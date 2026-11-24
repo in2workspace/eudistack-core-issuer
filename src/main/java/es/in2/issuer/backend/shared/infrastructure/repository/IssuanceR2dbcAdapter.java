@@ -5,6 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
+import es.in2.issuer.backend.shared.domain.util.SubjectSearch;
 import es.in2.issuer.backend.shared.infrastructure.persistence.IssuanceEntity;
 import es.in2.issuer.backend.shared.infrastructure.persistence.IssuanceMapper;
 import lombok.RequiredArgsConstructor;
@@ -86,6 +87,12 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
             sql.append(" AND credential_type = :credentialConfigurationId");
             binds.put("credentialConfigurationId", query.credentialConfigurationId());
         }
+        if (query.subject() != null) {
+            // EUD-255 AD-9: a partial match over the normalized subject, resolved by the trigram index. The text
+            // is only ever a bound parameter, with the wildcards of LIKE escaped so they match themselves.
+            sql.append(" AND subject_search LIKE :subjectPattern ESCAPE '\\'");
+            binds.put("subjectPattern", "%" + escapeLike(SubjectSearch.normalize(query.subject())) + "%");
+        }
         if (query.cursor() != null) {
             sql.append(" AND (last_changed_at, issuance_id) < (CAST(:afterLastChangedAt AS timestamptz), CAST(:afterIssuanceId AS uuid))");
             binds.put("afterLastChangedAt", query.cursor().position().lastChangedAt());
@@ -139,5 +146,10 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
     @Override
     public Flux<Issuance> findFailedDeliveries(Instant cutoff) {
         return issuanceR2dbcRepository.findFailedDeliveries(cutoff).map(IssuanceMapper::toDomain);
+    }
+
+    /** The text with the escape character and the wildcards of LIKE escaped, so it is matched literally. */
+    static String escapeLike(String text) {
+        return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

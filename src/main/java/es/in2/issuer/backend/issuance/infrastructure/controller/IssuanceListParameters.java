@@ -62,7 +62,7 @@ final class IssuanceListParameters {
         return statuses;
     }
 
-    private static Optional<CredentialStatusEnum> status(String name) {
+    static Optional<CredentialStatusEnum> status(String name) {
         for (CredentialStatusEnum status : CredentialStatusEnum.values()) {
             if (status.name().equals(name)) {
                 return Optional.of(status);
@@ -71,7 +71,7 @@ final class IssuanceListParameters {
         return Optional.empty();
     }
 
-    private static String text(String value, String field, int maxLength, List<Violation> violations) {
+    static String text(String value, String field, int maxLength, List<Violation> violations) {
         if (value == null) {
             return null;
         }
@@ -99,7 +99,7 @@ final class IssuanceListParameters {
         return IssuanceQuery.DEFAULT_LIMIT;
     }
 
-    private static PageCursor cursor(String value, List<Violation> violations) {
+    static PageCursor cursor(String value, List<Violation> violations) {
         if (value == null) {
             return null;
         }

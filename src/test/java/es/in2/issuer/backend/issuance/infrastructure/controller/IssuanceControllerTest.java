@@ -820,6 +820,50 @@ class IssuanceControllerTest {
                 .jsonPath("$.issuances").doesNotExist();
     }
 
+    /** EUD-255 FR-11: the body reaches the query use case already checked, as a page of the listing with the text. */
+    @Test
+    void searchIssuances_passesTheSearchToTheQuery_andAnswersThePageOfTheContract() {
+        AuthorizationDecision decision = organizationAdminDecision("VATES-LIST");
+        ArgumentCaptor<IssuanceQuery> query = ArgumentCaptor.forClass(IssuanceQuery.class);
+        when(powerAuthorizationService.authorizeQuery(isNull(), isNull())).thenReturn(Mono.just(decision));
+        when(issuanceQueryService.list(eq(decision), query.capture()))
+                .thenReturn(Mono.just(new IssuanceList(List.of(), null)));
+
+        webTestClient.mutateWith(csrf()).post()
+                .uri(ISSUANCES_PATH + "/search")
+                .header("Authorization", "Bearer testToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"subject\": \"garcia\", \"life_cycle_status\": [\"VALID\"], \"limit\": 5}")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.issuances").isArray()
+                .jsonPath("$.next_cursor").doesNotExist();
+
+        assertThat(query.getValue().subject()).isEqualTo("garcia");
+        assertThat(query.getValue().lifeCycleStatuses()).containsExactly(CredentialStatusEnum.VALID);
+        assertThat(query.getValue().limit()).isEqualTo(5);
+    }
+
+    /** API-10, ES-04: the body is checked before the permission, and the search is not attempted. */
+    @Test
+    void searchIssuances_rejectsAMalformedBody_beforeDecidingAnything() {
+        when(errorResponseFactory.handleWithViolations(any(InvalidQueryException.class), any(), eq("invalid_request"),
+                anyString(), eq(HttpStatus.BAD_REQUEST), anyString(), any()))
+                .thenReturn(Mono.just(new GlobalErrorMessage("invalid_request", "Invalid request",
+                        HttpStatus.BAD_REQUEST.value(), "The query is not valid", ISSUANCES_PATH + "/search")));
+
+        webTestClient.mutateWith(csrf()).post()
+                .uri(ISSUANCES_PATH + "/search")
+                .header("Authorization", "Bearer testToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"subject\": \"ma\"}")
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        verifyNoInteractions(powerAuthorizationService, issuanceQueryService);
+    }
+
     /** The 403 mapping of the denial is SharedExceptionHandler's (SharedExceptionHandlerTest), not part of this slice. */
     @Test
     void listIssuances_deniedByAuthorization_neverQueries() {

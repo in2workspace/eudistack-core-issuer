@@ -41,6 +41,27 @@ class IssuanceQueryTest {
         assertThat(query(Set.of(), null, "sandbox", 50).filterDigest()).isNotEqualTo(none);
     }
 
+    /** AD-9: the cursor of a search by name serves the same text however it is written, and no other. */
+    @Test
+    void digest_ofASearchByName_dependsOnTheComparedFormOfTheText() {
+        String listing = query(Set.of(), null, null, 50).filterDigest();
+        String garcia = search("garcia").filterDigest();
+
+        assertThat(garcia).isNotEqualTo(listing);
+        assertThat(search("  GARCÍA ").filterDigest()).isEqualTo(garcia);
+        assertThat(search("garces").filterDigest()).isNotEqualTo(garcia);
+    }
+
+    /** AD-7: the text searched goes to the trace as given; AD-5: nowhere else, not even in a log of the query. */
+    @Test
+    void theTextSearched_isAFilterOfTheTrace_butNeverPrinted() {
+        IssuanceQuery search = search("María García");
+
+        assertThat(search.filters()).containsEntry("subject", "María García");
+        assertThat(search.toString()).doesNotContain("María").doesNotContain("García");
+        assertThat(query(Set.of(), null, null, 50).filters()).doesNotContainKey("subject");
+    }
+
     @Test
     void noStates_meansEveryState() {
         assertThat(query(null, null, null, 50).lifeCycleStatuses()).isEmpty();
@@ -55,5 +76,9 @@ class IssuanceQueryTest {
 
     private static IssuanceQuery query(Set<CredentialStatusEnum> states, String entry, String tenant, int limit) {
         return new IssuanceQuery(states, entry, tenant, limit, null);
+    }
+
+    private static IssuanceQuery search(String subject) {
+        return new IssuanceQuery(Set.of(), null, null, 50, null, subject);
     }
 }

@@ -27,6 +27,14 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class IssuanceR2dbcAdapterTest {
 
+    /** EUD-255 AD-9: the text searched matches itself, never as a pattern of LIKE. */
+    @Test
+    void theTextSearched_hasTheWildcardsOfLikeEscaped() {
+        org.assertj.core.api.Assertions.assertThat(IssuanceR2dbcAdapter.escapeLike("50%_off\\x"))
+                .isEqualTo("50\\%\\_off\\\\x");
+        org.assertj.core.api.Assertions.assertThat(IssuanceR2dbcAdapter.escapeLike("garcia")).isEqualTo("garcia");
+    }
+
     @Mock
     private IssuanceR2dbcRepository issuanceR2dbcRepository;
 

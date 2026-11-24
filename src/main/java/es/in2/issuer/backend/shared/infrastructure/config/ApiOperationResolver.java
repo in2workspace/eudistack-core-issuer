@@ -22,7 +22,7 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.STATUS
  *       the issuance".</li>
  *   <li>Revocation: {@code POST /api/v1/issuances/{id}/revocation}, the status changes of
  *       {@code PATCH /api/v1/issuances/{id}} and the deprecated {@code POST .../status/revoke}.</li>
- *   <li>Search: {@code POST /api/v1/issuances/search} (EUD-255, not built yet).</li>
+ *   <li>Search: {@code POST /api/v1/issuances/search} (EUD-255).</li>
  *   <li>Read: list and detail, {@code GET /api/v1/issuances[/{id}]}.</li>
  * </ul>
  */
