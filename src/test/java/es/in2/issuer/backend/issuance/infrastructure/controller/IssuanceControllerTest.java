@@ -32,6 +32,7 @@ import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdExceptio
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableException;
 import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
@@ -862,6 +863,27 @@ class IssuanceControllerTest {
                 .expectStatus().isBadRequest();
 
         verifyNoInteractions(powerAuthorizationService, issuanceQueryService);
+    }
+
+    /** EUD-255 AD-3, ES-01: a page whose processes could not be read answers internal_error and no process. */
+    @Test
+    void listIssuances_whoseProcessesCannotBeRead_isAnInternalErrorWithoutData() {
+        AuthorizationDecision decision = organizationAdminDecision("VATES-LIST");
+        delegateProblemsToTheRealFactory();
+        when(powerAuthorizationService.authorizeQuery(isNull(), isNull())).thenReturn(Mono.just(decision));
+        when(issuanceQueryService.list(eq(decision), any())).thenReturn(Mono.error(
+                new IssuanceQueryUnavailableException(new IllegalStateException("schema down"))));
+
+        webTestClient.get()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isEqualTo(500)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("internal_error")
+                .jsonPath("$.detail").isEqualTo("The request could not be completed")
+                .jsonPath("$.issuances").doesNotExist();
     }
 
     /** The 403 mapping of the denial is SharedExceptionHandler's (SharedExceptionHandlerTest), not part of this slice. */

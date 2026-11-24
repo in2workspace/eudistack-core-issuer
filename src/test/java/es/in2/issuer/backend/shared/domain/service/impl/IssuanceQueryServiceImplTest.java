@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceDetail;
@@ -255,8 +256,43 @@ class IssuanceQueryServiceImplTest {
                 "tenant-b", Flux.error(new IllegalStateException("schema down"))));
 
         StepVerifier.create(service.list(platformAdmin(), query))
-                .expectError(IllegalStateException.class)
+                .expectError(IssuanceQueryUnavailableException.class)
                 .verify();
+        assertThat(auditTrail.all()).isEmpty();
+    }
+
+    /** AD-3, ES-01: a schema that fails is internal_error, from any tenant, and nothing is returned or traced. */
+    @Test
+    void aSchemaThatFails_isAnUnavailableQuery() {
+        IssuanceQuery query = query(Set.of(), null, 50, null);
+        when(issuancePort.findPage(query, "ORG-A", 51)).thenReturn(Flux.error(new IllegalStateException("schema down")));
+
+        StepVerifier.create(service.list(organizationAdmin("ORG-A"), query))
+                .expectError(IssuanceQueryUnavailableException.class)
+                .verify();
+        assertThat(auditTrail.all()).isEmpty();
+    }
+
+    @Test
+    void fromThePlatformTenant_aRegistryThatFails_isAnUnavailableQuery() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.error(new IllegalStateException("registry down")));
+
+        StepVerifier.create(service.list(platformAdmin(), query(Set.of(), null, 50, null)))
+                .expectError(IssuanceQueryUnavailableException.class)
+                .verify();
+    }
+
+    /** A detail that cannot be read is not a refusal: it is internal_error and leaves no Denied. */
+    @Test
+    void aDetailThatCannotBeRead_isAnUnavailableQuery_andNoRefusal() {
+        UUID id = UUID.randomUUID();
+        when(issuancePort.findByIssuanceId(id)).thenReturn(Mono.error(new IllegalStateException("schema down")));
+
+        StepVerifier.create(service.detail(id))
+                .expectError(IssuanceQueryUnavailableException.class)
+                .verify();
+        assertThat(auditTrail.all()).isEmpty();
+        verifyNoInteractions(powerAuthorizationService);
     }
 
     /** AD-7: the trace carries the filters as the request gave them, by their names in the API. */

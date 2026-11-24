@@ -10,6 +10,7 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchExce
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -90,12 +91,13 @@ public class IssuanceExceptionHandler {
     }
 
     /**
-     * EUD-255 AD-7: a read whose trace could not be staged. Nothing of the read is returned, and the detail is
-     * fixed: neither the business outcome (a refusal included) nor the cause reaches the client.
+     * EUD-255 AD-7 and AD-3: a read whose trace could not be staged, or whose processes could not be read (a schema
+     * of a tenant that fails). Nothing of the read is returned, and the detail is fixed: neither the business
+     * outcome (a refusal included) nor the cause reaches the client.
      */
-    @ExceptionHandler(AuditTrailUnavailableException.class)
-    public ResponseEntity<GlobalErrorMessage> handleAuditTrailUnavailable(
-            AuditTrailUnavailableException ex,
+    @ExceptionHandler({AuditTrailUnavailableException.class, IssuanceQueryUnavailableException.class})
+    public ResponseEntity<GlobalErrorMessage> handleQueryInternalError(
+            RuntimeException ex,
             ServerHttpRequest request
     ) {
         return errors.problem(ex, request, GlobalErrorTypes.INTERNAL_ERROR.getCode(), "Internal error",

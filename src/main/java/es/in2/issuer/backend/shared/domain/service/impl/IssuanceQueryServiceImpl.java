@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
@@ -73,7 +74,7 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
             int fetchSize = query.limit() + 1;
             Mono<List<Found>> found = crossTenant
                     ? acrossTenants(query, fetchSize)
-                    : issuancePort.findPage(query, organizationScope(decision), fetchSize)
+                    : stored(issuancePort.findPage(query, organizationScope(decision), fetchSize))
                             .map(issuance -> new Found(null, issuance))
                             .collectList();
             return found.map(rows -> toPage(rows, query))
@@ -92,7 +93,7 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
     @Override
     public Mono<IssuanceDetail> detail(UUID issuanceId) {
         String id = issuanceId.toString();
-        Mono<IssuanceDetail> detail = issuancePort.findByIssuanceId(issuanceId)
+        Mono<IssuanceDetail> detail = stored(issuancePort.findByIssuanceId(issuanceId))
                 .map(stored -> Optional.of(Objects.requireNonNullElse(stored.getOrganizationIdentifier(), "")))
                 .defaultIfEmpty(Optional.empty())
                 .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), id))
@@ -117,6 +118,18 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
     }
 
     /**
+     * AD-3: a read of the processes that fails -- a schema of one tenant, the registry of tenants -- fails the
+     * whole request as {@code internal_error}; nothing partial is returned as complete.
+     */
+    private static <T> Flux<T> stored(Flux<T> rows) {
+        return rows.onErrorMap(IssuanceQueryUnavailableException::new);
+    }
+
+    private static <T> Mono<T> stored(Mono<T> row) {
+        return row.onErrorMap(IssuanceQueryUnavailableException::new);
+    }
+
+    /**
      * AD-7: the trace of a read is staged in a transaction of its own and, if it cannot be, the read fails
      * and returns nothing. Replaces the best effort of EUD-244 for the queries.
      */
@@ -132,18 +145,18 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
         return Mono.defer(() -> {
             Mono<Found> found;
             if (decision.caller().crossTenantView()) {
-                found = tenantRegistryService.getActiveTenantSchemas()
+                found = stored(tenantRegistryService.getActiveTenantSchemas())
                         .flatMapMany(Flux::fromIterable)
                         .filter(tenant -> !PLATFORM_TENANT.equals(tenant))
-                        .concatMap(tenant -> issuancePort.findByIssuanceId(issuanceId)
+                        .concatMap(tenant -> stored(issuancePort.findByIssuanceId(issuanceId))
                                 .map(issuance -> new Found(tenant, issuance))
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant)))
                         .next();
             } else if (decision.anyOrganization()) {
-                found = issuancePort.findByIssuanceId(issuanceId).map(issuance -> new Found(null, issuance));
+                found = stored(issuancePort.findByIssuanceId(issuanceId)).map(issuance -> new Found(null, issuance));
             } else {
-                found = issuancePort.findByIssuanceIdAndOrganizationIdentifier(
-                                issuanceId, decision.caller().organizationIdentifier())
+                found = stored(issuancePort.findByIssuanceIdAndOrganizationIdentifier(
+                                issuanceId, decision.caller().organizationIdentifier()))
                         .map(issuance -> new Found(null, issuance));
             }
             return found;
@@ -187,7 +200,7 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
      * an incomplete page is never returned as complete. The platform tenant has no processes.
      */
     private Mono<List<Found>> acrossTenants(IssuanceQuery query, int fetchSize) {
-        return tenantRegistryService.getActiveTenantSchemas()
+        return stored(tenantRegistryService.getActiveTenantSchemas())
                 .flatMap(active -> {
                     List<String> tenants = active.stream().filter(tenant -> !PLATFORM_TENANT.equals(tenant)).toList();
                     if (query.tenant() == null) {
@@ -198,7 +211,7 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
                             : Mono.error(InvalidQueryException.of(TENANT, "is not an active tenant"));
                 })
                 .flatMapMany(Flux::fromIterable)
-                .flatMap(tenant -> issuancePort.findPage(query, null, fetchSize)
+                .flatMap(tenant -> stored(issuancePort.findPage(query, null, fetchSize))
                         .map(issuance -> new Found(tenant, issuance))
                         .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant)))
                 .collectSortedList(Comparator.comparing(Found::position, PagePosition.NEWEST_FIRST))
