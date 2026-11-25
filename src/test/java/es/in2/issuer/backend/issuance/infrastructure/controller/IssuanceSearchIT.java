@@ -5,9 +5,16 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.core.read.ListAppender;
+import es.in2.issuer.backend.shared.domain.exception.TenantSecretKeyUnavailableException;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.searchidentifier.SearchIdentifierFingerprinter;
+import es.in2.issuer.backend.shared.domain.service.SearchIdentifierIndexer;
+import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
+import es.in2.issuer.backend.shared.domain.spi.TenantSecretKeyPort;
 import es.in2.issuer.backend.shared.domain.util.SubjectSearch;
 import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import io.micrometer.observation.Observation;
@@ -19,21 +26,26 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
+import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
@@ -41,9 +53,11 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * EUD-255 FR-11 over real HTTP and Postgres (AC-07, EC-05, AC-12): {@code POST /api/v1/issuances/search} by name
- * finds the processes of the caller's scope whose subject contains the text, ignoring case and accents, with the
- * pages of the listing, and leaves its strict trace with the text searched -- the one place the text is kept.
+ * EUD-255 FR-05 and FR-11 over real HTTP and Postgres (AC-05, AC-06, AC-07, EC-05, EC-06, AC-12, ES-02):
+ * {@code POST /api/v1/issuances/search} by name finds the processes of the caller's scope whose subject contains the
+ * text, ignoring case and accents; by identifier, those whose fingerprint with the tenant key is the one of the value
+ * searched. Both with the pages of the listing, and with a strict trace holding the value searched -- the one place
+ * it is kept.
  */
 @TestPropertySource(properties = {
         "auditoria.publisher.enabled=true",
@@ -80,12 +94,42 @@ class IssuanceSearchIT extends PostgresIntegrationBase {
         }
     }
 
+    /**
+     * The tenant keys of these tests (outside the local profile there is no Parameter Store): one per tenant, which
+     * a test can make unreadable (ES-02).
+     */
+    static final class TestTenantKeys implements TenantSecretKeyPort {
+
+        private final AtomicBoolean readable = new AtomicBoolean(true);
+
+        @Override
+        public Mono<byte[]> keyOf(String tenant) {
+            return readable.get()
+                    ? Mono.just(Arrays.copyOf(("it-search-key-" + tenant).getBytes(StandardCharsets.UTF_8), 32))
+                    : Mono.error(new TenantSecretKeyUnavailableException("The test made the key unreadable"));
+        }
+
+        void unreadable() {
+            readable.set(false);
+        }
+
+        void readable() {
+            readable.set(true);
+        }
+    }
+
     @TestConfiguration
     static class ObservationRecording {
 
         @Bean
         Observations allObservations() {
             return new Observations();
+        }
+
+        @Bean
+        @Primary
+        TestTenantKeys testTenantKeys() {
+            return new TestTenantKeys();
         }
     }
 
@@ -94,6 +138,15 @@ class IssuanceSearchIT extends PostgresIntegrationBase {
 
     @Autowired
     private Observations observations;
+
+    @Autowired
+    private TestTenantKeys tenantKeys;
+
+    @Autowired
+    private CatalogEntryPort catalogEntryPort;
+
+    @Autowired
+    private SearchIdentifierIndexer searchIdentifierIndexer;
 
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
@@ -110,6 +163,220 @@ class IssuanceSearchIT extends PostgresIntegrationBase {
         Logger root = ((LoggerContext) LoggerFactory.getILoggerFactory()).getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
         root.detachAppender(logs);
         logs.stop();
+        tenantKeys.readable();
+    }
+
+    // ---- search by identifier (EUD-270 task 6) ---------------------------------------------------------------
+
+    /** AC-05, EC-06: the process with that identifier, however it is written, within the caller's scope. */
+    @Test
+    void byIdentifier_findsTheProcessWithIt_howeverTheValueIsWritten() {
+        String organization = uniqueOrganization();
+        String entry = colegiadoEntry();
+        String value = uniqueColegiado();
+        Issuance withIt = seedWithAttestation(TENANT, organization, entry, colegiado(value), T.plusSeconds(1));
+        seedWithAttestation(TENANT, organization, entry, "{\"credentialSubject\":{\"name\":\"Ana\"}}", T.plusSeconds(2));
+        seedWithAttestation(TENANT, uniqueOrganization(), entry, colegiado(value), T.plusSeconds(3));
+
+        assertThat(ids(search(organization, byColegiado(value, "\"life_cycle_status\": [\"VALID\"]"))))
+                .containsExactly(id(withIt));
+        assertThat(ids(search(organization, byColegiado(" " + value.replace("/", " / ").toLowerCase() + " ", null))))
+                .containsExactly(id(withIt));
+    }
+
+    /** AC-06: no process with it is an empty page; a type no entry declares, unknown_identifier_type, traced. */
+    @Test
+    void byIdentifier_withoutMatches_isAnEmptyPage_andOfAnUnknownType_isUnknownIdentifierType() {
+        String organization = uniqueOrganization();
+        colegiadoEntry();
+        String unknownType = "unknown" + UUID.randomUUID().toString().substring(0, 8);
+        String value = uniqueColegiado();
+
+        Map<String, Object> empty = search(organization, byColegiado(value, null));
+        Map<String, Object> unknown = webTestClient().post().uri("/api/v1/issuances/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + mintOperatorAccessToken(TENANT, organization))
+                .header(X_TENANT_HEADER, TENANT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"identifier_type\": \"" + unknownType + "\", \"identifier\": \"" + value + "\"}")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .returnResult().getResponseBody();
+
+        assertThat(issuances(empty)).isEmpty();
+        assertThat(empty).containsEntry("next_cursor", null);
+        assertThat(unknown).containsEntry("type", "unknown_identifier_type");
+        assertThat(unknown.toString()).doesNotContain(value);
+        Map<String, Object> trace = databaseClient.sql("SELECT payload->>'result' AS result, payload->>'reason' AS reason "
+                        + "FROM public.audit_outbox WHERE event_type = 'IssuanceQueried' "
+                        + "AND payload->'details'->'filters'->>'identifier_type' = :type")
+                .bind("type", unknownType)
+                .fetch().one().block(Duration.ofSeconds(10));
+        assertThat(trace).containsEntry("result", "Denied").containsEntry("reason", "UnknownIdentifierType");
+    }
+
+    /** AC-12: from the platform tenant, the search by identifier names its tenant and searches only there. */
+    @Test
+    void fromThePlatformTenant_theSearchByIdentifier_needsTheTenant_andSearchesThere() {
+        String entry = colegiadoEntry();
+        String value = uniqueColegiado();
+        Issuance inA = seedWithAttestation(TENANT, uniqueOrganization(), entry, colegiado(value), T);
+
+        Map<String, Object> withoutTenant = platformSearch(byColegiado(value, null), HttpStatus.BAD_REQUEST);
+        Map<String, Object> inTenant = platformSearch(byColegiado(value, "\"tenant\": \"" + TENANT + "\""), HttpStatus.OK);
+
+        assertThat(fields(withoutTenant)).containsExactly("tenant");
+        assertThat(issuances(inTenant)).extracting(issuance -> issuance.get("id"), issuance -> issuance.get("tenant"))
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(id(inA), TENANT));
+    }
+
+    /** ES-02: without the tenant key the search by identifier is internal_error; the search by name goes on. */
+    @Test
+    void withoutTheTenantKey_theSearchByIdentifierIsAnInternalError_andTheSearchByNameGoesOn() {
+        String organization = uniqueOrganization();
+        colegiadoEntry();
+        tenantKeys.unreadable();
+
+        webTestClient().post().uri("/api/v1/issuances/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + mintOperatorAccessToken(TENANT, organization))
+                .header(X_TENANT_HEADER, TENANT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(byColegiado(uniqueColegiado(), null))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR)
+                .expectBody().jsonPath("$.type").isEqualTo("internal_error")
+                .jsonPath("$.issuances").doesNotExist();
+        assertThat(search(organization, "{\"subject\": \"garcia\"}")).containsKey("issuances");
+    }
+
+    /** AD-7: the trace keeps the identifier as it was sent, with its type and the count. */
+    @Test
+    void theSearchByIdentifier_isTraced_withTheValueAsSent() {
+        String organization = uniqueOrganization();
+        String entry = colegiadoEntry();
+        String value = uniqueColegiado();
+        seedWithAttestation(TENANT, organization, entry, colegiado(value), T);
+        String sent = value.replace("/", " / ");
+
+        search(organization, byColegiado(sent, null));
+
+        Map<String, Object> trace = databaseClient.sql("SELECT payload->>'result' AS result, "
+                        + "payload->'details'->'filters'->>'identifier_type' AS type, "
+                        + "payload->'details'->>'returned_count' AS returned_count FROM public.audit_outbox "
+                        + "WHERE event_type = 'IssuanceQueried' AND payload->'details'->'filters'->>'identifier' = :sent")
+                .bind("sent", sent)
+                .fetch().one().block(Duration.ofSeconds(10));
+        assertThat(trace).containsEntry("result", "Success")
+                .containsEntry("type", "colegiado")
+                .containsEntry("returned_count", "1");
+    }
+
+    /**
+     * AC-09 and NFR-2 for the identifier: a search that finds a process, and one refused for its shape, with a value
+     * written as nowhere else; then it is looked for as sent and as fingerprinted in the logs, the observations and
+     * every text column. As sent, it may only be in {@code public.audit_outbox}, once; what the search leaves
+     * besides is its fingerprint, which is not text.
+     */
+    @Test
+    void theIdentifierSearched_isOnlyInTheAuditTrail() {
+        // Given: a process with the identifier, which the search writes otherwise
+        String entry = colegiadoEntry();
+        String marker = "QX" + UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
+        String stored = "28/" + marker;
+        String sent = "28 / " + marker.toLowerCase();
+        String organization = "VATES-LEAK-" + UUID.randomUUID();
+        seedWithAttestation(TENANT, organization, entry, colegiado(stored), T);
+        Map<String, Long> before = occurrencesInTables(sent);
+        String token = mintOperatorAccessToken(TENANT, organization);
+        logs.list.clear();
+        observations.clear();
+
+        // When: a search that finds it and one refused for its shape
+        webTestClient().post().uri("/api/v1/issuances/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(X_TENANT_HEADER, TENANT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(byColegiado(sent, null))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody().jsonPath("$.issuances.length()").isEqualTo(1);
+        webTestClient().post().uri("/api/v1/issuances/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(X_TENANT_HEADER, TENANT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"identifier\": \"" + sent + "\"}")
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        // Then: the capture works -- the requests did log and observe something
+        assertThat(logs.list).isNotEmpty();
+        assertThat(observations.finished()).anySatisfy(observation -> assertThat(observation).contains("/api/v1/issuances/search"));
+        // ...and neither the value as sent nor as fingerprinted is in a log or an observation
+        for (String value : List.of(sent, SearchIdentifierFingerprinter.normalize(sent), marker)) {
+            assertThat(logLines()).as("logs").noneSatisfy(line -> assertThat(line).containsIgnoringCase(value));
+            assertThat(observations.finished()).as("observations").noneSatisfy(line -> assertThat(line).containsIgnoringCase(value));
+        }
+        // ...nor in a table, but in the audit trail of the search that was made
+        assertThat(occurrencesInTables(sent)).as("text columns holding the value searched").isEqualTo(before);
+        assertThat(databaseClient.sql("SELECT count(*) AS n FROM public.audit_outbox WHERE payload::text LIKE :sent")
+                .bind("sent", "%" + sent + "%")
+                .fetch().one().block(Duration.ofSeconds(10))).containsEntry("n", 1L);
+    }
+
+    private Map<String, Object> platformSearch(String body, HttpStatus expected) {
+        return webTestClient().post().uri("/api/v1/issuances/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + platformAdministratorToken())
+                .header(X_TENANT_HEADER, "platform")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .exchange()
+                .expectStatus().isEqualTo(expected)
+                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .returnResult().getResponseBody();
+    }
+
+    /** A catalogue entry of the tenant that declares colegiado; disabled, so it serves no issuance of other tests. */
+    private String colegiadoEntry() {
+        String id = "eud270." + UUID.randomUUID().toString().substring(0, 8);
+        catalogEntryPort.insert(new CatalogEntry(id, null, false, null, null, null,
+                        List.of(new CatalogEntry.SearchIdentifier("colegiado", ClaimPath.of("credentialSubject", "colegiado"))),
+                        0, null, null))
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT))
+                .block();
+        return id;
+    }
+
+    /** Through the creation of the issuance, which writes the fingerprints with the process. */
+    private Issuance seedWithAttestation(String tenant, String organization, String entry, String attestation,
+                                         Instant lastChangedAt) {
+        Issuance issuance = Issuance.builder()
+                .credentialFormat("dc+sd-jwt")
+                .credentialDataSet(attestation)
+                .credentialStatus(CredentialStatusEnum.VALID)
+                .organizationIdentifier(organization)
+                .credentialType(entry)
+                .subject("Holder " + UUID.randomUUID())
+                .email("holder@example.com")
+                .delivery("email")
+                .lastChangedAt(lastChangedAt.truncatedTo(ChronoUnit.MICROS))
+                .build();
+        return searchIdentifierIndexer.saveWithFingerprints(issuance)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                .block();
+    }
+
+    private static String colegiado(String value) {
+        return "{\"credentialSubject\":{\"colegiado\":\"" + value + "\"}}";
+    }
+
+    private static String byColegiado(String value, String moreFields) {
+        return "{\"identifier_type\": \"colegiado\", \"identifier\": \"" + value + "\""
+                + (moreFields == null ? "" : ", " + moreFields) + "}";
+    }
+
+    private static String uniqueColegiado() {
+        return "28/" + UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
     }
 
 
@@ -229,8 +496,8 @@ class IssuanceSearchIT extends PostgresIntegrationBase {
      * AC-09 and NFR-2 for the name: a search, a valid one and one refused for its shape, with a text that exists
      * nowhere else; then it is looked for in the address, the logs (what the OpenTelemetry appender exports), every
      * observation (what becomes a span) and every text column of the tenant's schema and of {@code public}. It may
-     * only be in {@code public.audit_outbox}, once per search. The search by identifier gets the same proof with
-     * EUD-270 task 6, where only its fingerprint may remain.
+     * only be in {@code public.audit_outbox}, once per search. The search by identifier has the same proof in
+     * {@link #theIdentifierSearched_isOnlyInTheAuditTrail}.
      */
     @Test
     void theTextSearched_isOnlyInTheAuditTrail() {

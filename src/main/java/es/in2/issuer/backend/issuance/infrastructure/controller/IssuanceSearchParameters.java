@@ -10,6 +10,7 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException.Viola
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.model.query.PageCursor;
+import es.in2.issuer.backend.shared.domain.model.query.SearchIdentifierCriterion;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -77,15 +78,13 @@ final class IssuanceSearchParameters {
         String tenant = text(search, TENANT, TENANT_MAX_LENGTH, violations);
         int limit = limit(search.get(LIMIT), violations);
         PageCursor cursor = cursor(search.get(CURSOR), violations);
-        if (violations.isEmpty() && identifierType != null && identifier != null) {
-            // EUD-270 task 6 (blocked by EUD-267 and EUD-274): a well-formed search by identifier is refused until
-            // the fingerprints of the issuance are there. Temporary, removed by that task.
-            violations.add(new Violation(IDENTIFIER_TYPE, "search by identifier is not available yet"));
-        }
         if (!violations.isEmpty()) {
             throw new InvalidQueryException(violations);
         }
-        return new IssuanceQuery(statuses, entry, tenant, limit, cursor, subject);
+        SearchIdentifierCriterion searchedIdentifier = identifierType == null
+                ? null
+                : SearchIdentifierCriterion.searched(identifierType, identifier);
+        return new IssuanceQuery(statuses, entry, tenant, limit, cursor, subject, searchedIdentifier);
     }
 
     private static JsonNode parse(String body) {

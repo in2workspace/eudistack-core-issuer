@@ -3,6 +3,8 @@ package es.in2.issuer.backend.shared.infrastructure.repository;
 import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
+import es.in2.issuer.backend.shared.domain.model.query.SearchIdentifierCriterion;
 import es.in2.issuer.backend.shared.infrastructure.persistence.IssuanceEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,18 @@ class IssuanceR2dbcAdapterTest {
         org.assertj.core.api.Assertions.assertThat(IssuanceR2dbcAdapter.escapeLike("50%_off\\x"))
                 .isEqualTo("50\\%\\_off\\\\x");
         org.assertj.core.api.Assertions.assertThat(IssuanceR2dbcAdapter.escapeLike("garcia")).isEqualTo("garcia");
+    }
+
+    /** EUD-255 AD-5: the value of an identifier never reaches the database, only its fingerprint. */
+    @Test
+    void aSearchByIdentifierNotFingerprinted_isRefused_beforeAnyQuery() {
+        IssuanceQuery inClear = new IssuanceQuery(java.util.Set.of(), null, null, 50, null, null,
+                SearchIdentifierCriterion.searched("dni", "12345678Z"));
+
+        StepVerifier.create(adapter.findPage(inClear, null, 51))
+                .expectError(IllegalStateException.class)
+                .verify();
+        org.mockito.Mockito.verifyNoInteractions(r2dbcEntityTemplate);
     }
 
     @Mock

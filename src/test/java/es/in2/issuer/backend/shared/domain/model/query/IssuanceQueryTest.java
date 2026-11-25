@@ -62,6 +62,43 @@ class IssuanceQueryTest {
         assertThat(query(Set.of(), null, null, 50).filters()).doesNotContainKey("subject");
     }
 
+    /** AD-5: the cursor of a search by identifier carries its fingerprint, never an unkeyed hash of the value. */
+    @Test
+    void digest_ofASearchByIdentifier_needsItsFingerprint_andDependsOnTypeAndFingerprint() {
+        IssuanceQuery received = byIdentifier("colegiado", "28/12345");
+
+        assertThatThrownBy(received::filterDigest).isInstanceOf(IllegalStateException.class);
+        String digest = received.withIdentifierFingerprint(FINGERPRINT).filterDigest();
+        assertThat(digest).isNotEqualTo(query(Set.of(), null, null, 50).filterDigest());
+        assertThat(byIdentifier("colegiado", "other").withIdentifierFingerprint(FINGERPRINT).filterDigest())
+                .as("the value does not count, only its fingerprint").isEqualTo(digest);
+        assertThat(byIdentifier("dni", "28/12345").withIdentifierFingerprint(FINGERPRINT).filterDigest())
+                .isNotEqualTo(digest);
+        assertThat(received.withIdentifierFingerprint(OTHER_FINGERPRINT).filterDigest()).isNotEqualTo(digest);
+    }
+
+    /** AD-7: the identifier goes to the trace as received; AD-5: once fingerprinted, the value is gone. */
+    @Test
+    void theIdentifierSearched_isAFilterOfTheTrace_butNeverPrinted_andTheFingerprintDropsTheValue() {
+        IssuanceQuery received = byIdentifier("dni", "12345678Z");
+        IssuanceQuery fingerprinted = received.withIdentifierFingerprint(FINGERPRINT);
+
+        assertThat(received.filters()).containsEntry("identifier_type", "dni").containsEntry("identifier", "12345678Z");
+        assertThat(received.toString()).doesNotContain("12345678Z");
+        assertThat(fingerprinted.identifier().value()).isNull();
+        assertThat(fingerprinted.identifier().fingerprint()).isEqualTo(FINGERPRINT);
+        assertThat(fingerprinted.filters()).doesNotContainKey("identifier");
+        assertThat(fingerprinted.limit()).isEqualTo(received.limit());
+    }
+
+    @Test
+    void aSearchByNameAndByIdentifier_atOnce_isRefused() {
+        assertThatThrownBy(() -> new IssuanceQuery(Set.of(), null, null, 50, null, "garcia",
+                SearchIdentifierCriterion.searched("dni", "12345678Z"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> search("garcia").withIdentifierFingerprint(FINGERPRINT))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
     @Test
     void noStates_meansEveryState() {
         assertThat(query(null, null, null, 50).lifeCycleStatuses()).isEmpty();
@@ -80,5 +117,12 @@ class IssuanceQueryTest {
 
     private static IssuanceQuery search(String subject) {
         return new IssuanceQuery(Set.of(), null, null, 50, null, subject);
+    }
+
+    private static final byte[] FINGERPRINT = new byte[32];
+    private static final byte[] OTHER_FINGERPRINT = new byte[]{1, 2, 3};
+
+    private static IssuanceQuery byIdentifier(String type, String value) {
+        return new IssuanceQuery(Set.of(), null, null, 50, null, null, SearchIdentifierCriterion.searched(type, value));
     }
 }

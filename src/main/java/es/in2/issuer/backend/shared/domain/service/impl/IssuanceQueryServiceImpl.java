@@ -9,6 +9,10 @@ import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableExc
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownIdentifierTypeException;
+import es.in2.issuer.backend.shared.domain.model.searchidentifier.SearchIdentifierFingerprinter;
+import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
+import es.in2.issuer.backend.shared.domain.spi.TenantSecretKeyPort;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
@@ -42,8 +46,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.PLATFORM_TENANT
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
- * Listing and detail of the issuance processes (EUD-255 design 1.1, AD-1 and AD-3). The tenant isolation comes
- * from the search_path of the tenant in the context; the organization scope from the decision.
+ * Listing, search and detail of the issuance processes (EUD-255 design 1.1, AD-1, AD-3, AD-4 and AD-9). The tenant
+ * isolation comes from the search_path of the tenant in the context; the organization scope from the decision.
  *
  * <p>Each page asks one row more than its size: if it comes, there is a next page and its cursor is
  * the position of the last process returned.
@@ -54,34 +58,102 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
 
     static final String CURSOR = "cursor";
     static final String TENANT = "tenant";
+    /** The fingerprint of a value that normalizes to nothing: no process has it. */
+    private static final byte[] NO_FINGERPRINT = new byte[0];
 
     private final IssuancePort issuancePort;
     private final TenantRegistryService tenantRegistryService;
     private final PowerAuthorizationService powerAuthorizationService;
     private final AuditTrailPort auditTrail;
     private final ObjectMapper objectMapper;
+    private final CatalogEntryPort catalogEntryPort;
+    private final TenantSecretKeyPort tenantSecretKeyPort;
 
     @Override
     public Mono<IssuanceList> list(AuthorizationDecision decision, IssuanceQuery query) {
         return Mono.defer(() -> {
-            if (query.cursor() != null && !query.cursor().filterDigest().equals(query.filterDigest())) {
-                return Mono.error(InvalidQueryException.of(CURSOR, "was given for other filters"));
-            }
             boolean crossTenant = decision.caller().crossTenantView();
             if (query.tenant() != null && !crossTenant) {
                 return Mono.error(InvalidQueryException.of(TENANT, "is only accepted from the platform tenant"));
             }
-            int fetchSize = query.limit() + 1;
-            Mono<List<Found>> found = crossTenant
-                    ? acrossTenants(query, fetchSize)
-                    : stored(issuancePort.findPage(query, organizationScope(decision), fetchSize))
-                            .map(issuance -> new Found(null, issuance))
-                            .collectList();
-            return found.map(rows -> toPage(rows, query))
-                    .flatMap(page -> stageStrictly(IssuanceAuditEvents.queried(
-                                    decision.caller().organizationIdentifier(), query.filters(), page.issuances().size()))
-                            .thenReturn(page));
+            if (query.identifier() == null) {
+                return page(decision, query, query, crossTenant);
+            }
+            if (crossTenant && query.tenant() == null) {
+                return Mono.error(InvalidQueryException.of(TENANT, "is required to search by identifier"));
+            }
+            return fingerprinted(decision, query, crossTenant)
+                    .flatMap(searched -> page(decision, query, searched, crossTenant));
         });
+    }
+
+    /**
+     * A page of {@code searched}, traced with the filters of {@code received}: the same query, but for a search by
+     * identifier, whose value only the trace keeps while the page is searched by its fingerprint.
+     */
+    private Mono<IssuanceList> page(AuthorizationDecision decision, IssuanceQuery received, IssuanceQuery searched,
+                                    boolean crossTenant) {
+        if (searched.cursor() != null && !searched.cursor().filterDigest().equals(searched.filterDigest())) {
+            return Mono.error(InvalidQueryException.of(CURSOR, "was given for other filters"));
+        }
+        int fetchSize = searched.limit() + 1;
+        Mono<List<Found>> found = crossTenant
+                ? acrossTenants(searched, fetchSize)
+                : stored(issuancePort.findPage(searched, organizationScope(decision), fetchSize))
+                        .map(issuance -> new Found(null, issuance))
+                        .collectList();
+        return found.map(rows -> toPage(rows, searched))
+                .flatMap(page -> stageStrictly(IssuanceAuditEvents.queried(
+                                decision.caller().organizationIdentifier(), received.filters(), page.issuances().size()))
+                        .thenReturn(page));
+    }
+
+    /**
+     * EUD-255 FR-05, AD-4 and AD-5: the search by identifier of the query turned into its fingerprint, computed with
+     * the single component of the issuance and the key of the tenant searched -- the caller's, or from the platform
+     * tenant the one it names, which must be active. A type that no catalogue entry of that tenant declares is
+     * refused as {@code unknown_identifier_type}, traced first. A catalogue or a key that cannot be read fails as
+     * {@code internal_error}; the other queries do not need either.
+     */
+    private Mono<IssuanceQuery> fingerprinted(AuthorizationDecision decision, IssuanceQuery query, boolean crossTenant) {
+        String type = query.identifier().type();
+        Mono<String> tenant = crossTenant ? activeTenant(query.tenant()) : currentTenant();
+        return tenant.flatMap(name -> declares(type)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, name))
+                .flatMap(declared -> declared
+                        ? tenantSecretKeyPort.keyOf(name)
+                                .onErrorMap(IssuanceQueryUnavailableException::new)
+                                .map(key -> query.withIdentifierFingerprint(SearchIdentifierFingerprinter
+                                        .fingerprint(key, query.identifier().value())
+                                        .orElse(NO_FINGERPRINT)))
+                        : stageStrictly(IssuanceAuditEvents.queryRefused(decision.caller().organizationIdentifier(),
+                                        query.filters(), IssuanceAuditEvents.REASON_UNKNOWN_IDENTIFIER_TYPE))
+                                .then(Mono.<IssuanceQuery>error(UnknownIdentifierTypeException::new))));
+    }
+
+    /** Whether an entry of the catalogue of the tenant in the context declares a search identifier of that name. */
+    private Mono<Boolean> declares(String type) {
+        return stored(catalogEntryPort.findAll())
+                .any(entry -> entry.searchIdentifiers().stream().anyMatch(identifier -> identifier.name().equals(type)));
+    }
+
+    private static Mono<String> currentTenant() {
+        return Mono.deferContextual(ctx -> ctx.<String>getOrEmpty(TENANT_DOMAIN_CONTEXT_KEY)
+                .map(Mono::just)
+                .orElseGet(() -> Mono.error(new IssuanceQueryUnavailableException(
+                        new IllegalStateException("No tenant in the context")))));
+    }
+
+    /** The tenant named from the platform tenant, if it is an active one (the platform tenant has no processes). */
+    private Mono<String> activeTenant(String tenant) {
+        return activeTenants().flatMap(tenants -> tenants.contains(tenant)
+                ? Mono.just(tenant)
+                : Mono.error(InvalidQueryException.of(TENANT, "is not an active tenant")));
+    }
+
+    private Mono<List<String>> activeTenants() {
+        return stored(tenantRegistryService.getActiveTenantSchemas())
+                .map(active -> active.stream().filter(tenant -> !PLATFORM_TENANT.equals(tenant)).toList());
     }
 
     /**
@@ -200,16 +272,10 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
      * an incomplete page is never returned as complete. The platform tenant has no processes.
      */
     private Mono<List<Found>> acrossTenants(IssuanceQuery query, int fetchSize) {
-        return stored(tenantRegistryService.getActiveTenantSchemas())
-                .flatMap(active -> {
-                    List<String> tenants = active.stream().filter(tenant -> !PLATFORM_TENANT.equals(tenant)).toList();
-                    if (query.tenant() == null) {
-                        return Mono.just(tenants);
-                    }
-                    return tenants.contains(query.tenant())
-                            ? Mono.just(List.of(query.tenant()))
-                            : Mono.error(InvalidQueryException.of(TENANT, "is not an active tenant"));
-                })
+        Mono<List<String>> tenants = query.tenant() == null
+                ? activeTenants()
+                : activeTenant(query.tenant()).map(List::of);
+        return tenants
                 .flatMapMany(Flux::fromIterable)
                 .flatMap(tenant -> stored(issuancePort.findPage(query, null, fetchSize))
                         .map(issuance -> new Found(tenant, issuance))

@@ -186,5 +186,23 @@ class IssuanceAuditEventsTest {
             assertEquals(java.util.Map.of("credential_configuration_id", "doctor.sd.1"), entry.details().get("filters"));
             assertEquals(0, entry.details().get("returned_count"));
         }
+
+        /** EUD-255 AD-7: a search by an identifier no entry declares is a Denied, with its filters and no count. */
+        @Test
+        void queryRefused_isADenialOfTheCatalogue_withTheFiltersAndNoCount() {
+            // Arrange & Act
+            AuditEntry entry = IssuanceAuditEvents.queryRefused("ORG-A",
+                    java.util.Map.of("identifier_type", "colegiado", "identifier", "28/12345"),
+                    IssuanceAuditEvents.REASON_UNKNOWN_IDENTIFIER_TYPE);
+
+            // Assert
+            assertEquals(AuditEventType.ISSUANCE_QUERIED, entry.type());
+            assertEquals(AuditResult.DENIED, entry.result());
+            assertEquals("UnknownIdentifierType", entry.reason());
+            assertEquals("issuance-list:ORG-A", entry.resource());
+            assertEquals(java.util.Map.of("identifier_type", "colegiado", "identifier", "28/12345"),
+                    entry.details().get("filters"));
+            assertFalse(entry.details().containsKey("returned_count"));
+        }
     }
 }

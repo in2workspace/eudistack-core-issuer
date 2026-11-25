@@ -57,6 +57,8 @@ public enum GlobalErrorTypes {
     INVALID_REQUEST("invalid_request"),
     // A failure of the server the client cannot fix, in the code of the contract (EUD-255 AD-7).
     INTERNAL_ERROR("internal_error"),
+    // A search by an identifier no catalogue entry of the tenant declares (EUD-255 FR-05).
+    UNKNOWN_IDENTIFIER_TYPE("unknown_identifier_type"),
     // The code the public API guides document for a malformed request (EUD-307).
     BAD_REQUEST("BAD_REQUEST"),
     DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),

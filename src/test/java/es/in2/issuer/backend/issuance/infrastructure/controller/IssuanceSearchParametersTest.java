@@ -4,6 +4,7 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException.Violation;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
+import es.in2.issuer.backend.shared.domain.model.query.SearchIdentifierCriterion;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -97,13 +98,31 @@ class IssuanceSearchParametersTest {
         assertThat(violations("{\"identifier\": \"12345678Z\"}")).extracting(Violation::field).containsExactly("identifier_type");
     }
 
-    /** EUD-270 task 6 is blocked: a well-formed search by identifier is refused until it is built. */
+    /** AC-05: the search by identifier, as received, still to be fingerprinted by the use case. */
     @Test
-    void aSearchByIdentifier_isNotAvailableYet() {
-        List<Violation> violations = violations("{\"identifier_type\": \"dni\", \"identifier\": \"12345678Z\"}");
+    void aSearchByIdentifier_withTheFiltersOfTheListing() {
+        IssuanceQuery query = IssuanceSearchParameters.toQuery("""
+                {"identifier_type": "colegiado", "identifier": "28 / 12345", "life_cycle_status": ["VALID"],
+                 "tenant": "sandbox"}""");
 
-        assertThat(violations).extracting(Violation::field).containsExactly("identifier_type");
-        assertThat(violations.getFirst().message()).doesNotContain("12345678Z");
+        assertThat(query.identifier()).isEqualTo(SearchIdentifierCriterion.searched("colegiado", "28 / 12345"));
+        assertThat(query.subject()).isNull();
+        assertThat(query.lifeCycleStatuses()).containsExactly(CredentialStatusEnum.VALID);
+        assertThat(query.tenant()).isEqualTo("sandbox");
+    }
+
+    @Test
+    void aSearchByName_hasNoIdentifier() {
+        assertThat(IssuanceSearchParameters.toQuery("{\"subject\": \"garcia\"}").identifier()).isNull();
+    }
+
+    @Test
+    void anIdentifierTooLong_isNamedWithoutItsValue() {
+        String value = "X".repeat(IssuanceSearchParameters.IDENTIFIER_MAX_LENGTH + 1);
+        List<Violation> violations = violations("{\"identifier_type\": \"dni\", \"identifier\": \"" + value + "\"}");
+
+        assertThat(violations).extracting(Violation::field).containsExactly("identifier");
+        assertThat(violations.getFirst().message()).doesNotContain(value);
     }
 
     /** AC-07, EC-05: at least three characters not counting spaces. */

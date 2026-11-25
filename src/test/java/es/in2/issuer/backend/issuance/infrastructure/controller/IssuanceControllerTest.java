@@ -33,7 +33,9 @@ import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownIdentifierTypeException;
 import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
+import es.in2.issuer.backend.shared.domain.model.query.SearchIdentifierCriterion;
 import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
@@ -844,6 +846,50 @@ class IssuanceControllerTest {
         assertThat(query.getValue().subject()).isEqualTo("garcia");
         assertThat(query.getValue().lifeCycleStatuses()).containsExactly(CredentialStatusEnum.VALID);
         assertThat(query.getValue().limit()).isEqualTo(5);
+    }
+
+    /** EUD-255 FR-05: the identifier reaches the query use case as received, to be fingerprinted there. */
+    @Test
+    void searchIssuances_byIdentifier_passesTheIdentifierToTheQuery() {
+        AuthorizationDecision decision = organizationAdminDecision("VATES-LIST");
+        ArgumentCaptor<IssuanceQuery> query = ArgumentCaptor.forClass(IssuanceQuery.class);
+        when(powerAuthorizationService.authorizeQuery(isNull(), isNull())).thenReturn(Mono.just(decision));
+        when(issuanceQueryService.list(eq(decision), query.capture()))
+                .thenReturn(Mono.just(new IssuanceList(List.of(), null)));
+
+        webTestClient.mutateWith(csrf()).post()
+                .uri(ISSUANCES_PATH + "/search")
+                .header("Authorization", "Bearer testToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"identifier_type\": \"colegiado\", \"identifier\": \"28/12345\"}")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(query.getValue().identifier())
+                .isEqualTo(SearchIdentifierCriterion.searched("colegiado", "28/12345"));
+    }
+
+    /** EUD-255 AC-06: an identifier no catalogue entry declares answers unknown_identifier_type, without its value. */
+    @Test
+    void searchIssuances_byAnUnknownIdentifierType_isUnknownIdentifierType() {
+        AuthorizationDecision decision = organizationAdminDecision("VATES-LIST");
+        delegateProblemsToTheRealFactory();
+        when(powerAuthorizationService.authorizeQuery(isNull(), isNull())).thenReturn(Mono.just(decision));
+        when(issuanceQueryService.list(eq(decision), any())).thenReturn(Mono.error(new UnknownIdentifierTypeException()));
+
+        webTestClient.mutateWith(csrf()).post()
+                .uri(ISSUANCES_PATH + "/search")
+                .header("Authorization", "Bearer testToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"identifier_type\": \"colegiado\", \"identifier\": \"28/12345\"}")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("unknown_identifier_type")
+                .jsonPath("$.issuances").doesNotExist()
+                .consumeWith(body -> assertThat(new String(body.getResponseBody(), java.nio.charset.StandardCharsets.UTF_8))
+                        .doesNotContain("28/12345"));
     }
 
     /** API-10, ES-04: the body is checked before the permission, and the search is not attempted. */

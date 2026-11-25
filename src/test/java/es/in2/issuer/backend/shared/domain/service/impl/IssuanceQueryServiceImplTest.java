@@ -7,6 +7,15 @@ import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
+import es.in2.issuer.backend.shared.domain.exception.TenantSecretKeyUnavailableException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownIdentifierTypeException;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
+import es.in2.issuer.backend.shared.domain.model.query.SearchIdentifierCriterion;
+import es.in2.issuer.backend.shared.domain.model.searchidentifier.SearchIdentifierFingerprinter;
+import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
+import es.in2.issuer.backend.shared.domain.spi.TenantSecretKeyPort;
+import org.mockito.ArgumentCaptor;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceDetail;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceSummary;
@@ -30,6 +39,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -61,6 +71,8 @@ class IssuanceQueryServiceImplTest {
     private TenantRegistryService tenantRegistryService;
     private PowerAuthorizationService powerAuthorizationService;
     private RecordingAuditTrail auditTrail;
+    private CatalogEntryPort catalogEntryPort;
+    private TenantSecretKeyPort tenantSecretKeyPort;
     private IssuanceQueryServiceImpl service;
 
     @BeforeEach
@@ -69,8 +81,10 @@ class IssuanceQueryServiceImplTest {
         tenantRegistryService = mock(TenantRegistryService.class);
         auditTrail = new RecordingAuditTrail();
         powerAuthorizationService = mock(PowerAuthorizationService.class);
+        catalogEntryPort = mock(CatalogEntryPort.class);
+        tenantSecretKeyPort = mock(TenantSecretKeyPort.class);
         service = new IssuanceQueryServiceImpl(issuancePort, tenantRegistryService, powerAuthorizationService,
-                auditTrail, new ObjectMapper());
+                auditTrail, new ObjectMapper(), catalogEntryPort, tenantSecretKeyPort);
     }
 
     @Test
@@ -573,6 +587,219 @@ class IssuanceQueryServiceImplTest {
         StepVerifier.create(service.detail(id))
                 .expectError(AuditTrailUnavailableException.class)
                 .verify();
+    }
+
+    // ---- search by identifier (FR-05, AD-4, AD-5) ------------------------------------------------------------
+
+    private static final String TENANT_X = "tenant-x";
+    private static final byte[] KEY = "a-tenant-secret-key-of-32-bytes!".getBytes(StandardCharsets.UTF_8);
+    private static final CatalogEntry.SearchIdentifier COLEGIADO =
+            new CatalogEntry.SearchIdentifier("colegiado", ClaimPath.of("credentialSubject", "colegiado"));
+    private static final CatalogEntry.SearchIdentifier DNI =
+            new CatalogEntry.SearchIdentifier("dni", ClaimPath.of("credentialSubject", "dni"));
+
+    /** AC-05: the value is fingerprinted with the tenant key and the page is searched by that fingerprint. */
+    @Test
+    void aSearchByIdentifier_findsByItsFingerprintWithTheTenantKey_neverByItsValue() {
+        IssuanceQuery query = byIdentifier("colegiado", "28 / 12345", null);
+        catalogDeclares(entry("doctor.sd.1", List.of(DNI)), entry("colegio.sd.1", List.of(COLEGIADO)));
+        when(tenantSecretKeyPort.keyOf(TENANT_X)).thenReturn(Mono.just(KEY));
+        Issuance found = issuance(T);
+        when(issuancePort.findPage(any(), eq("ORG-A"), eq(51))).thenReturn(Flux.just(found));
+
+        IssuanceList page = inTenant(service.list(organizationAdmin("ORG-A"), query)).block();
+
+        assertThat(page.issuances()).extracting(IssuanceSummary::id).containsExactly(found.getIssuanceId());
+        ArgumentCaptor<IssuanceQuery> searched = ArgumentCaptor.forClass(IssuanceQuery.class);
+        verify(issuancePort).findPage(searched.capture(), eq("ORG-A"), eq(51));
+        assertThat(searched.getValue().identifier().value()).isNull();
+        assertThat(searched.getValue().identifier()).isEqualTo(SearchIdentifierCriterion.searched("colegiado", "x")
+                .fingerprinted(SearchIdentifierFingerprinter.fingerprint(KEY, "28/12345").orElseThrow()));
+    }
+
+    /** AD-7: the trace carries the identifier as received, the one place it is kept. */
+    @Test
+    void aSearchByIdentifier_isTracedWithTheValueAsReceived() {
+        catalogDeclares(entry("colegio.sd.1", List.of(COLEGIADO)));
+        when(tenantSecretKeyPort.keyOf(TENANT_X)).thenReturn(Mono.just(KEY));
+        when(issuancePort.findPage(any(), eq("ORG-A"), eq(51))).thenReturn(Flux.empty());
+
+        inTenant(service.list(organizationAdmin("ORG-A"), byIdentifier("colegiado", "28 / 12345", null))).block();
+
+        assertThat(auditTrail.stagedInNewTransaction()).singleElement().satisfies(entry -> {
+            assertThat(entry.result()).isEqualTo(AuditResult.SUCCESS);
+            assertThat(entry.details()).containsEntry("filters",
+                    Map.of("identifier_type", "colegiado", "identifier", "28 / 12345"));
+        });
+    }
+
+    /** A value that normalizes to nothing has no fingerprint: it finds no process. */
+    @Test
+    void aValueWithoutCharacters_searchesAFingerprintNoProcessHas() {
+        catalogDeclares(entry("colegio.sd.1", List.of(COLEGIADO)));
+        when(tenantSecretKeyPort.keyOf(TENANT_X)).thenReturn(Mono.just(KEY));
+        when(issuancePort.findPage(any(), eq("ORG-A"), eq(51))).thenReturn(Flux.empty());
+
+        inTenant(service.list(organizationAdmin("ORG-A"), byIdentifier("colegiado", " ", null))).block();
+
+        ArgumentCaptor<IssuanceQuery> searched = ArgumentCaptor.forClass(IssuanceQuery.class);
+        verify(issuancePort).findPage(searched.capture(), eq("ORG-A"), eq(51));
+        assertThat(searched.getValue().identifier().fingerprint()).isEmpty();
+    }
+
+    /** AC-06: a type no entry of the tenant declares is refused, traced first, without reading the key. */
+    @Test
+    void aTypeNoEntryDeclares_isAnUnknownIdentifierType_tracedAsDenied() {
+        catalogDeclares(entry("doctor.sd.1", List.of(DNI)), entry("plain.sd.1", List.of()));
+
+        StepVerifier.create(inTenant(service.list(organizationAdmin("ORG-A"), byIdentifier("colegiado", "28/12345", null))))
+                .expectError(UnknownIdentifierTypeException.class)
+                .verify();
+
+        assertThat(auditTrail.stagedInNewTransaction()).singleElement().satisfies(entry -> {
+            assertThat(entry.type()).isEqualTo(AuditEventType.ISSUANCE_QUERIED);
+            assertThat(entry.result()).isEqualTo(AuditResult.DENIED);
+            assertThat(entry.reason()).isEqualTo("UnknownIdentifierType");
+            assertThat(entry.details()).containsEntry("filters",
+                    Map.of("identifier_type", "colegiado", "identifier", "28/12345"));
+        });
+        verifyNoInteractions(tenantSecretKeyPort, issuancePort);
+    }
+
+    /** AD-7: a refusal that cannot be traced is internal_error. */
+    @Test
+    void anUnknownIdentifierType_thatCannotBeTraced_isAnUnavailableTrail() {
+        auditTrail.failingOnNewTransaction();
+        catalogDeclares(entry("doctor.sd.1", List.of(DNI)));
+
+        StepVerifier.create(inTenant(service.list(organizationAdmin("ORG-A"), byIdentifier("colegiado", "28/12345", null))))
+                .expectError(AuditTrailUnavailableException.class)
+                .verify();
+    }
+
+    /** ES-03: a catalogue that cannot be read is internal_error, and nothing is searched nor traced. */
+    @Test
+    void aCatalogueThatCannotBeRead_isAnUnavailableQuery() {
+        when(catalogEntryPort.findAll()).thenReturn(Flux.error(new IllegalStateException("catalogue down")));
+
+        StepVerifier.create(inTenant(service.list(organizationAdmin("ORG-A"), byIdentifier("colegiado", "28/12345", null))))
+                .expectError(IssuanceQueryUnavailableException.class)
+                .verify();
+        assertThat(auditTrail.all()).isEmpty();
+        verifyNoInteractions(issuancePort);
+    }
+
+    /** ES-02: a tenant key that cannot be read is internal_error, and nothing is searched nor traced. */
+    @Test
+    void aTenantKeyThatCannotBeRead_isAnUnavailableQuery() {
+        catalogDeclares(entry("colegio.sd.1", List.of(COLEGIADO)));
+        when(tenantSecretKeyPort.keyOf(TENANT_X))
+                .thenReturn(Mono.error(new TenantSecretKeyUnavailableException("no key")));
+
+        StepVerifier.create(inTenant(service.list(organizationAdmin("ORG-A"), byIdentifier("colegiado", "28/12345", null))))
+                .expectError(IssuanceQueryUnavailableException.class)
+                .verify();
+        assertThat(auditTrail.all()).isEmpty();
+        verifyNoInteractions(issuancePort);
+    }
+
+    /** ES-02: the listing and the search by name need neither the catalogue nor the key. */
+    @Test
+    void theListingAndTheSearchByName_needNeitherTheCatalogueNorTheKey() {
+        when(issuancePort.findPage(any(), eq("ORG-A"), eq(51))).thenReturn(Flux.empty());
+
+        inTenant(service.list(organizationAdmin("ORG-A"), query(Set.of(), null, 50, null))).block();
+        inTenant(service.list(organizationAdmin("ORG-A"), new IssuanceQuery(Set.of(), null, null, 50, null, "garcia"))).block();
+
+        verifyNoInteractions(catalogEntryPort, tenantSecretKeyPort);
+    }
+
+    /** AC-12: from the platform tenant the search by identifier names the tenant it searches in. */
+    @Test
+    void fromThePlatformTenant_aSearchByIdentifier_withoutTenant_isAnInvalidQuery() {
+        StepVerifier.create(service.list(platformAdmin(), byIdentifier("colegiado", "28/12345", null)))
+                .expectErrorSatisfies(error -> assertThat(((InvalidQueryException) error).violations())
+                        .extracting(InvalidQueryException.Violation::field).containsExactly("tenant"))
+                .verify();
+        verifyNoInteractions(catalogEntryPort, tenantSecretKeyPort, issuancePort, tenantRegistryService);
+    }
+
+    @Test
+    void fromThePlatformTenant_aSearchByIdentifier_inATenantThatIsNotActive_isAnInvalidQuery() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of(PLATFORM_TENANT, "tenant-a")));
+
+        StepVerifier.create(service.list(platformAdmin(), byIdentifier("colegiado", "28/12345", "tenant-b")))
+                .expectErrorSatisfies(error -> assertThat(((InvalidQueryException) error).violations())
+                        .extracting(InvalidQueryException.Violation::field).containsExactly("tenant"))
+                .verify();
+        verifyNoInteractions(catalogEntryPort, tenantSecretKeyPort, issuancePort);
+    }
+
+    /** AC-12, AD-4: from the platform tenant, the catalogue, the key and the processes are those of the tenant named. */
+    @Test
+    void fromThePlatformTenant_aSearchByIdentifier_usesTheCatalogueAndTheKeyOfTheTenantNamed() {
+        when(tenantRegistryService.getActiveTenantSchemas())
+                .thenReturn(Mono.just(List.of(PLATFORM_TENANT, "tenant-a", "tenant-b")));
+        List<String> catalogueOf = java.util.Collections.synchronizedList(new ArrayList<>());
+        when(catalogEntryPort.findAll()).thenAnswer(invocation -> Flux.deferContextual(ctx -> {
+            catalogueOf.add(ctx.get(TENANT_DOMAIN_CONTEXT_KEY));
+            return Flux.just(entry("colegio.sd.1", List.of(COLEGIADO)));
+        }));
+        when(tenantSecretKeyPort.keyOf("tenant-b")).thenReturn(Mono.just(KEY));
+        Issuance found = issuance(T);
+        List<String> queried = java.util.Collections.synchronizedList(new ArrayList<>());
+        when(issuancePort.findPage(any(), isNull(), eq(51))).thenAnswer(invocation -> Flux.deferContextual(ctx -> {
+            queried.add(ctx.get(TENANT_DOMAIN_CONTEXT_KEY));
+            return Flux.just(found);
+        }));
+
+        IssuanceList page = service.list(platformAdmin(), byIdentifier("colegiado", "28/12345", "tenant-b"))
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, PLATFORM_TENANT))
+                .block();
+
+        assertThat(catalogueOf).containsExactly("tenant-b");
+        assertThat(queried).containsExactly("tenant-b");
+        assertThat(page.issuances()).extracting(IssuanceSummary::id, IssuanceSummary::tenant)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(found.getIssuanceId(), "tenant-b"));
+        verify(tenantSecretKeyPort).keyOf("tenant-b");
+    }
+
+    /** The cursor of a search by identifier serves that identifier only: its digest is that of its fingerprint. */
+    @Test
+    void theCursorOfASearchByIdentifier_servesOnlyThatIdentifier() {
+        catalogDeclares(entry("colegio.sd.1", List.of(COLEGIADO)));
+        when(tenantSecretKeyPort.keyOf(TENANT_X)).thenReturn(Mono.just(KEY));
+        when(issuancePort.findPage(any(), eq("ORG-A"), eq(2))).thenReturn(Flux.just(issuance(T.plusSeconds(2)), issuance(T)));
+        IssuanceQuery first = new IssuanceQuery(Set.of(), null, null, 1, null, null,
+                SearchIdentifierCriterion.searched("colegiado", "28/12345"));
+        String cursor = inTenant(service.list(organizationAdmin("ORG-A"), first)).block().nextCursor();
+
+        IssuanceQuery sameWrittenOtherwise = new IssuanceQuery(Set.of(), null, null, 1,
+                PageCursor.decode(cursor).orElseThrow(), null, SearchIdentifierCriterion.searched("colegiado", "28 / 12345"));
+        IssuanceQuery other = new IssuanceQuery(Set.of(), null, null, 1,
+                PageCursor.decode(cursor).orElseThrow(), null, SearchIdentifierCriterion.searched("colegiado", "28/99999"));
+
+        StepVerifier.create(inTenant(service.list(organizationAdmin("ORG-A"), sameWrittenOtherwise))).expectNextCount(1).verifyComplete();
+        StepVerifier.create(inTenant(service.list(organizationAdmin("ORG-A"), other)))
+                .expectErrorSatisfies(error -> assertThat(((InvalidQueryException) error).violations())
+                        .extracting(InvalidQueryException.Violation::field).containsExactly("cursor"))
+                .verify();
+    }
+
+    private void catalogDeclares(CatalogEntry... entries) {
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(entries));
+    }
+
+    private static CatalogEntry entry(String id, List<CatalogEntry.SearchIdentifier> identifiers) {
+        return new CatalogEntry(id, "https://schema", true, null, null, null, identifiers, 1, null, null);
+    }
+
+    private static IssuanceQuery byIdentifier(String type, String value, String tenant) {
+        return new IssuanceQuery(Set.of(), null, tenant, 50, null, null, SearchIdentifierCriterion.searched(type, value));
+    }
+
+    private static <T> Mono<T> inTenant(Mono<T> mono) {
+        return mono.contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT_X));
     }
 
     private void decidedAs(AuthorizationDecision decision) {

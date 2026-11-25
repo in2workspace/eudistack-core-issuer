@@ -32,7 +32,8 @@ public interface IssuancePort {
     /**
      * One page of the listing in the current tenant (EUD-255 AD-1): the processes that match the
      * query's filters and come after its cursor, newest last change first, at most {@code fetchSize}.
-     * The tenant filter of the query is not applied here: the caller picks the schema.
+     * The tenant filter of the query is not applied here: the caller picks the schema. A search by
+     * identifier must come fingerprinted (EUD-255 AD-5); one with its value in clear fails.
      *
      * @param organizationIdentifier only that organization's processes, or {@code null} for the whole tenant
      */

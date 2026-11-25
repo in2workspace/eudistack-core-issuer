@@ -28,6 +28,8 @@ public final class IssuanceAuditEvents {
     public static final String REASON_POLICY_DENIED = AuditVocabulary.POLICY_DENIED;
     /** A detail refused because the process does not exist or is out of the caller's scope, which read the same. */
     public static final String REASON_ISSUANCE_NOT_FOUND = "IssuanceNotFound";
+    /** A search by an identifier no catalogue entry of the tenant declares (EUD-255 AD-7). */
+    public static final String REASON_UNKNOWN_IDENTIFIER_TYPE = "UnknownIdentifierType";
 
     /** Whether an offer is the first one of the process or a new one asked for while it is still a draft. */
     public enum OfferKind {
@@ -177,6 +179,14 @@ public final class IssuanceAuditEvents {
         details.put("returned_count", returnedCount);
         String listedFor = scope == null || scope.isBlank() ? SCOPE_TENANT : scope;
         return AuditEntry.success(AuditEventType.ISSUANCE_QUERIED, "issuance-list:" + listedFor, details);
+    }
+
+    /** A search refused for a reason of the catalogue, with the filters as received and no count. */
+    public static AuditEntry queryRefused(String scope, Map<String, Object> filters, String reason) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("filters", filters == null ? Map.of() : filters);
+        String listedFor = scope == null || scope.isBlank() ? SCOPE_TENANT : scope;
+        return AuditEntry.forReason(AuditEventType.ISSUANCE_QUERIED, "issuance-list:" + listedFor, reason, details);
     }
 
     /** The detail of one process, with the holder it is for. */

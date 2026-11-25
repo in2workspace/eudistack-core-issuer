@@ -93,6 +93,18 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
             sql.append(" AND subject_search LIKE :subjectPattern ESCAPE '\\'");
             binds.put("subjectPattern", "%" + escapeLike(SubjectSearch.normalize(query.subject())) + "%");
         }
+        if (query.identifier() != null) {
+            // EUD-255 AD-4 and AD-5: the processes with a fingerprint of that type equal to the one searched, by the
+            // lookup index of issuance_search_identifier. Only the fingerprint reaches the database, never the value.
+            if (!query.identifier().isFingerprinted()) {
+                return Flux.error(new IllegalStateException(
+                        "A search by identifier reaches the persistence only fingerprinted"));
+            }
+            sql.append(" AND issuance_id IN (SELECT issuance_id FROM issuance_search_identifier"
+                    + " WHERE identifier_type = :identifierType AND fingerprint = :identifierFingerprint)");
+            binds.put("identifierType", query.identifier().type());
+            binds.put("identifierFingerprint", query.identifier().fingerprint());
+        }
         if (query.cursor() != null) {
             sql.append(" AND (last_changed_at, issuance_id) < (CAST(:afterLastChangedAt AS timestamptz), CAST(:afterIssuanceId AS uuid))");
             binds.put("afterLastChangedAt", query.cursor().position().lastChangedAt());

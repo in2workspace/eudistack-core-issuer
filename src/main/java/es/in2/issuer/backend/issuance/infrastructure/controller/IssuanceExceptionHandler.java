@@ -11,6 +11,7 @@ import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownIdentifierTypeException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -88,6 +89,17 @@ public class IssuanceExceptionHandler {
                 "The query is not valid",
                 violations
         );
+    }
+
+    /** EUD-255 FR-05: a search by an identifier that no catalogue entry of the tenant declares. */
+    @ExceptionHandler(UnknownIdentifierTypeException.class)
+    public ResponseEntity<GlobalErrorMessage> handleUnknownIdentifierType(
+            UnknownIdentifierTypeException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.problem(ex, request, GlobalErrorTypes.UNKNOWN_IDENTIFIER_TYPE.getCode(),
+                "Unknown identifier type", HttpStatus.BAD_REQUEST,
+                "No attestation of the tenant declares that search identifier", null);
     }
 
     /**
