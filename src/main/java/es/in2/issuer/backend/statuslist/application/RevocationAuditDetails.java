@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.statuslist.application;
 
+import es.in2.issuer.backend.statuslist.domain.audit.RevocationAuditEvents;
 import es.in2.issuer.backend.statuslist.domain.util.LogSanitizer;
 
 import java.nio.charset.StandardCharsets;
@@ -20,7 +21,7 @@ import java.util.regex.Pattern;
  */
 public final class RevocationAuditDetails {
 
-    public static final String REASON_NOT_PROVIDED = "not-provided";
+    public static final String REASON_NOT_PROVIDED = RevocationAuditEvents.REASON_NOT_PROVIDED;
     public static final int MAX_REASON_LENGTH = 280;
     public static final String ACTION_REVOKE = "REVOKE";
     public static final String RESOURCE_TYPE_CREDENTIAL = "Credential";
