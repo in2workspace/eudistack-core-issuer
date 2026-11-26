@@ -32,7 +32,7 @@ class PagePositionTest {
     void onATie_theIdIsComparedLikePostgres_unsigned() {
         PagePosition high = new PagePosition(T, UUID.fromString("ffffffff-0000-4000-8000-000000000000"));
         PagePosition low = new PagePosition(T, UUID.fromString("7fffffff-0000-4000-8000-000000000000"));
-        assertThat(high.issuanceId().compareTo(low.issuanceId())).isNegative();
+        assertThat(high.issuanceId()).isLessThan(low.issuanceId());
 
         List<PagePosition> sorted = sorted(low, high);
 

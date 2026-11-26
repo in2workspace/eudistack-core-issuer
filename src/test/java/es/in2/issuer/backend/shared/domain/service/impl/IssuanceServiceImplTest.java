@@ -35,7 +35,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -45,9 +44,6 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class IssuanceServiceImplTest {
-
-    // Single source of truth for admin org id in tests
-    private static final String ADMIN_ORG_ID = "IN2_ADMIN_ORG_ID_FOR_TEST";
 
     @Mock
     private IssuancePort issuancePort;
@@ -76,10 +72,6 @@ class IssuanceServiceImplTest {
         lenient().when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
-
-    // ADMIN_ORG_ID is used as an organization identifier fixture in assertions below;
-    // no stub needed since admin_organization_id is now resolved via TenantConfigService
-    // (not AppConfig) and those tests mock TenantConfigService directly when needed.
 
     @Test
     void getCredentialTypeByIssuanceId_shouldReturnNonDefaultType() throws Exception {

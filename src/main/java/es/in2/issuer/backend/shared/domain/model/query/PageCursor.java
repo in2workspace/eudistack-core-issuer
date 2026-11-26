@@ -58,7 +58,7 @@ public record PageCursor(PagePosition position, String filterDigest) {
                     Instant.parse(node.get(LAST_CHANGED).asText()),
                     UUID.fromString(node.get(ID).asText()));
             return Optional.of(new PageCursor(position, node.get(FILTERS).asText()));
-        } catch (Exception notACursor) {
+        } catch (Exception _) {
             // Base64, JSON, date and UUID failures all mean the same thing to the client.
             return Optional.empty();
         }

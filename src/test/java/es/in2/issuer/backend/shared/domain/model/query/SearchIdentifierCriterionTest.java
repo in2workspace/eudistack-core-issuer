@@ -59,8 +59,9 @@ class SearchIdentifierCriterionTest {
 
     @Test
     void theTextOfTheFingerprint_needsOne() {
-        assertThatThrownBy(() -> SearchIdentifierCriterion.searched("dni", "x").fingerprintText())
-                .isInstanceOf(IllegalStateException.class);
+        SearchIdentifierCriterion received = SearchIdentifierCriterion.searched("dni", "x");
+
+        assertThatThrownBy(received::fingerprintText).isInstanceOf(IllegalStateException.class);
         assertThat(SearchIdentifierCriterion.searched("dni", "x").fingerprinted(FINGERPRINT).fingerprintText())
                 .isEqualTo("AQIDBA");
     }

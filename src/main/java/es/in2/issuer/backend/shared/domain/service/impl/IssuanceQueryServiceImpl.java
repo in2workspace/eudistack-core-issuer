@@ -120,7 +120,7 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
         Mono<String> tenant = crossTenant ? activeTenant(query.tenant()) : currentTenant();
         return tenant.flatMap(name -> declares(type)
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, name))
-                .flatMap(declared -> declared
+                .flatMap(declared -> Boolean.TRUE.equals(declared)
                         ? tenantSecretKeyPort.keyOf(name)
                                 .onErrorMap(IssuanceQueryUnavailableException::new)
                                 .map(key -> query.withIdentifierFingerprint(SearchIdentifierFingerprinter
@@ -255,7 +255,7 @@ public class IssuanceQueryServiceImpl implements IssuanceQueryService {
         }
         try {
             return Mono.just(new IssuanceDetail(toSummary(found), objectMapper.readTree(credentialDataSet)));
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException _) {
             return Mono.error(new ParseCredentialJsonException("The attestation data of the issuance process is not JSON"));
         }
     }

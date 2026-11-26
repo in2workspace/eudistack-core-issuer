@@ -20,7 +20,7 @@ public record PagePosition(Instant lastChangedAt, UUID issuanceId) {
      */
     public static final Comparator<PagePosition> NEWEST_FIRST = (a, b) -> {
         int byLastChange = b.lastChangedAt.compareTo(a.lastChangedAt);
-        return byLastChange != 0 ? byLastChange : compareUnsigned(b.issuanceId, a.issuanceId);
+        return byLastChange == 0 ? compareUnsigned(b.issuanceId, a.issuanceId) : byLastChange;
     };
 
     public PagePosition {
@@ -34,6 +34,6 @@ public record PagePosition(Instant lastChangedAt, UUID issuanceId) {
 
     static int compareUnsigned(UUID x, UUID y) {
         int high = Long.compareUnsigned(x.getMostSignificantBits(), y.getMostSignificantBits());
-        return high != 0 ? high : Long.compareUnsigned(x.getLeastSignificantBits(), y.getLeastSignificantBits());
+        return high == 0 ? Long.compareUnsigned(x.getLeastSignificantBits(), y.getLeastSignificantBits()) : high;
     }
 }

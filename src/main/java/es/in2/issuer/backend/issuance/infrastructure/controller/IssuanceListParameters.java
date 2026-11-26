@@ -37,7 +37,7 @@ final class IssuanceListParameters {
         String entry = text(credentialConfigurationId, CREDENTIAL_CONFIGURATION_ID, CREDENTIAL_CONFIGURATION_ID_MAX_LENGTH, violations);
         String tenantFilter = text(tenant, TENANT, TENANT_MAX_LENGTH, violations);
         int pageSize = limit(limit, violations);
-        PageCursor pageCursor = cursor(cursor, violations);
+        PageCursor pageCursor = decodeCursor(cursor, violations);
         if (!violations.isEmpty()) {
             throw new InvalidQueryException(violations);
         }
@@ -92,14 +92,14 @@ final class IssuanceListParameters {
             if (limit >= 1 && limit <= IssuanceQuery.MAX_LIMIT) {
                 return limit;
             }
-        } catch (NumberFormatException notANumber) {
+        } catch (NumberFormatException _) {
             // Reported below, like an out-of-range number.
         }
         violations.add(new Violation(LIMIT, "must be an integer from 1 to " + IssuanceQuery.MAX_LIMIT));
         return IssuanceQuery.DEFAULT_LIMIT;
     }
 
-    static PageCursor cursor(String value, List<Violation> violations) {
+    static PageCursor decodeCursor(String value, List<Violation> violations) {
         if (value == null) {
             return null;
         }

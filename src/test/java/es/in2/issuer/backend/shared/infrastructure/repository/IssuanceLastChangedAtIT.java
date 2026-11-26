@@ -53,9 +53,8 @@ class IssuanceLastChangedAtIT extends PostgresIntegrationBase {
 
         assertThat(lastChangedAt(tenant, withUpdated)).isEqualTo(Instant.parse("2026-02-01T00:00:00Z"));
         assertThat(lastChangedAt(tenant, onlyCreated)).isEqualTo(Instant.parse("2026-03-01T00:00:00Z"));
-        assertThatThrownBy(() -> databaseClient.sql("UPDATE " + table(tenant) + " SET last_changed_at = NULL")
-                .then().block())
-                .isInstanceOf(DataIntegrityViolationException.class);
+        var clearTheLastChange = databaseClient.sql("UPDATE " + table(tenant) + " SET last_changed_at = NULL").then();
+        assertThatThrownBy(clearTheLastChange::block).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

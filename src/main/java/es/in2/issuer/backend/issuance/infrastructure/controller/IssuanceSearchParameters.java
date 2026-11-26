@@ -54,7 +54,8 @@ final class IssuanceSearchParameters {
     private static final Set<String> FIELDS = Set.of(IDENTIFIER_TYPE, IDENTIFIER, SUBJECT, LIFE_CYCLE_STATUS,
             CREDENTIAL_CONFIGURATION_ID, TENANT, LIMIT, CURSOR);
     /** A field name the client sent is named back only when it looks like one; anything else is the body's. */
-    private static final Pattern FIELD_NAME = Pattern.compile("[A-Za-z0-9_]{1,50}");
+    private static final Pattern FIELD_NAME = Pattern.compile("\\w{1,50}");
+    private static final String NOT_A_JSON_OBJECT = "must be a JSON object";
     private static final Pattern WHITESPACE = Pattern.compile("\\s");
     private static final ObjectMapper JSON = JsonMapper.builder()
             .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
@@ -77,8 +78,8 @@ final class IssuanceSearchParameters {
                     .onUnmappableCharacter(CodingErrorAction.REPORT)
                     .decode(ByteBuffer.wrap(body))
                     .toString());
-        } catch (CharacterCodingException notUtf8) {
-            throw InvalidQueryException.of(BODY, "must be a JSON object");
+        } catch (CharacterCodingException _) {
+            throw InvalidQueryException.of(BODY, NOT_A_JSON_OBJECT);
         }
     }
 
@@ -101,7 +102,7 @@ final class IssuanceSearchParameters {
         String entry = text(search, CREDENTIAL_CONFIGURATION_ID, CREDENTIAL_CONFIGURATION_ID_MAX_LENGTH, violations);
         String tenant = text(search, TENANT, TENANT_MAX_LENGTH, violations);
         int limit = limit(search.get(LIMIT), violations);
-        PageCursor cursor = cursor(search.get(CURSOR), violations);
+        PageCursor cursor = decodeCursor(search.get(CURSOR), violations);
         if (!violations.isEmpty()) {
             throw new InvalidQueryException(violations);
         }
@@ -113,17 +114,17 @@ final class IssuanceSearchParameters {
 
     private static JsonNode parse(String body) {
         if (body == null || body.isBlank()) {
-            throw InvalidQueryException.of(BODY, "must be a JSON object");
+            throw InvalidQueryException.of(BODY, NOT_A_JSON_OBJECT);
         }
         try {
             JsonNode search = JSON.readTree(body);
             if (search == null || !search.isObject()) {
-                throw InvalidQueryException.of(BODY, "must be a JSON object");
+                throw InvalidQueryException.of(BODY, NOT_A_JSON_OBJECT);
             }
             return search;
-        } catch (JsonProcessingException notJson) {
+        } catch (JsonProcessingException _) {
             // The parser's message quotes the body: it is neither kept nor logged.
-            throw InvalidQueryException.of(BODY, "must be a JSON object");
+            throw InvalidQueryException.of(BODY, NOT_A_JSON_OBJECT);
         }
     }
 
@@ -145,16 +146,17 @@ final class IssuanceSearchParameters {
 
     private static String subject(JsonNode search, List<Violation> violations) {
         String subject = text(search, SUBJECT, SUBJECT_MAX_LENGTH, violations);
-        if (subject == null || subject.isBlank()) {
-            return subject;
-        }
-        // AD-9: counted on the text compared, so marks alone (accents without a letter) count for nothing.
-        String withoutSpaces = WHITESPACE.matcher(SubjectSearch.normalize(subject)).replaceAll("");
-        if (withoutSpaces.codePointCount(0, withoutSpaces.length()) < SUBJECT_MIN_CHARACTERS) {
+        if (subject != null && !subject.isBlank() && comparedCharacters(subject) < SUBJECT_MIN_CHARACTERS) {
             violations.add(new Violation(SUBJECT, "must have at least " + SUBJECT_MIN_CHARACTERS
                     + " characters not counting spaces"));
         }
         return subject;
+    }
+
+    /** AD-9: counted on the text compared, so marks alone (accents without a letter) count for nothing. */
+    private static int comparedCharacters(String subject) {
+        String withoutSpaces = WHITESPACE.matcher(SubjectSearch.normalize(subject)).replaceAll("");
+        return withoutSpaces.codePointCount(0, withoutSpaces.length());
     }
 
     /** A text field: a JSON string, not blank, of at most {@code maxLength} characters; null when absent. */
@@ -206,7 +208,7 @@ final class IssuanceSearchParameters {
         return IssuanceQuery.DEFAULT_LIMIT;
     }
 
-    private static PageCursor cursor(JsonNode value, List<Violation> violations) {
+    private static PageCursor decodeCursor(JsonNode value, List<Violation> violations) {
         if (value == null) {
             return null;
         }
@@ -214,6 +216,6 @@ final class IssuanceSearchParameters {
             violations.add(new Violation(CURSOR, "is not a cursor of this API"));
             return null;
         }
-        return IssuanceListParameters.cursor(value.textValue(), violations);
+        return IssuanceListParameters.decodeCursor(value.textValue(), violations);
     }
 }

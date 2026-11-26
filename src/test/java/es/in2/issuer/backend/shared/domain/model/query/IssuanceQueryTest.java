@@ -93,9 +93,12 @@ class IssuanceQueryTest {
 
     @Test
     void aSearchByNameAndByIdentifier_atOnce_isRefused() {
-        assertThatThrownBy(() -> new IssuanceQuery(Set.of(), null, null, 50, null, "garcia",
-                SearchIdentifierCriterion.searched("dni", "12345678Z"))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> search("garcia").withIdentifierFingerprint(FINGERPRINT))
+        SearchIdentifierCriterion dni = SearchIdentifierCriterion.searched("dni", "12345678Z");
+        IssuanceQuery byName = search("garcia");
+
+        assertThatThrownBy(() -> new IssuanceQuery(Set.of(), null, null, 50, null, "garcia", dni))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> byName.withIdentifierFingerprint(FINGERPRINT))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -120,7 +123,7 @@ class IssuanceQueryTest {
     }
 
     private static final byte[] FINGERPRINT = new byte[32];
-    private static final byte[] OTHER_FINGERPRINT = new byte[]{1, 2, 3};
+    private static final byte[] OTHER_FINGERPRINT = {1, 2, 3};
 
     private static IssuanceQuery byIdentifier(String type, String value) {
         return new IssuanceQuery(Set.of(), null, null, 50, null, null, SearchIdentifierCriterion.searched(type, value));

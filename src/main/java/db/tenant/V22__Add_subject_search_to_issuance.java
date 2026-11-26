@@ -50,19 +50,19 @@ public class V22__Add_subject_search_to_issuance extends BaseJavaMigration {
 
     /** Every process with a subject and no search form yet, a batch at a time. */
     private static void backfill(Connection connection) throws SQLException {
-        Map<UUID, String> batch;
-        do {
-            batch = nextBatch(connection);
-            try (PreparedStatement update = connection.prepareStatement(
-                    "UPDATE issuance SET subject_search = ? WHERE issuance_id = ?")) {
+        try (PreparedStatement update = connection.prepareStatement(
+                "UPDATE issuance SET subject_search = ? WHERE issuance_id = ?")) {
+            Map<UUID, String> batch;
+            do {
+                batch = nextBatch(connection);
                 for (Map.Entry<UUID, String> row : batch.entrySet()) {
                     update.setString(1, SubjectSearch.normalize(row.getValue()));
                     update.setObject(2, row.getKey());
                     update.addBatch();
                 }
                 update.executeBatch();
-            }
-        } while (batch.size() == BATCH_SIZE);
+            } while (batch.size() == BATCH_SIZE);
+        }
     }
 
     private static Map<UUID, String> nextBatch(Connection connection) throws SQLException {
