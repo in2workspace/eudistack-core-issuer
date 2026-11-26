@@ -324,6 +324,45 @@ class IssuanceSearchIT extends PostgresIntegrationBase {
                 .fetch().one().block(Duration.ofSeconds(10))).containsEntry("n", 1L);
     }
 
+    /**
+     * AD-5 says the value searched is in no log at any level: with the codecs of Spring at TRACE, which log what they
+     * decode, neither the identifier nor the name searched is in a log. The client sends the body as bytes, whose
+     * encoder logs only their count, so what is looked for is what the server logs.
+     */
+    @Test
+    void theValueSearched_isNotLogged_evenWithTheCodecsOfSpringAtTrace() {
+        String organization = uniqueOrganization();
+        colegiadoEntry();
+        String identifier = "28/QT" + UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
+        String name = "zq" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String token = mintOperatorAccessToken(TENANT, organization);
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        List<String> codecLoggers = List.of("org.springframework.core.codec", "org.springframework.http.codec");
+        Map<String, ch.qos.logback.classic.Level> levels = new LinkedHashMap<>();
+        codecLoggers.forEach(name1 -> levels.put(name1, context.getLogger(name1).getLevel()));
+        try {
+            codecLoggers.forEach(name1 -> context.getLogger(name1).setLevel(ch.qos.logback.classic.Level.TRACE));
+            logs.list.clear();
+
+            for (String body : List.of(byColegiado(identifier, null), "{\"subject\": \"" + name + "\"}")) {
+                webTestClient().post().uri("/api/v1/issuances/search")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .header(X_TENANT_HEADER, TENANT)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(body.getBytes(StandardCharsets.UTF_8))
+                        .exchange()
+                        .expectStatus().isOk();
+            }
+        } finally {
+            levels.forEach((name1, level) -> context.getLogger(name1).setLevel(level));
+        }
+
+        // The capture works: at TRACE the codecs did log the requests
+        assertThat(logLines()).anySatisfy(line -> assertThat(line).startsWith("org.springframework.core.codec"));
+        assertThat(logLines()).as("logs").noneSatisfy(line -> assertThat(line).containsIgnoringCase(identifier));
+        assertThat(logLines()).as("logs").noneSatisfy(line -> assertThat(line).containsIgnoringCase(name));
+    }
+
     private Map<String, Object> platformSearch(String body, HttpStatus expected) {
         return webTestClient().post().uri("/api/v1/issuances/search")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + platformAdministratorToken())

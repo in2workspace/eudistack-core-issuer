@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,6 +59,33 @@ class IssuanceSearchParametersTest {
         assertThat(error.getMessage()).doesNotContain("María");
         assertThat(error.getCause()).isNull();
         assertThat(error.violations()).allSatisfy(violation -> assertThat(violation.message()).doesNotContain("María"));
+    }
+
+    /** AD-5: the body comes as bytes, decoded here; UTF-8 with its accents reads as it was written. */
+    @Test
+    void aBodyInBytes_isReadAsUtf8() {
+        assertThat(IssuanceSearchParameters.toQuery("{\"subject\": \"García\"}".getBytes(StandardCharsets.UTF_8)).subject())
+                .isEqualTo("García");
+    }
+
+    @Test
+    void bytesThatAreNotUtf8_areNamedAsTheBody_withoutQuotingThem() {
+        byte[] latin1 = "{\"subject\": \"García\"}".getBytes(StandardCharsets.ISO_8859_1);
+
+        InvalidQueryException error = catchThrowableOfType(InvalidQueryException.class,
+                () -> IssuanceSearchParameters.toQuery(latin1));
+
+        assertThat(error.violations()).extracting(Violation::field).containsExactly("body");
+        assertThat(error.getMessage()).doesNotContain("Garc");
+        assertThat(error.getCause()).isNull();
+    }
+
+    @Test
+    void noBodyInBytes_isNamedAsTheBody() {
+        InvalidQueryException error = catchThrowableOfType(InvalidQueryException.class,
+                () -> IssuanceSearchParameters.toQuery((byte[]) null));
+
+        assertThat(error.violations()).extracting(Violation::field).containsExactly("body");
     }
 
     @Test

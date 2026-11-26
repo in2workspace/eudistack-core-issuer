@@ -95,13 +95,13 @@ public class IssuanceController {
     /**
      * A page of the search (EUD-255 FR-05, FR-11): the same scope, filters, order and pagination as the listing,
      * plus a business identifier (searched by its fingerprint) or a text searched in the subject. The body
-     * carries personal data, so it is read as text and checked
+     * carries personal data, so it is read as bytes -- Spring's text decoder would log it -- and checked
      * here (API-10, before the permission) without ever being logged or echoed; only the audit trail of the query
      * records the value searched (AD-5, AD-7). The volume limit of the class {@code search} applies before this.
      */
     @PostMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<IssuanceList> searchIssuances(@RequestBody(required = false) String body) {
+    public Mono<IssuanceList> searchIssuances(@RequestBody(required = false) byte[] body) {
         return Mono.fromCallable(() -> IssuanceSearchParameters.toQuery(body))
                 .flatMap(query -> powerAuthorizationService.authorizeQuery(null, null)
                         .flatMap(decision -> issuanceQueryService.list(decision, query)));

@@ -12,6 +12,10 @@ import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.model.query.PageCursor;
 import es.in2.issuer.backend.shared.domain.model.query.SearchIdentifierCriterion;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Iterator;
@@ -56,6 +60,25 @@ final class IssuanceSearchParameters {
             .build();
 
     private IssuanceSearchParameters() {
+    }
+
+    /**
+     * The body as it came, in bytes: Spring's text decoder logs what it decodes, so the body never goes through it
+     * (AD-5). Bytes that are not UTF-8 are not a JSON object.
+     */
+    static IssuanceQuery toQuery(byte[] body) {
+        if (body == null) {
+            return toQuery((String) null);
+        }
+        try {
+            return toQuery(StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(body))
+                    .toString());
+        } catch (CharacterCodingException notUtf8) {
+            throw InvalidQueryException.of(BODY, "must be a JSON object");
+        }
     }
 
     static IssuanceQuery toQuery(String body) {
