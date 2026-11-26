@@ -45,7 +45,9 @@ import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
+import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -67,6 +69,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -85,6 +88,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 class IssuanceControllerTest {
 
     private static final String ISSUANCES_PATH = "/api/v1/issuances";
+    private static final String TENANT = "tenant-a";
     private static final String BEARER_TOKEN = "Bearer operator-access-token";
     private static final String PUBLIC_ISSUER_BASE_URL = "https://issuer.example.com";
 
@@ -133,6 +137,35 @@ class IssuanceControllerTest {
 
     @MockitoBean
     private CredentialOfferRenewalWorkflow credentialOfferRenewalWorkflow;
+
+    /** Every request carries the tenant header, which the tenant filter of the slice resolves (ES-07 needs it). */
+    @BeforeEach
+    void inATenant() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of(TENANT)));
+        webTestClient = webTestClient.mutate().defaultHeader(X_TENANT_HEADER, TENANT).build();
+    }
+
+    /** EUD-255 ES-07: without a tenant, the three queries are tenant_not_resolved before anything is decided. */
+    @Test
+    void theQueries_withoutATenant_areTenantNotResolved_beforeAnythingIsDecided() {
+        WebTestClient withoutTenant = webTestClient.mutate().defaultHeaders(headers -> headers.remove(X_TENANT_HEADER)).build();
+        when(errorResponseFactory.handleWith(any(TenantNotResolvedException.class), any(), eq("tenant_not_resolved"),
+                anyString(), eq(HttpStatus.FORBIDDEN), anyString()))
+                .thenReturn(Mono.just(new GlobalErrorMessage("tenant_not_resolved", "Tenant not resolved",
+                        HttpStatus.FORBIDDEN.value(), "The operation requires a resolved tenant", ISSUANCES_PATH)));
+
+        withoutTenant.get().uri(ISSUANCES_PATH).header("Authorization", "Bearer testToken").exchange()
+                .expectStatus().isForbidden().expectBody().jsonPath("$.type").isEqualTo("tenant_not_resolved");
+        withoutTenant.get().uri(ISSUANCES_PATH + "/" + UUID.randomUUID()).header("Authorization", "Bearer testToken").exchange()
+                .expectStatus().isForbidden().expectBody().jsonPath("$.type").isEqualTo("tenant_not_resolved");
+        withoutTenant.get().uri(ISSUANCES_PATH + "/not-a-uuid").header("Authorization", "Bearer testToken").exchange()
+                .expectStatus().isForbidden();
+        withoutTenant.mutateWith(csrf()).post().uri(ISSUANCES_PATH + "/search").header("Authorization", "Bearer testToken")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"subject\": \"ma\"}").exchange()
+                .expectStatus().isForbidden().expectBody().jsonPath("$.type").isEqualTo("tenant_not_resolved");
+
+        verifyNoInteractions(powerAuthorizationService, issuanceQueryService);
+    }
 
     @Test
     void createIssuance_WhenCredentialOfferUriIsPresent_Returns200WithBody() throws JsonProcessingException {

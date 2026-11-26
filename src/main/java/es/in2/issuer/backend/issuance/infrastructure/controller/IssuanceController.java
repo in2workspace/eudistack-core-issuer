@@ -11,6 +11,7 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
+import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
@@ -33,6 +34,7 @@ import reactor.core.publisher.Mono;
 import java.util.Objects;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
 
 @Slf4j
@@ -86,10 +88,10 @@ public class IssuanceController {
             @RequestParam(name = IssuanceListParameters.TENANT, required = false) String tenant,
             @RequestParam(name = IssuanceListParameters.LIMIT, required = false) String limit,
             @RequestParam(name = IssuanceListParameters.CURSOR, required = false) String cursor) {
-        return Mono.fromCallable(() -> IssuanceListParameters.toQuery(
+        return requireTenant().then(Mono.fromCallable(() -> IssuanceListParameters.toQuery(
                         lifeCycleStatus, credentialConfigurationId, tenant, limit, cursor))
                 .flatMap(query -> powerAuthorizationService.authorizeQuery(null, null)
-                        .flatMap(decision -> issuanceQueryService.list(decision, query)));
+                        .flatMap(decision -> issuanceQueryService.list(decision, query))));
     }
 
     /**
@@ -104,9 +106,9 @@ public class IssuanceController {
             produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<IssuanceList> searchIssuances(@RequestBody(required = false) byte[] body) {
-        return Mono.fromCallable(() -> IssuanceSearchParameters.toQuery(body))
+        return requireTenant().then(Mono.fromCallable(() -> IssuanceSearchParameters.toQuery(body))
                 .flatMap(query -> powerAuthorizationService.authorizeQuery(null, null)
-                        .flatMap(decision -> issuanceQueryService.list(decision, query)));
+                        .flatMap(decision -> issuanceQueryService.list(decision, query))));
     }
 
     /**
@@ -118,9 +120,19 @@ public class IssuanceController {
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<IssuanceDetail> getIssuance(@PathVariable("id") String id) {
-        return IssuanceIds.parse(id)
+        return requireTenant().then(Mono.defer(() -> IssuanceIds.parse(id)
                 .map(issuanceQueryService::detail)
-                .orElseGet(() -> Mono.error(InvalidQueryException.of(ID, "is not an issuance process id")));
+                .orElseGet(() -> Mono.error(InvalidQueryException.of(ID, "is not an issuance process id")))));
+    }
+
+    /**
+     * EUD-255 design §1, ES-07: a query needs the tenant of the request, before its shape, its permission or its
+     * trace. Without one it is {@code tenant_not_resolved}, never a mismatch with the token nor a failed read.
+     */
+    private static Mono<Void> requireTenant() {
+        return Mono.deferContextual(context -> context.hasKey(TENANT_DOMAIN_CONTEXT_KEY)
+                ? Mono.empty()
+                : Mono.error(new TenantNotResolvedException("A query needs the tenant of the request")));
     }
 
     /**

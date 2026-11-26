@@ -363,6 +363,66 @@ class IssuanceSearchIT extends PostgresIntegrationBase {
         assertThat(logLines()).as("logs").noneSatisfy(line -> assertThat(line).containsIgnoringCase(name));
     }
 
+    /**
+     * ES-07: without a token, with one that is not valid or without a tenant, the listing, the detail and the search
+     * are refused with the codes of the contract, and leave no event of the query.
+     */
+    @Test
+    void aQueryWithoutAValidTokenOrTenant_isRefusedWithTheCodesOfTheContract_andIsNotTraced() {
+        String token = mintOperatorAccessToken(TENANT, uniqueOrganization());
+        String forged = forged(token);
+        long before = queryEvents();
+
+        org.assertj.core.api.SoftAssertions softly = new org.assertj.core.api.SoftAssertions();
+        for (String operation : List.of("list", "detail", "search")) {
+            // Only the status: the issuer answers authentication_error on every API where the contract says
+            // authentication_required (API-05, EUD-254 AD-6), a change of the shared security, left to its issue.
+            softly.assertThat(refused(operation, null, TENANT).getFirst()).as(operation + " without a token")
+                    .isEqualTo(HttpStatus.UNAUTHORIZED.value());
+            softly.assertThat(refused(operation, forged, TENANT)).as(operation + " with a token that is not valid")
+                    .containsExactly(HttpStatus.UNAUTHORIZED.value(), "invalid_token");
+            softly.assertThat(refused(operation, token, null)).as(operation + " without a tenant")
+                    .containsExactly(HttpStatus.FORBIDDEN.value(), "tenant_not_resolved");
+        }
+        softly.assertThat(queryEvents()).as("events of the query").isEqualTo(before);
+        softly.assertAll();
+    }
+
+    /** The status and the problem type of one query refused before it is made. */
+    private List<Object> refused(String operation, String token, String tenant) {
+        org.springframework.test.web.reactive.server.WebTestClient.RequestHeadersSpec<?> request = switch (operation) {
+            case "list" -> webTestClient().get().uri("/api/v1/issuances");
+            case "detail" -> webTestClient().get().uri("/api/v1/issuances/" + UUID.randomUUID());
+            default -> webTestClient().post().uri("/api/v1/issuances/search")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue("{\"subject\": \"garcia\"}");
+        };
+        if (token != null) {
+            request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        if (tenant != null) {
+            request = request.header(X_TENANT_HEADER, tenant);
+        }
+        var result = request.exchange()
+                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .returnResult();
+        Map<String, Object> body = result.getResponseBody();
+        return List.of(result.getStatus().value(), body == null ? "<no body>" : String.valueOf(body.get("type")));
+    }
+
+    /** The token with its signature changed: well formed, but not valid. */
+    private static String forged(String token) {
+        String[] parts = token.split("\\.");
+        char first = parts[2].charAt(0);
+        return parts[0] + "." + parts[1] + "." + (first == 'A' ? 'B' : 'A') + parts[2].substring(1);
+    }
+
+    private long queryEvents() {
+        return (Long) databaseClient.sql("SELECT count(*) AS n FROM public.audit_outbox "
+                        + "WHERE event_type IN ('IssuanceQueried', 'IssuanceDetailAccessed')")
+                .fetch().one().block(Duration.ofSeconds(10)).get("n");
+    }
+
     private Map<String, Object> platformSearch(String body, HttpStatus expected) {
         return webTestClient().post().uri("/api/v1/issuances/search")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + platformAdministratorToken())
