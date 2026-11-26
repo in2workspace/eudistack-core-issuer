@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (license gate, version 3.16.2)
+
+- **Own Base45 codec instead of the EUPL-1.2 library.** The signing of `cwt_vc` writes the deflated COSE in Base45 with `Base45Codec` (RFC 9285), and `io.github.ehn-digital-green-development:base45:0.0.3` is removed, with its license exception in `.github/license-exceptions.json`: the exception expired on 2026-11-25 and the license gate (EUD-220) blocked every build. The output does not change: before the library left, the codec wrote and read exactly what it wrote for 4096 random inputs, and what it wrote for every byte value stays as golden vectors. An ArchUnit rule keeps `nl.minvws` out. The `cwt_vc` path of the signer, which had no test, now has one.
+
 ### Fixed (EUD-371, version 3.16.1)
 
 - **EUD-371 — A revocation requested without a reason keeps its audit event.** The `Revocation` event of a requested revocation (`revocation_origin = Request`) carries `revocation_reason = not-provided` when the request has no reason, or one that is empty once cleaned (EUD-247 design AD-2). It went without the field, which the audit API rejects (`AuditEventRejected`, `InvalidEvent`), so a revocation asked for through the obsolete `POST /w3c/v1/credentials/status/revoke` left no event in the tenant's audit trail. A reason that comes is sent as before; a revocation caused by a wallet notification keeps none.
