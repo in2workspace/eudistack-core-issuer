@@ -249,6 +249,56 @@ class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
                 .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
 
+    /**
+     * EUD-255 ES-07: a query refused for its token (not valid) or its tenant (none) is not counted against the limit
+     * of the person whose claims it carries: after more of them than the read and the search limits, that person
+     * still lists, reads a detail and searches. From an address of their own, which the refused requests do count.
+     */
+    @Test
+    void aQueryRefusedForItsTokenOrItsTenant_isNotCountedInTheLimitOfThePerson() {
+        String ana = person(organization(), "ana@example.org");
+        String[] parts = ana.split("\\.");
+        String forged = parts[0] + "." + parts[1] + "." + (parts[2].charAt(0) == 'A' ? 'B' : 'A') + parts[2].substring(1);
+        String detail = "/api/v1/issuances/" + UUID.randomUUID();
+        String address = "198.51.100.12";
+
+        for (int i = 0; i < SEARCHES_PER_PERSON + 1; i++) {
+            for (String token : List.of(forged, ana)) {
+                boolean withTenant = token.equals(forged);
+                // Refused, never for the volume: the codes of each refusal are checked by IssuanceSearchIT
+                assertThat(query(address, HttpMethod.POST, SEARCH, token, withTenant).getStatus())
+                        .isNotEqualTo(HttpStatus.OK).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                if (i <= 3) {
+                    assertThat(query(address, HttpMethod.GET, "/api/v1/issuances", token, withTenant).getStatus())
+                            .isNotEqualTo(HttpStatus.OK).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                    assertThat(query(address, HttpMethod.GET, detail, token, withTenant).getStatus())
+                            .isNotEqualTo(HttpStatus.NOT_FOUND).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                }
+            }
+        }
+
+        assertThat(list(ana).getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(send(HttpMethod.GET, detail, ana, "{}").getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(send(HttpMethod.POST, SEARCH, ana, "{\"subject\": \"garcia\"}").getStatus()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** One query from its own address, with or without the tenant header. */
+    private EntityExchangeResult<Map<String, Object>> query(String address, HttpMethod method, String path, String token,
+                                                           boolean withTenant) {
+        var request = webTestClient()
+                .method(method).uri(path)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header("X-Forwarded-For", address);
+        if (withTenant) {
+            request = request.header(X_TENANT_HEADER, TENANT);
+        }
+        if (method == HttpMethod.POST) {
+            return request.contentType(MediaType.APPLICATION_JSON).bodyValue("{\"subject\": \"garcia\"}").exchange()
+                    .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {}).returnResult();
+        }
+        return request.exchange().expectBody(new ParameterizedTypeReference<Map<String, Object>>() {}).returnResult();
+    }
+
     /** A route of the management APIs with no operation is not counted by its requester: the address limit is. */
     @Test
     void aRouteWithoutOperation_isLimitedByAddress_after100Requests() {

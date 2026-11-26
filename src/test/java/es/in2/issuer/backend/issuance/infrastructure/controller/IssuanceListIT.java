@@ -90,6 +90,43 @@ class IssuanceListIT extends PostgresIntegrationBase {
         assertThat(page).containsEntry("next_cursor", null);
     }
 
+    /**
+     * EC-04: a process already returned that changes state in the middle of a walk goes up to the top of the listing
+     * and does not come out again in that walk, which goes on where it was.
+     */
+    @Test
+    void aProcessThatChangesStateDuringAWalk_goesToTheTop_andDoesNotComeOutAgain() {
+        String organization = uniqueOrganization();
+        Issuance first = seed(organization, T.plusSeconds(4), CredentialStatusEnum.VALID, "doctor.sd.1");
+        Issuance second = seed(organization, T.plusSeconds(3), CredentialStatusEnum.VALID, "doctor.sd.1");
+        Issuance third = seed(organization, T.plusSeconds(2), CredentialStatusEnum.VALID, "doctor.sd.1");
+        Issuance fourth = seed(organization, T.plusSeconds(1), CredentialStatusEnum.VALID, "doctor.sd.1");
+        Map<String, Object> firstPage = page(organization, null, Map.of("limit", "2"));
+
+        // The first process returned is revoked: its last change is now
+        Issuance changed = issuancePort.findById(first.getIssuanceId())
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT))
+                .block();
+        changed.setCredentialStatus(CredentialStatusEnum.REVOKED);
+        issuancePort.save(changed).contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT)).block();
+        Map<String, Object> secondPage = page(organization, (String) firstPage.get("next_cursor"), Map.of("limit", "2"));
+
+        assertThat(ids(firstPage)).containsExactly(id(first), id(second));
+        assertThat(ids(secondPage)).containsExactly(id(third), id(fourth));
+        assertThat(secondPage).containsEntry("next_cursor", null);
+        assertThat(ids(page(organization, null, Map.of("limit", "1")))).containsExactly(id(first));
+    }
+
+    /** EC-02: limit=200, the most, and limit=1, the least, are accepted. */
+    @Test
+    void theLimitsOfLimit_areAccepted() {
+        String organization = uniqueOrganization();
+        Issuance only = seed(organization, T, CredentialStatusEnum.VALID, "doctor.sd.1");
+
+        assertThat(ids(page(organization, null, Map.of("limit", "200")))).containsExactly(id(only));
+        assertThat(ids(page(organization, null, Map.of("limit", "1")))).containsExactly(id(only));
+    }
+
     @Test
     void aMalformedQuery_isAnInvalidRequest_withOneViolationPerField() {
         Map<String, Object> problem = problem(uniqueOrganization(), Map.of(
@@ -154,6 +191,14 @@ class IssuanceListIT extends PostgresIntegrationBase {
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> issuances(Map<String, Object> page) {
         return (List<Map<String, Object>>) page.get("issuances");
+    }
+
+    private static List<Object> ids(Map<String, Object> page) {
+        return issuances(page).stream().map(issuance -> issuance.get("id")).toList();
+    }
+
+    private static String id(Issuance issuance) {
+        return issuance.getIssuanceId().toString();
     }
 
     @SuppressWarnings("unchecked")
