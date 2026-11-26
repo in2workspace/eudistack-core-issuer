@@ -11,6 +11,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.model.query.PageCursor;
 import es.in2.issuer.backend.shared.domain.model.query.SearchIdentifierCriterion;
+import es.in2.issuer.backend.shared.domain.util.SubjectSearch;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -147,7 +148,8 @@ final class IssuanceSearchParameters {
         if (subject == null || subject.isBlank()) {
             return subject;
         }
-        String withoutSpaces = WHITESPACE.matcher(subject).replaceAll("");
+        // AD-9: counted on the text compared, so marks alone (accents without a letter) count for nothing.
+        String withoutSpaces = WHITESPACE.matcher(SubjectSearch.normalize(subject)).replaceAll("");
         if (withoutSpaces.codePointCount(0, withoutSpaces.length()) < SUBJECT_MIN_CHARACTERS) {
             violations.add(new Violation(SUBJECT, "must have at least " + SUBJECT_MIN_CHARACTERS
                     + " characters not counting spaces"));

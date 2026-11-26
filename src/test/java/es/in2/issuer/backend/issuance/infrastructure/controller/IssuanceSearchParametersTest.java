@@ -160,6 +160,19 @@ class IssuanceSearchParametersTest {
         assertThat(violations("{\"subject\": \"" + subject + "\"}")).extracting(Violation::field).containsExactly("subject");
     }
 
+    /** AD-9: the three characters are those compared; accents without a letter, and the letter's own, count for none. */
+    @ParameterizedTest
+    @ValueSource(strings = {"́́́", "é́", "ab́", "á b́"})
+    void aSubjectWithFewerThanThreeCharactersOnceCompared_isRefused(String subject) {
+        assertThat(violations("{\"subject\": \"" + subject + "\"}")).extracting(Violation::field).containsExactly("subject");
+    }
+
+    @Test
+    void aSubjectWithAccents_countsItsLetters() {
+        assertThatCode(() -> IssuanceSearchParameters.toQuery("{\"subject\": \"ábc\"}")).doesNotThrowAnyException();
+        assertThatCode(() -> IssuanceSearchParameters.toQuery("{\"subject\": \"Gí a\"}")).doesNotThrowAnyException();
+    }
+
     @Test
     void aSubjectOfThreeCharactersWithSpaces_isAccepted() {
         assertThat(IssuanceSearchParameters.toQuery("{\"subject\": \" g a r \"}").subject()).isEqualTo(" g a r ");
