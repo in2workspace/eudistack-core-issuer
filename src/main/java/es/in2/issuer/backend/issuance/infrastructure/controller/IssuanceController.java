@@ -99,7 +99,9 @@ public class IssuanceController {
      * here (API-10, before the permission) without ever being logged or echoed; only the audit trail of the query
      * records the value searched (AD-5, AD-7). The volume limit of the class {@code search} applies before this.
      */
-    @PostMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = "/search",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<IssuanceList> searchIssuances(@RequestBody(required = false) byte[] body) {
         return Mono.fromCallable(() -> IssuanceSearchParameters.toQuery(body))

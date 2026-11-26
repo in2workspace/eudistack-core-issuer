@@ -911,6 +911,22 @@ class IssuanceControllerTest {
         verifyNoInteractions(powerAuthorizationService, issuanceQueryService);
     }
 
+    /** EUD-255 contract, SEC-11: the search takes a JSON body only; any other type is refused before anything. */
+    @ParameterizedTest
+    @ValueSource(strings = {MediaType.TEXT_PLAIN_VALUE, MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+            MediaType.APPLICATION_OCTET_STREAM_VALUE})
+    void searchIssuances_withABodyThatIsNotJson_isAnUnsupportedMediaType(String contentType) {
+        webTestClient.mutateWith(csrf()).post()
+                .uri(ISSUANCES_PATH + "/search")
+                .header("Authorization", "Bearer testToken")
+                .contentType(MediaType.parseMediaType(contentType))
+                .bodyValue("{\"subject\": \"garcia\"}")
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+
+        verifyNoInteractions(powerAuthorizationService, issuanceQueryService);
+    }
+
     /** EUD-255 AD-3, ES-01: a page whose processes could not be read answers internal_error and no process. */
     @Test
     void listIssuances_whoseProcessesCannotBeRead_isAnInternalErrorWithoutData() {
