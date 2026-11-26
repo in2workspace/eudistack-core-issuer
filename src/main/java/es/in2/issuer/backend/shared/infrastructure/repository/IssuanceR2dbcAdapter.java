@@ -87,11 +87,12 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
             sql.append(" AND credential_type = :credentialConfigurationId");
             binds.put("credentialConfigurationId", query.credentialConfigurationId());
         }
-        if (query.subject() != null) {
+        String subject = query.subject();
+        if (subject != null) {
             // EUD-255 AD-9: a partial match over the normalized subject, resolved by the trigram index. The text
             // is only ever a bound parameter, with the wildcards of LIKE escaped so they match themselves.
             sql.append(" AND subject_search LIKE :subjectPattern ESCAPE '\\'");
-            binds.put("subjectPattern", "%" + escapeLike(SubjectSearch.normalize(query.subject())) + "%");
+            binds.put("subjectPattern", "%" + escapeLike(SubjectSearch.normalize(subject)) + "%");
         }
         if (query.identifier() != null) {
             // EUD-255 AD-4 and AD-5: the processes with a fingerprint of that type equal to the one searched, by the
