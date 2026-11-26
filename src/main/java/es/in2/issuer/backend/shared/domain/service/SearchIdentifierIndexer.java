@@ -21,6 +21,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -89,6 +90,10 @@ public class SearchIdentifierIndexer {
     public Mono<Issuance> saveWithFingerprints(Issuance issuance) {
         return Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, ""));
+            // EUD-255 AD-2: the creation is the first change of the process.
+            if (issuance.getLastChangedAt() == null) {
+                issuance.setLastChangedAt(Instant.now());
+            }
             Mono<Issuance> write = catalogEntryPort.findByIdForShare(issuance.getCredentialType())
                     .map(CatalogEntry::searchIdentifiers)
                     .defaultIfEmpty(List.of())

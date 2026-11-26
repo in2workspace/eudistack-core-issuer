@@ -20,9 +20,10 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The detail of a process of another organization answers like one that does not exist, so an
- * organization administrator holding an id cannot tell whether it exists. An id that is not a UUID cannot
- * name a process, so it answers 400 and discloses nothing (EUD-307).
+ * The detail over real HTTP and Postgres (EUD-255 FR-06): the shape of the contract, and a process of another
+ * organization answers like one that does not exist, so an organization administrator holding an id cannot
+ * tell whether it exists. An id that is not a UUID cannot name a process, so it is an invalid request that
+ * discloses nothing (API-10, EUD-307).
  */
 class IssuanceDetailNotFoundIT extends PostgresIntegrationBase {
 
@@ -60,8 +61,40 @@ class IssuanceDetailNotFoundIT extends PostgresIntegrationBase {
         Map<String, Object> body = errorBody(malformed, HttpStatus.BAD_REQUEST);
 
         // Then
-        assertThat(body).containsEntry("type", "BAD_REQUEST");
+        assertThat(body).containsEntry("type", "invalid_request");
+        assertThat(body.get("violations")).asList().singleElement()
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("field", "id");
         assertThat(body.toString()).doesNotContain(malformed);
+    }
+
+    @Test
+    void getIssuance_ofItsOrganization_answersTheShapeOfTheContract() {
+        // Given
+        UUID id = seedIssuanceOf(ORGANIZATION);
+
+        // When
+        Map<String, Object> body = webTestClient()
+                .get().uri("/api/v1/issuances/{id}", id)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + mintOperatorAccessToken(TENANT, ORGANIZATION))
+                .header(X_TENANT_HEADER, TENANT)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .returnResult()
+                .getResponseBody();
+
+        // Then: the fields of the listing at the top level, plus the attestation data, and nothing internal
+        assertThat(body)
+                .containsEntry("id", id.toString())
+                .containsEntry("organization_identifier", ORGANIZATION)
+                .containsEntry("credential_configuration_id", "learcredential.employee.w3c.4")
+                .containsEntry("life_cycle_status", "VALID")
+                .containsEntry("email", "holder@example.com")
+                .containsEntry("credential", Map.of("given_name", "Ana"))
+                .containsKeys("created", "updated")
+                .doesNotContainKeys("summary", "procedure_id", "lifeCycleStatus", "tenant",
+                        "credential_offer_refresh_token", "version");
     }
 
     private Map<String, Object> errorBody(String id, HttpStatus status) {
@@ -86,7 +119,7 @@ class IssuanceDetailNotFoundIT extends PostgresIntegrationBase {
     private UUID seedIssuanceOf(String organization) {
         Issuance issuance = Issuance.builder()
                 .credentialFormat("jwt_vc_json")
-                .credentialDataSet("{}")
+                .credentialDataSet("{\"given_name\":\"Ana\"}")
                 .credentialStatus(CredentialStatusEnum.VALID)
                 .organizationIdentifier(organization)
                 .credentialType("learcredential.employee.w3c.4")

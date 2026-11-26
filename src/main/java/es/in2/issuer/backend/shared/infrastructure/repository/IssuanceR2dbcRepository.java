@@ -14,10 +14,6 @@ import java.util.UUID;
 @Repository
 public interface IssuanceR2dbcRepository extends ReactiveCrudRepository<IssuanceEntity, UUID> {
     Flux<IssuanceEntity> findByCredentialStatusAndOrganizationIdentifier(CredentialStatusEnum credentialStatusEnum, String organizationIdentifier);
-    @Query("SELECT * FROM issuance WHERE organization_identifier = :organizationIdentifier ORDER BY updated_at DESC")
-    Flux<IssuanceEntity> findAllByOrganizationIdentifier(String organizationIdentifier);
-    @Query("SELECT * FROM issuance ORDER BY updated_at DESC")
-    Flux<IssuanceEntity> findAllOrderByUpdatedDesc();
     Mono<IssuanceEntity> findByIssuanceIdAndOrganizationIdentifier(UUID issuanceId, String organizationIdentifier);
     @Query("SELECT credential_status FROM issuance WHERE issuance_id = :issuanceId")
     Mono<String> findCredentialStatusByIssuanceId(UUID issuanceId);

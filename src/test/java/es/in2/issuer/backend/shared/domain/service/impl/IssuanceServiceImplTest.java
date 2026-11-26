@@ -7,8 +7,6 @@ import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateExc
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
-import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
-import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
@@ -16,12 +14,8 @@ import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
-import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
-import es.in2.issuer.backend.support.TestAuthorizationDecisions;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -41,10 +35,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -52,9 +44,6 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class IssuanceServiceImplTest {
-
-    // Single source of truth for admin org id in tests
-    private static final String ADMIN_ORG_ID = "IN2_ADMIN_ORG_ID_FOR_TEST";
 
     @Mock
     private IssuancePort issuancePort;
@@ -68,8 +57,6 @@ class IssuanceServiceImplTest {
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
 
-    @Mock
-    private TenantRegistryService tenantRegistryService;
 
     @Mock
     private TransactionalOperator transactionalOperator;
@@ -85,10 +72,6 @@ class IssuanceServiceImplTest {
         lenient().when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
-
-    // ADMIN_ORG_ID is used as an organization identifier fixture in assertions below;
-    // no stub needed since admin_organization_id is now resolved via TenantConfigService
-    // (not AppConfig) and those tests mock TenantConfigService directly when needed.
 
     @Test
     void getCredentialTypeByIssuanceId_shouldReturnNonDefaultType() throws Exception {
@@ -331,270 +314,6 @@ class IssuanceServiceImplTest {
     // ---------- Admin bypass tests use boolean sysAdmin parameter ----------
 
     @Test
-    void getIssuanceDetail_found_stagesIssuanceDetailAccessedWithTheHolderInClear() throws Exception {
-        // Arrange
-        UUID issuanceId = UUID.randomUUID();
-        String credentialDataSet = "{\"vc\":{}}";
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(issuanceId);
-        issuance.setCredentialDataSet(credentialDataSet);
-        issuance.setCredentialStatus(CredentialStatusEnum.VALID);
-        issuance.setSubject("Jane Doe");
-        issuance.setEmail("jane@example.com");
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
-                .thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(credentialDataSet)).thenReturn(new ObjectMapper().readTree(credentialDataSet));
-
-        // Act
-        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), issuanceId.toString());
-
-        // Assert
-        StepVerifier.create(detail).expectNextCount(1).verifyComplete();
-        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
-        assertEquals(AuditEventType.ISSUANCE_DETAIL_ACCESSED, entry.type());
-        assertEquals(AuditResult.SUCCESS, entry.result());
-        assertEquals("issuance:" + issuanceId, entry.resource());
-        assertEquals(Map.of("name", "Jane Doe", "email", "jane@example.com"), entry.details().get("holder"));
-    }
-
-    @Test
-    void getIssuanceDetail_notFound_stagesDeniedIssuanceNotFoundAndKeepsTheError() {
-        // Arrange
-        UUID issuanceId = UUID.randomUUID();
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
-                .thenReturn(Mono.empty());
-
-        // Act
-        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), issuanceId.toString());
-
-        // Assert
-        StepVerifier.create(detail).expectError(IssuanceNotFoundException.class).verify();
-        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
-        assertEquals(AuditResult.DENIED, entry.result());
-        assertEquals("IssuanceNotFound", entry.reason());
-    }
-
-    @Test
-    void getIssuanceDetail_malformedId_stagesNothingBecauseThereIsNoProcessToPointAt() {
-        // Arrange & Act
-        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "not-a-uuid");
-
-        // Assert
-        StepVerifier.create(detail).expectError(MalformedIssuanceIdException.class).verify();
-        assertTrue(auditTrail.all().isEmpty());
-    }
-
-    @Test
-    void getAllIssuancesVisibleFor_organization_stagesIssuanceQueriedWithTheReturnedCount() {
-        // Arrange
-        Issuance first = issuanceWithStatus(CredentialStatusEnum.VALID);
-        first.setCredentialDataSet("{}");
-        Issuance second = issuanceWithStatus(CredentialStatusEnum.DRAFT);
-        second.setCredentialDataSet("{}");
-        when(issuancePort.findAllByOrganizationIdentifier("org-123")).thenReturn(Flux.just(first, second));
-        try {
-            when(objectMapper.readTree("{}")).thenReturn(new ObjectMapper().readTree("{}"));
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-
-        // Act
-        Mono<IssuanceList> list = issuanceService.getAllIssuancesVisibleFor(
-                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false));
-
-        // Assert
-        StepVerifier.create(list).expectNextCount(1).verifyComplete();
-        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
-        assertEquals(AuditEventType.ISSUANCE_QUERIED, entry.type());
-        assertEquals(AuditResult.SUCCESS, entry.result());
-        assertEquals(2, entry.details().get("returned_count"));
-        assertEquals(Map.of(), entry.details().get("filters"));
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldReturnCredentialDetails_forRegularOrg() throws Exception {
-        // Given (non-admin path)
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = "org-123";
-        String credentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
-        UUID expectedProcedureId = UUID.fromString(issuanceId);
-        CredentialStatusEnum status = CredentialStatusEnum.ISSUED;
-        String email = "owner@example.com";
-
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(expectedProcedureId);
-        issuance.setCredentialDataSet(credentialDataSet);
-        issuance.setCredentialStatus(status);
-        issuance.setOrganizationIdentifier(organizationIdentifier);
-        issuance.setEmail(email);
-
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
-
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
-                .thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectNextMatches(details ->
-                        details.issuanceId().equals(expectedProcedureId) &&
-                                details.lifeCycleStatus().equals(status.name()) &&
-                                details.credential().equals(credentialNode) &&
-                                email.equals(details.email())
-                )
-                .verifyComplete();
-
-        verify(issuancePort, times(1))
-                .findByIssuanceIdAndOrganizationIdentifier(UUID.fromString(issuanceId), organizationIdentifier);
-        verify(issuancePort, never()).findByIssuanceId(any(UUID.class));
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldReturnCredentialDetails_forAdminOrg() throws Exception {
-        // Given (admin organization -> bypass via sysAdmin=true)
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = ADMIN_ORG_ID;
-        String credentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
-        UUID expectedProcedureId = UUID.fromString(issuanceId);
-        String email = "admin-owner@example.com";
-
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(expectedProcedureId);
-        issuance.setCredentialDataSet(credentialDataSet);
-        issuance.setCredentialStatus(CredentialStatusEnum.VALID);
-        issuance.setOrganizationIdentifier("any-org");
-        issuance.setEmail(email);
-
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
-
-        when(issuancePort.findByIssuanceId(any(UUID.class)))
-                .thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectNextMatches(details ->
-                        details.issuanceId().equals(expectedProcedureId) &&
-                                details.credential().equals(credentialNode) &&
-                                email.equals(details.email())
-                )
-                .verifyComplete();
-
-        verify(issuancePort, times(1)).findByIssuanceId(UUID.fromString(issuanceId));
-        verify(issuancePort, never())
-                .findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString());
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorWhenNotFound_forRegularOrg() {
-        // Given
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = "org-123";
-
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString()))
-                .thenReturn(Mono.empty());
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectErrorSatisfies(err -> {
-                    assertInstanceOf(IssuanceNotFoundException.class, err);
-                    assertFalse(err.getMessage().contains(issuanceId));
-                })
-                .verify();
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorWhenNotFound_forAdminOrg() {
-        // Given
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = ADMIN_ORG_ID;
-
-        when(issuancePort.findByIssuanceId(any(UUID.class)))
-                .thenReturn(Mono.empty());
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectError(IssuanceNotFoundException.class)
-                .verify();
-    }
-
-    /** EUD-307: UUID.fromString accepts "1-1-1-1-1"; only the canonical form is an issuance id. */
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsBadRequest_whenIdIsNotCanonical() {
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "1-1-1-1-1");
-
-        // Then
-        StepVerifier.create(result)
-                .expectError(MalformedIssuanceIdException.class)
-                .verify();
-        verifyNoInteractions(issuancePort);
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsBadRequest_whenIdIsMalformed() {
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "not-a-uuid");
-
-        // Then
-        StepVerifier.create(result)
-                .expectErrorSatisfies(err -> {
-                    assertInstanceOf(MalformedIssuanceIdException.class, err);
-                    assertFalse(err.getMessage().contains("not-a-uuid"));
-                })
-                .verify();
-        verifyNoInteractions(issuancePort);
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldHandleJsonProcessingException() throws Exception {
-        // Given
-        String issuanceId = UUID.randomUUID().toString();
-        String organizationIdentifier = "org-123";
-        String invalidCredentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"}";
-
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(UUID.fromString(issuanceId));
-        issuance.setCredentialDataSet(invalidCredentialDataSet);
-        issuance.setOrganizationIdentifier(organizationIdentifier);
-
-        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
-                .thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(invalidCredentialDataSet))
-                .thenThrow(new JsonParseException(null, "Error parsing credential"));
-
-        // When
-        Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
-
-        // Then
-        StepVerifier.create(result)
-                .expectErrorMatches(JsonParseException.class::isInstance)
-                .verify();
-    }
-
-    @Test
     void extractCredentialNode_shouldReturnJsonNode_whenInputIsValid() throws Exception {
         // Given
         String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\",\"Employee\"]}}";
@@ -665,269 +384,6 @@ class IssuanceServiceImplTest {
                 .verify();
 
         verify(objectMapper, times(1)).readTree(invalidJson);
-    }
-
-    @Test
-    void getAllIssuancesVisibleFor_admin_shouldReturnAllProceduresMapped() {
-        // Given (admin organization)
-        String adminOrg = ADMIN_ORG_ID;
-
-        Issuance cp1 = new Issuance();
-        cp1.setIssuanceId(UUID.randomUUID());
-        cp1.setSubject("Alice");
-        cp1.setCredentialType("TYPE_A");
-        cp1.setCredentialStatus(CredentialStatusEnum.DRAFT);
-        cp1.setOrganizationIdentifier("org-1");
-        cp1.setCreatedAt(Instant.parse("2025-01-05T10:00:00Z"));
-        cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
-        cp1.setValidUntil(Timestamp.from(Instant.parse("2026-01-05T10:00:00Z")));
-        cp1.setCredentialDataSet("{\"vc\":{}}");
-
-        Issuance cp2 = new Issuance();
-        cp2.setIssuanceId(UUID.randomUUID());
-        cp2.setSubject("Bob");
-        cp2.setCredentialType("TYPE_B");
-        cp2.setCredentialStatus(CredentialStatusEnum.ISSUED);
-        cp2.setOrganizationIdentifier("org-2");
-        cp2.setCreatedAt(Instant.parse("2025-02-01T09:30:00Z"));
-        cp2.setUpdatedAt(Instant.parse("2025-02-12T09:30:00Z"));
-        cp2.setValidUntil(Timestamp.from(Instant.parse("2026-02-01T09:30:00Z")));
-        cp2.setCredentialDataSet("{\"vc\":{}}");
-
-        when(issuancePort.findAllOrderByUpdatedDesc())
-                .thenReturn(Flux.fromIterable(List.of(cp2, cp1)));
-
-        // objectMapper.readTree is called inside toIssuanceSummary
-        try {
-            when(objectMapper.readTree("{\"vc\":{}}")).thenReturn(new ObjectMapper().readTree("{\"vc\":{}}"));
-        } catch (Exception ignored) {
-        }
-
-        // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(TestAuthorizationDecisions.query(adminOrg, UserRole.SYSADMIN, false));
-
-        // Then
-        StepVerifier.create(mono)
-                .assertNext(result -> {
-                    List<IssuanceList.IssuanceEntry> list = result.issuances();
-                    assertNotNull(list);
-                    assertEquals(2, list.size(), "Should contain 2 procedures");
-
-                    IssuanceSummary first = list.get(0).issuance();
-                    IssuanceSummary second = list.get(1).issuance();
-
-                    assertEquals(cp2.getIssuanceId(), first.issuanceId());
-                    assertEquals("Bob", first.subject());
-                    assertEquals("TYPE_B", first.credentialType());
-                    assertEquals(CredentialStatusEnum.ISSUED.name(), first.status());
-                    assertEquals("org-2", first.organizationIdentifier());
-                    assertEquals(cp2.getCreatedAt(), first.createdAt());
-                    assertEquals(cp2.getValidUntil().toInstant(), first.expiresAt());
-                    assertEquals(cp2.getUpdatedAt(), first.updated());
-
-                    assertEquals(cp1.getIssuanceId(), second.issuanceId());
-                    assertEquals("Alice", second.subject());
-                    assertEquals("TYPE_A", second.credentialType());
-                    assertEquals(CredentialStatusEnum.DRAFT.name(), second.status());
-                    assertEquals("org-1", second.organizationIdentifier());
-                    assertEquals(cp1.getCreatedAt(), second.createdAt());
-                    assertEquals(cp1.getValidUntil().toInstant(), second.expiresAt());
-                    assertEquals(cp1.getUpdatedAt(), second.updated());
-                })
-                .verifyComplete();
-
-        verify(issuancePort, times(1)).findAllOrderByUpdatedDesc();
-    }
-
-    @Test
-    void getAllIssuancesVisibleFor_regularOrg_shouldDelegateToOrgSpecificMethod() {
-        // Given (regular organization)
-        String orgId = "org-123";
-
-        Issuance cp = new Issuance();
-        cp.setIssuanceId(UUID.randomUUID());
-        cp.setSubject("Carol");
-        cp.setCredentialType("TYPE_C");
-        cp.setCredentialStatus(CredentialStatusEnum.VALID);
-        cp.setOrganizationIdentifier(orgId);
-        cp.setUpdatedAt(Instant.parse("2025-03-01T08:00:00Z"));
-
-        IssuanceSummary pbi = IssuanceSummary.builder()
-                .issuanceId(cp.getIssuanceId())
-                .subject(cp.getSubject())
-                .credentialType(cp.getCredentialType())
-                .status(cp.getCredentialStatus().name())
-                .organizationIdentifier(cp.getOrganizationIdentifier())
-                .updated(cp.getUpdatedAt())
-                .build();
-
-        IssuanceList expected = new IssuanceList(
-                List.of(IssuanceList.IssuanceEntry.builder()
-                        .issuance(pbi)
-                        .build())
-        );
-
-        IssuanceServiceImpl spyService = spy(issuanceService);
-
-        doReturn(Mono.just(expected))
-                .when(spyService).getAllIssuanceSummariesByOrganizationId(orgId);
-
-        // When
-        Mono<IssuanceList> mono = spyService.getAllIssuancesVisibleFor(TestAuthorizationDecisions.query(orgId, UserRole.LEAR, false));
-
-        // Then
-        StepVerifier.create(mono)
-                .expectNextMatches(result ->
-                        result.issuances().size() == 1
-                                && result.issuances().get(0).issuance().issuanceId().equals(cp.getIssuanceId())
-                                && "Carol".equals(result.issuances().get(0).issuance().subject())
-                                && "TYPE_C".equals(result.issuances().get(0).issuance().credentialType())
-                                && "VALID".equals(result.issuances().get(0).issuance().status())
-                                && orgId.equals(result.issuances().get(0).issuance().organizationIdentifier())
-                )
-                .verifyComplete();
-
-        verify(issuancePort, never()).findAllOrderByUpdatedDesc();
-        verify(spyService, times(1)).getAllIssuanceSummariesByOrganizationId(orgId);
-    }
-
-    @Test
-    void getAllProceduresBasicInfoForAllOrganizations_shouldReturnEmptyList_whenRepositoryIsEmpty() {
-        // Given
-        when(issuancePort.findAllOrderByUpdatedDesc())
-                .thenReturn(Flux.empty());
-
-        // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, false));
-
-        // Then
-        StepVerifier.create(mono)
-                .assertNext(result -> {
-                    List<IssuanceList.IssuanceEntry> list = result.issuances();
-                    assertNotNull(list);
-                    assertTrue(list.isEmpty(), "List should be empty");
-                })
-                .verifyComplete();
-
-        verify(issuancePort, times(1)).findAllOrderByUpdatedDesc();
-    }
-
-    @Test
-    void getAllIssuanceSummariesByOrganizationId_shouldReturnMappedList_forOrg() {
-        // Given
-        String orgId = "org-xyz";
-
-        Issuance cp1 = new Issuance();
-        cp1.setIssuanceId(UUID.randomUUID());
-        cp1.setSubject("Alice");
-        cp1.setCredentialType("TYPE_A");
-        cp1.setCredentialStatus(CredentialStatusEnum.DRAFT);
-        cp1.setOrganizationIdentifier(orgId);
-        cp1.setCreatedAt(Instant.parse("2025-01-05T10:00:00Z"));
-        cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
-        cp1.setValidUntil(Timestamp.from(Instant.parse("2026-01-05T10:00:00Z")));
-        cp1.setCredentialDataSet("{\"vc\":{}}");
-
-        Issuance cp2 = new Issuance();
-        cp2.setIssuanceId(UUID.randomUUID());
-        cp2.setSubject("Bob");
-        cp2.setCredentialType("TYPE_B");
-        cp2.setCredentialStatus(CredentialStatusEnum.ISSUED);
-        cp2.setOrganizationIdentifier(orgId);
-        cp2.setCreatedAt(Instant.parse("2025-02-01T09:30:00Z"));
-        cp2.setUpdatedAt(Instant.parse("2025-02-12T09:30:00Z"));
-        cp2.setValidUntil(Timestamp.from(Instant.parse("2026-02-01T09:30:00Z")));
-        cp2.setCredentialDataSet("{\"vc\":{}}");
-
-        when(issuancePort.findAllByOrganizationIdentifier(orgId))
-                .thenReturn(Flux.fromIterable(List.of(cp1, cp2)));
-
-        // objectMapper.readTree is called inside toIssuanceSummary
-        try {
-            when(objectMapper.readTree("{\"vc\":{}}")).thenReturn(new ObjectMapper().readTree("{\"vc\":{}}"));
-        } catch (Exception ignored) {
-        }
-
-        // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuanceSummariesByOrganizationId(orgId);
-
-        // Then
-        StepVerifier.create(mono)
-                .assertNext(result -> {
-                    List<IssuanceList.IssuanceEntry> list = result.issuances();
-                    assertNotNull(list, "Result list should not be null");
-                    assertEquals(2, list.size(), "Should contain 2 procedures");
-
-                    IssuanceSummary first = list.get(0).issuance();
-                    IssuanceSummary second = list.get(1).issuance();
-
-                    assertEquals(cp1.getIssuanceId(), first.issuanceId());
-                    assertEquals("Alice", first.subject());
-                    assertEquals("TYPE_A", first.credentialType());
-                    assertEquals(CredentialStatusEnum.DRAFT.name(), first.status());
-                    assertEquals(orgId, first.organizationIdentifier());
-                    assertEquals(cp1.getCreatedAt(), first.createdAt());
-                    assertEquals(cp1.getValidUntil().toInstant(), first.expiresAt());
-                    assertEquals(cp1.getUpdatedAt(), first.updated());
-
-                    assertEquals(cp2.getIssuanceId(), second.issuanceId());
-                    assertEquals("Bob", second.subject());
-                    assertEquals("TYPE_B", second.credentialType());
-                    assertEquals(CredentialStatusEnum.ISSUED.name(), second.status());
-                    assertEquals(orgId, second.organizationIdentifier());
-                    assertEquals(cp2.getCreatedAt(), second.createdAt());
-                    assertEquals(cp2.getValidUntil().toInstant(), second.expiresAt());
-                    assertEquals(cp2.getUpdatedAt(), second.updated());
-                })
-                .verifyComplete();
-
-        verify(issuancePort, times(1)).findAllByOrganizationIdentifier(orgId);
-    }
-
-    @Test
-    void getAllIssuanceSummariesByOrganizationId_shouldLeaveExpiresAtNull_whenValidUntilIsMissing() {
-        String orgId = "org-no-expiry";
-
-        Issuance issuance = new Issuance();
-        issuance.setIssuanceId(UUID.randomUUID());
-        issuance.setCredentialStatus(CredentialStatusEnum.DRAFT);
-        issuance.setOrganizationIdentifier(orgId);
-        issuance.setCreatedAt(Instant.parse("2025-01-05T10:00:00Z"));
-        issuance.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
-        issuance.setValidUntil(null);
-        issuance.setCredentialDataSet("{\"vc\":{}}");
-
-        when(issuancePort.findAllByOrganizationIdentifier(orgId)).thenReturn(Flux.just(issuance));
-
-        StepVerifier.create(issuanceService.getAllIssuanceSummariesByOrganizationId(orgId))
-                .assertNext(result -> {
-                    IssuanceSummary summary = result.issuances().get(0).issuance();
-                    assertEquals(issuance.getCreatedAt(), summary.createdAt());
-                    assertNull(summary.expiresAt());
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void getAllIssuanceSummariesByOrganizationId_shouldReturnEmptyList_whenRepositoryIsEmpty() {
-        // Given
-        String orgId = "org-empty";
-        when(issuancePort.findAllByOrganizationIdentifier(orgId))
-                .thenReturn(Flux.empty());
-
-        // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuanceSummariesByOrganizationId(orgId);
-
-        // Then
-        StepVerifier.create(mono)
-                .assertNext(result -> {
-                    List<IssuanceList.IssuanceEntry> list = result.issuances();
-                    assertNotNull(list, "Result list should not be null");
-                    assertTrue(list.isEmpty(), "List should be empty");
-                })
-                .verifyComplete();
-
-        verify(issuancePort, times(1)).findAllByOrganizationIdentifier(orgId);
     }
 
     @Test
@@ -1110,44 +566,6 @@ class IssuanceServiceImplTest {
                 .verify();
     }
 
-    @Test
-    void getAllIssuancesVisibleFor_tenantAdmin_shouldReturnDataIsolatedBySearchPath() throws Exception {
-        // Given
-        String tenantAdminOrg = "any-org"; // Tenant admin doesn't filter by org identifier
-        
-        Issuance cp1 = new Issuance();
-        cp1.setIssuanceId(UUID.randomUUID());
-        cp1.setSubject("Alice");
-        cp1.setCredentialType("TYPE_A");
-        cp1.setCredentialStatus(CredentialStatusEnum.ISSUED);
-        cp1.setOrganizationIdentifier("org-1");
-        cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
-        cp1.setCredentialDataSet("{\"vc\":{}}");
-
-        when(issuancePort.findAllOrderByUpdatedDesc())
-                .thenReturn(Flux.just(cp1));
-
-        try {
-            when(objectMapper.readTree(anyString())).thenReturn(new ObjectMapper().readTree("{\"vc\":{}}"));
-        } catch (Exception ignored) {
-        }
-
-        // When
-        AuthorizationDecision ctx = TestAuthorizationDecisions.query(tenantAdminOrg, UserRole.TENANT_ADMIN, false);
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(ctx);
-
-        // Then
-        StepVerifier.create(mono)
-                .assertNext(result -> {
-                    assertEquals(1, result.issuances().size());
-                    assertEquals(cp1.getIssuanceId(), result.issuances().get(0).issuance().issuanceId());
-                })
-                .verifyComplete();
-
-        verify(issuancePort, times(1)).findAllOrderByUpdatedDesc();
-        verify(issuancePort, never()).findAllByOrganizationIdentifier(anyString());
-    }
-
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String SYS_TENANT = "sys-tenant";
 
@@ -1227,24 +645,6 @@ class IssuanceServiceImplTest {
         StepVerifier.create(issuanceService.updateCredentialDataSetByIssuanceId(issuance.getIssuanceId().toString(), "{}", "jwt_vc_json"))
                 .expectErrorMatches(error -> isConflictDuring(error, "updateCredentialDataSetByIssuanceId"))
                 .verify();
-    }
-
-    @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldSearchEveryActiveTenant_forPlatformSysAdmin() throws Exception {
-        String dataSet = "{\"vc\":{}}";
-        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.VALID);
-        issuance.setCredentialDataSet(dataSet);
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a", "tenant-b")));
-        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
-        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
-
-        Mono<CredentialDetails> result = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true), issuance.getIssuanceId().toString());
-
-        StepVerifier.create(result)
-                .assertNext(details -> assertEquals(issuance.getIssuanceId(), details.issuanceId()))
-                .verifyComplete();
-        verify(issuancePort, never()).findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString());
     }
 
     @Test
@@ -1407,75 +807,6 @@ class IssuanceServiceImplTest {
 
         StepVerifier.create(issuanceService.archiveIssuance(issuance.getIssuanceId().toString()))
                 .expectErrorMatches(error -> isConflictDuring(error, "archiveIssuance"))
-                .verify();
-    }
-
-    @Test
-    void getAllIssuancesVisibleFor_platformSysAdmin_shouldMergeEveryTenantButPlatform_newestFirst() throws Exception {
-        Issuance older = issuanceWithStatus(CredentialStatusEnum.VALID);
-        older.setCredentialDataSet("{}");
-        older.setUpdatedAt(Instant.parse("2025-01-01T00:00:00Z"));
-        Issuance newer = issuanceWithStatus(CredentialStatusEnum.VALID);
-        newer.setCredentialDataSet("{}");
-        newer.setUpdatedAt(Instant.parse("2025-06-01T00:00:00Z"));
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("platform", "tenant-a", "tenant-b")));
-        when(issuancePort.findAllOrderByUpdatedDesc()).thenReturn(Flux.just(older), Flux.just(newer));
-        when(objectMapper.readTree("{}")).thenReturn(JSON.readTree("{}"));
-
-        Mono<IssuanceList> result = issuanceService.getAllIssuancesVisibleFor(
-                TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true));
-
-        StepVerifier.create(result)
-                .assertNext(list -> {
-                    assertEquals(List.of(newer.getIssuanceId(), older.getIssuanceId()),
-                            list.issuances().stream().map(entry -> entry.issuance().issuanceId()).toList());
-                    assertEquals(List.of("tenant-b", "tenant-a"),
-                            list.issuances().stream().map(entry -> entry.issuance().tenant()).toList());
-                })
-                .verifyComplete();
-        verify(issuancePort, times(2)).findAllOrderByUpdatedDesc();
-    }
-
-    @Test
-    void getAllIssuancesVisibleFor_platformSysAdmin_shouldKeepIssuancesWithoutAnUpdateDate() throws Exception {
-        Issuance dated = issuanceWithStatus(CredentialStatusEnum.VALID);
-        dated.setCredentialDataSet("{}");
-        dated.setUpdatedAt(Instant.parse("2025-01-01T00:00:00Z"));
-        Issuance undated = issuanceWithStatus(CredentialStatusEnum.DRAFT);
-        undated.setCredentialDataSet("{}");
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a")));
-        when(issuancePort.findAllOrderByUpdatedDesc()).thenReturn(Flux.just(dated, undated));
-        when(objectMapper.readTree("{}")).thenReturn(JSON.readTree("{}"));
-
-        StepVerifier.create(issuanceService.getAllIssuancesVisibleFor(
-                        TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true)))
-                .assertNext(list -> assertEquals(2, list.issuances().size()))
-                .verifyComplete();
-    }
-
-    @Test
-    void getAllIssuancesVisibleFor_platformSysAdmin_shouldError_whenACredentialIsNotValidJson() throws Exception {
-        Issuance broken = issuanceWithStatus(CredentialStatusEnum.VALID);
-        broken.setCredentialDataSet("{");
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a")));
-        when(issuancePort.findAllOrderByUpdatedDesc()).thenReturn(Flux.just(broken));
-        when(objectMapper.readTree("{")).thenThrow(new JsonParseException(null, "unexpected end"));
-
-        StepVerifier.create(issuanceService.getAllIssuancesVisibleFor(
-                        TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true)))
-                .expectError(ParseCredentialJsonException.class)
-                .verify();
-    }
-
-    @Test
-    void getAllIssuanceSummariesByOrganizationId_shouldError_whenACredentialIsNotValidJson() throws Exception {
-        Issuance broken = issuanceWithStatus(CredentialStatusEnum.VALID);
-        broken.setCredentialDataSet("{");
-        when(issuancePort.findAllByOrganizationIdentifier("org-123")).thenReturn(Flux.just(broken));
-        when(objectMapper.readTree("{")).thenThrow(new JsonParseException(null, "unexpected end"));
-
-        StepVerifier.create(issuanceService.getAllIssuanceSummariesByOrganizationId("org-123"))
-                .expectError(ParseCredentialJsonException.class)
                 .verify();
     }
 

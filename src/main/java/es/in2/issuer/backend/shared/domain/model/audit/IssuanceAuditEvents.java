@@ -24,6 +24,13 @@ public final class IssuanceAuditEvents {
     /** Scope of a listing made for no particular organization, such as an administrator's view of the whole tenant. */
     private static final String SCOPE_TENANT = "tenant";
 
+    /** A detail refused because the caller may not read processes at all. */
+    public static final String REASON_POLICY_DENIED = AuditVocabulary.POLICY_DENIED;
+    /** A detail refused because the process does not exist or is out of the caller's scope, which read the same. */
+    public static final String REASON_ISSUANCE_NOT_FOUND = "IssuanceNotFound";
+    /** A search by an identifier no catalogue entry of the tenant declares (EUD-255 AD-7). */
+    public static final String REASON_UNKNOWN_IDENTIFIER_TYPE = "UnknownIdentifierType";
+
     /** Whether an offer is the first one of the process or a new one asked for while it is still a draft. */
     public enum OfferKind {
         INITIAL("Initial"),
@@ -162,15 +169,24 @@ public final class IssuanceAuditEvents {
     }
 
     /**
-     * A list of issuance processes. The list endpoint takes no filters, so {@code filters} is empty;
-     * {@code scope} identifies who was listed for, {@code <kind>:<id>} being the catalogue's resource form.
+     * A page of issuance processes (EUD-255 AD-7). {@code filters} are the ones the request gave, by their
+     * names in the API and in clear -- the trace is the one place they are kept; {@code scope} identifies who
+     * was listed for, {@code <kind>:<id>} being the catalogue's resource form.
      */
-    public static AuditEntry queried(String scope, int returnedCount) {
+    public static AuditEntry queried(String scope, Map<String, Object> filters, int returnedCount) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("filters", Map.of());
+        details.put("filters", filters == null ? Map.of() : filters);
         details.put("returned_count", returnedCount);
         String listedFor = scope == null || scope.isBlank() ? SCOPE_TENANT : scope;
         return AuditEntry.success(AuditEventType.ISSUANCE_QUERIED, "issuance-list:" + listedFor, details);
+    }
+
+    /** A search refused for a reason of the catalogue, with the filters as received and no count. */
+    public static AuditEntry queryRefused(String scope, Map<String, Object> filters, String reason) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("filters", filters == null ? Map.of() : filters);
+        String listedFor = scope == null || scope.isBlank() ? SCOPE_TENANT : scope;
+        return AuditEntry.forReason(AuditEventType.ISSUANCE_QUERIED, "issuance-list:" + listedFor, reason, details);
     }
 
     /** The detail of one process, with the holder it is for. */

@@ -45,6 +45,12 @@ public class IssuanceEntity {
     @Nullable
     private String subject;
 
+    // EUD-255 AD-9 (V22): the subject as the search by name compares it, written from subject on
+    // every save by IssuanceMapper, never read back into the domain.
+    @Column("subject_search")
+    @Nullable
+    private String subjectSearch;
+
     @Column("credential_type")
     private String credentialType;
 
@@ -92,6 +98,11 @@ public class IssuanceEntity {
     @Version
     @Column("version")
     private Long version;
+
+    // EUD-255 AD-2 (V21): creation or last change of state, set by the domain. Not a Spring
+    // auditing field: @LastModifiedDate would move it on every write.
+    @Column("last_changed_at")
+    private Instant lastChangedAt;
 
     // --- Auditing fields (R2DBC auditing will fill these) ---
     @CreatedDate

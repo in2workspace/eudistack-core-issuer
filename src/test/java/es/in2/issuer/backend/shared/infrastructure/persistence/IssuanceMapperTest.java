@@ -20,6 +20,7 @@ class IssuanceMapperTest {
         Instant deliveryAttemptedAt = Instant.ofEpochSecond(1_750_000_000L);
         Instant createdAt = Instant.ofEpochSecond(1_600_000_000L);
         Instant updatedAt = Instant.ofEpochSecond(1_650_000_000L);
+        Instant lastChangedAt = Instant.ofEpochSecond(1_640_000_000L);
 
         IssuanceEntity entity = IssuanceEntity.builder()
                 .issuanceId(issuanceId)
@@ -38,6 +39,7 @@ class IssuanceMapperTest {
                 .deliveryAttemptedAt(deliveryAttemptedAt)
                 .holderCnf("{\"jwk\":{\"kty\":\"EC\"}}")
                 .version(3L)
+                .lastChangedAt(lastChangedAt)
                 .createdAt(createdAt)
                 .updatedAt(updatedAt)
                 .createdBy("system")
@@ -62,6 +64,7 @@ class IssuanceMapperTest {
         assertThat(domain.getDeliveryAttemptedAt()).isEqualTo(deliveryAttemptedAt);
         assertThat(domain.getHolderCnf()).isEqualTo("{\"jwk\":{\"kty\":\"EC\"}}");
         assertThat(domain.getVersion()).isEqualTo(3L);
+        assertThat(domain.getLastChangedAt()).isEqualTo(lastChangedAt);
         assertThat(domain.getCreatedAt()).isEqualTo(createdAt);
         assertThat(domain.getUpdatedAt()).isEqualTo(updatedAt);
         assertThat(domain.getCreatedBy()).isEqualTo("system");
@@ -76,6 +79,7 @@ class IssuanceMapperTest {
         Instant deliveryAttemptedAt = Instant.ofEpochSecond(1_750_000_000L);
         Instant createdAt = Instant.ofEpochSecond(1_600_000_000L);
         Instant updatedAt = Instant.ofEpochSecond(1_650_000_000L);
+        Instant lastChangedAt = Instant.ofEpochSecond(1_640_000_000L);
 
         Issuance domain = Issuance.builder()
                 .issuanceId(issuanceId)
@@ -94,6 +98,7 @@ class IssuanceMapperTest {
                 .deliveryAttemptedAt(deliveryAttemptedAt)
                 .holderCnf("{\"jwk\":{\"kty\":\"EC\"}}")
                 .version(7L)
+                .lastChangedAt(lastChangedAt)
                 .createdAt(createdAt)
                 .updatedAt(updatedAt)
                 .createdBy("system")
@@ -118,6 +123,7 @@ class IssuanceMapperTest {
         assertThat(entity.getDeliveryAttemptedAt()).isEqualTo(deliveryAttemptedAt);
         assertThat(entity.getHolderCnf()).isEqualTo("{\"jwk\":{\"kty\":\"EC\"}}");
         assertThat(entity.getVersion()).isEqualTo(7L);
+        assertThat(entity.getLastChangedAt()).isEqualTo(lastChangedAt);
         assertThat(entity.getCreatedAt()).isEqualTo(createdAt);
         assertThat(entity.getUpdatedAt()).isEqualTo(updatedAt);
         assertThat(entity.getCreatedBy()).isEqualTo("system");
@@ -132,5 +138,15 @@ class IssuanceMapperTest {
     @Test
     void shouldReturnNullWhenMappingNullDomainToEntity() {
         assertThat(IssuanceMapper.toEntity(null)).isNull();
+    }
+
+    /** EUD-255 AD-9: the search form is derived from the subject on every save, never taken from elsewhere. */
+    @Test
+    void shouldDeriveTheSearchFormOfTheSubject() {
+        IssuanceEntity named = IssuanceMapper.toEntity(Issuance.builder().subject("María  García").build());
+        IssuanceEntity unnamed = IssuanceMapper.toEntity(Issuance.builder().build());
+
+        assertThat(named.getSubjectSearch()).isEqualTo("maria garcia");
+        assertThat(unnamed.getSubjectSearch()).isNull();
     }
 }

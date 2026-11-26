@@ -20,6 +20,7 @@ import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
+import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.SearchIdentifierIndexer;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
@@ -158,6 +159,7 @@ class DirectDeliveryCeilingTest {
         IssuanceController controller = new IssuanceController(
                 issuanceWorkflow,
                 mock(IssuanceService.class),
+                mock(IssuanceQueryService.class),
                 mock(PowerAuthorizationService.class),
                 mock(RevocationWorkflow.class),
                 urlResolver,

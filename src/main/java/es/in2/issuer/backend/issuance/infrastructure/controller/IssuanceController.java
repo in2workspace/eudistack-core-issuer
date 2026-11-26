@@ -3,15 +3,18 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.issuance.application.workflow.CredentialOfferRenewalWorkflow;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceDetail;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceHttpResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
+import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
+import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceQueryService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.domain.util.IssuanceIds;
@@ -29,9 +32,9 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
 
 @Slf4j
@@ -43,8 +46,12 @@ public class IssuanceController {
     /** Resource id traced for a path id that is not a process id. */
     static final String MALFORMED_ID = "<malformed>";
 
+    /** The path parameter of the process id, as a violation names it. */
+    static final String ID = "id";
+
     private final IssuanceWorkflow issuanceWorkflow;
     private final IssuanceService issuanceService;
+    private final IssuanceQueryService issuanceQueryService;
     private final PowerAuthorizationService powerAuthorizationService;
     private final RevocationWorkflow revocationWorkflow;
     private final UrlResolver urlResolver;
@@ -68,29 +75,64 @@ public class IssuanceController {
                 .map(response -> toResponseEntity(response, publicIssuerBaseUrl));
     }
 
-    /** C1/C2 (EUD-253): the decision's scope says whether the caller sees its organization or the whole tenant. */
+    /**
+     * A page of the listing (EUD-255 FR-03, FR-04, FR-10). The parameters are checked for shape first,
+     * then C1/C2 (EUD-253) decides, and its scope says whether the caller sees its organization, the
+     * whole tenant or, from the platform tenant, every tenant (API-10).
+     */
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<IssuanceList> getAllIssuances() {
-        return powerAuthorizationService.authorizeQuery(null, null)
-                .flatMap(issuanceService::getAllIssuancesVisibleFor);
+    public Mono<IssuanceList> listIssuances(
+            @RequestParam(name = IssuanceListParameters.LIFE_CYCLE_STATUS, required = false) String lifeCycleStatus,
+            @RequestParam(name = IssuanceListParameters.CREDENTIAL_CONFIGURATION_ID, required = false) String credentialConfigurationId,
+            @RequestParam(name = IssuanceListParameters.TENANT, required = false) String tenant,
+            @RequestParam(name = IssuanceListParameters.LIMIT, required = false) String limit,
+            @RequestParam(name = IssuanceListParameters.CURSOR, required = false) String cursor) {
+        return requireTenant().then(Mono.fromCallable(() -> IssuanceListParameters.toQuery(
+                        lifeCycleStatus, credentialConfigurationId, tenant, limit, cursor))
+                .flatMap(query -> powerAuthorizationService.authorizeQuery(null, null)
+                        .flatMap(decision -> issuanceQueryService.list(decision, query))));
     }
 
     /**
-     * C1/C2 on one attestation, decided with the organization stored with it: another organization's
-     * reads as not found and is traced as out of scope (FR-13). An id that is not in the tenant is
-     * decided without a resource -- the platform administrator's cross-tenant view finds it in
-     * another schema, everyone else gets not found from the lookup. An id that is not a UUID is
-     * decided too, so a caller who may not query is still denied, and then rejected as a bad request.
+     * A page of the search (EUD-255 FR-05, FR-11): the same scope, filters, order and pagination as the listing,
+     * plus a business identifier (searched by its fingerprint) or a text searched in the subject. The body
+     * carries personal data, so it is read as bytes -- Spring's text decoder would log it -- and checked
+     * here (API-10, before the permission) without ever being logged or echoed; only the audit trail of the query
+     * records the value searched (AD-5, AD-7). The volume limit of the class {@code search} applies before this.
+     */
+    @PostMapping(value = "/search",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.OK)
+    public Mono<IssuanceList> searchIssuances(@RequestBody(required = false) byte[] body) {
+        return requireTenant().then(Mono.fromCallable(() -> IssuanceSearchParameters.toQuery(body))
+                .flatMap(query -> powerAuthorizationService.authorizeQuery(null, null)
+                        .flatMap(decision -> issuanceQueryService.list(decision, query))));
+    }
+
+    /**
+     * The detail of one process (EUD-255 FR-06). The id is checked for shape first (API-10): one that is not
+     * a UUID is an invalid request, never echoed. Then the use case decides C1/C2 on the organization stored
+     * with the process -- another organization's reads as not found (FR-13) -- and traces the access or the
+     * refusal (AD-7).
      */
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<CredentialDetails> getIssuance(@PathVariable("id") String id) {
-        return storedOrganization(id)
-                .map(Optional::of)
-                .defaultIfEmpty(Optional.empty())
-                .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), tracedId(id)))
-                .flatMap(decision -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(decision, id));
+    public Mono<IssuanceDetail> getIssuance(@PathVariable("id") String id) {
+        return requireTenant().then(Mono.defer(() -> IssuanceIds.parse(id)
+                .map(issuanceQueryService::detail)
+                .orElseGet(() -> Mono.error(InvalidQueryException.of(ID, "is not an issuance process id")))));
+    }
+
+    /**
+     * EUD-255 design §1, ES-07: a query needs the tenant of the request, before its shape, its permission or its
+     * trace. Without one it is {@code tenant_not_resolved}, never a mismatch with the token nor a failed read.
+     */
+    private static Mono<Void> requireTenant() {
+        return Mono.deferContextual(context -> context.hasKey(TENANT_DOMAIN_CONTEXT_KEY)
+                ? Mono.empty()
+                : Mono.error(new TenantNotResolvedException("A query needs the tenant of the request")));
     }
 
     /**

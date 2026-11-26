@@ -23,19 +23,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The volume limits of the management APIs through the real HTTP, authentication and database path (EUD-269):
  * per person, per organization for its systems, raised per organization from the tenant configuration, on the
- * listing, the issuance (AC-08 and AC-20 of EUD-254) and the revocation (AC-09 of EUD-247). Low limits so the
- * test sends a handful of requests; the defaults of the PRDs are covered by the unit tests. The requests under
+ * listing, the detail and the search (AC-11 of EUD-255), the issuance (AC-08 and AC-20 of EUD-254) and the revocation
+ * (AC-09 of EUD-247). Low limits so the test sends a handful of requests, but for the search, which has the deployed
+ * ones (EUD-270 task 8); that they are the ones of application.yml is checked by DeployedVolumeLimitsTest. The requests under
  * the limit need not succeed: every request that reaches the API is counted, and the limit is decided first.
  */
 @TestPropertySource(properties = {
         "issuer.api.volume-limit.read.per-person=3",
         "issuer.api.volume-limit.read.systems-per-organization=4",
         "issuer.api.volume-limit.issuance.per-person=2",
-        "issuer.api.volume-limit.revocation.per-person=2"
+        "issuer.api.volume-limit.revocation.per-person=2",
+        "issuer.api.volume-limit.search.per-person=" + ApiVolumeLimitHttpIT.SEARCHES_PER_PERSON,
+        "issuer.api.volume-limit.search.systems-per-organization=" + ApiVolumeLimitHttpIT.SEARCHES_PER_ORGANIZATION_SYSTEMS
 })
 class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
 
     private static final String TENANT = "e2e-tenant-b";
+    /** The deployed limits of the search (application.yml). */
+    static final int SEARCHES_PER_PERSON = 10;
+    static final int SEARCHES_PER_ORGANIZATION_SYSTEMS = 60;
+
+    private static final String SEARCH = "/api/v1/issuances/search";
 
     private static String organization() {
         return "VATES-IT" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
@@ -132,6 +140,51 @@ class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
         assertThat(list(person(organization, "ana@example.org")).getStatus()).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
 
+    /** EUD-255 AC-11: the listing and the detail are one class, read, and count together. */
+    @Test
+    void theListingAndTheDetailOfAPerson_shareTheReadLimit() {
+        String ana = person(organization(), "ana@example.org");
+
+        assertThat(list(ana).getStatus()).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(send(HttpMethod.GET, "/api/v1/issuances/" + UUID.randomUUID(), ana, "{}").getStatus())
+                .isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(list(ana).getStatus()).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertRateLimited(send(HttpMethod.GET, "/api/v1/issuances/" + UUID.randomUUID(), ana, "{}"));
+        assertRateLimited(list(ana));
+    }
+
+    /**
+     * EUD-255 AC-11, ES-07 with the deployed limit: 10 searches a minute per person, counted before the shape of
+     * the body (API-10), and apart from the listing.
+     */
+    @Test
+    void theSearchOfAPerson_hasItsOwnLimit_countedBeforeTheShape() {
+        String ana = person(organization(), "ana@example.org");
+
+        for (int i = 0; i < SEARCHES_PER_PERSON; i++) {
+            assertThat(send(HttpMethod.POST, SEARCH, ana, "{\"subject\": \"garcia\"}").getStatus())
+                    .as("search %d", i + 1).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        }
+        assertRateLimited(send(HttpMethod.POST, SEARCH, ana, "{\"subject\": \"garcia\"}"));
+        // Over the limit, a body that is not valid is refused for the volume, not for its shape.
+        assertRateLimited(send(HttpMethod.POST, SEARCH, ana, "{\"subject\": \"ma\"}"));
+        assertThat(list(ana).getStatus()).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    /** EUD-255 AC-11 with the deployed limit: the systems of an organization share 60 searches a minute. */
+    @Test
+    void theSystemsOfAnOrganization_shareTheirSearchLimit() {
+        String organization = organization();
+
+        for (int i = 0; i < SEARCHES_PER_ORGANIZATION_SYSTEMS; i++) {
+            assertThat(send(HttpMethod.POST, SEARCH, system(organization, "machine-" + (i % 3)), "{\"subject\": \"garcia\"}")
+                    .getStatus()).as("search %d", i + 1).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        }
+        assertRateLimited(send(HttpMethod.POST, SEARCH, system(organization, "machine-9"), "{\"subject\": \"garcia\"}"));
+        assertThat(send(HttpMethod.POST, SEARCH, system(organization(), "machine-0"), "{\"subject\": \"garcia\"}").getStatus())
+                .isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     @Test
     void supportRaisesTheLimitOfOneOrganization_fromTheTenantConfiguration() {
         String organization = organization();
@@ -194,6 +247,56 @@ class ApiVolumeLimitHttpIT extends PostgresIntegrationBase {
         }
         assertThat(sendFrom("198.51.100.10", HttpMethod.POST, revocation, otherTenantToken).getStatus())
                 .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    /**
+     * EUD-255 ES-07: a query refused for its token (not valid) or its tenant (none) is not counted against the limit
+     * of the person whose claims it carries: after more of them than the read and the search limits, that person
+     * still lists, reads a detail and searches. From an address of their own, which the refused requests do count.
+     */
+    @Test
+    void aQueryRefusedForItsTokenOrItsTenant_isNotCountedInTheLimitOfThePerson() {
+        String ana = person(organization(), "ana@example.org");
+        String[] parts = ana.split("\\.");
+        String forged = parts[0] + "." + parts[1] + "." + (parts[2].charAt(0) == 'A' ? 'B' : 'A') + parts[2].substring(1);
+        String detail = "/api/v1/issuances/" + UUID.randomUUID();
+        String address = "198.51.100.12";
+
+        for (int i = 0; i < SEARCHES_PER_PERSON + 1; i++) {
+            for (String token : List.of(forged, ana)) {
+                boolean withTenant = token.equals(forged);
+                // Refused, never for the volume: the codes of each refusal are checked by IssuanceSearchIT
+                assertThat(query(address, HttpMethod.POST, SEARCH, token, withTenant).getStatus())
+                        .isNotEqualTo(HttpStatus.OK).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                if (i <= 3) {
+                    assertThat(query(address, HttpMethod.GET, "/api/v1/issuances", token, withTenant).getStatus())
+                            .isNotEqualTo(HttpStatus.OK).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                    assertThat(query(address, HttpMethod.GET, detail, token, withTenant).getStatus())
+                            .isNotEqualTo(HttpStatus.NOT_FOUND).isNotEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                }
+            }
+        }
+
+        assertThat(list(ana).getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(send(HttpMethod.GET, detail, ana, "{}").getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(send(HttpMethod.POST, SEARCH, ana, "{\"subject\": \"garcia\"}").getStatus()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** One query from its own address, with or without the tenant header. */
+    private EntityExchangeResult<Map<String, Object>> query(String address, HttpMethod method, String path, String token,
+                                                           boolean withTenant) {
+        var request = webTestClient()
+                .method(method).uri(path)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header("X-Forwarded-For", address);
+        if (withTenant) {
+            request = request.header(X_TENANT_HEADER, TENANT);
+        }
+        if (method == HttpMethod.POST) {
+            return request.contentType(MediaType.APPLICATION_JSON).bodyValue("{\"subject\": \"garcia\"}").exchange()
+                    .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {}).returnResult();
+        }
+        return request.exchange().expectBody(new ParameterizedTypeReference<Map<String, Object>>() {}).returnResult();
     }
 
     /** A route of the management APIs with no operation is not counted by its requester: the address limit is. */

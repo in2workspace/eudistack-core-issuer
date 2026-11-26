@@ -1,12 +1,14 @@
 package es.in2.issuer.backend.shared.infrastructure.persistence;
 
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
+import es.in2.issuer.backend.shared.domain.util.SubjectSearch;
 
 /**
  * Hand-written mapper between the domain {@link Issuance} and its R2DBC persistence
  * counterpart {@link IssuanceEntity}. Round-trips every field, including {@code version}
  * and the auditing fields, so Spring Data R2DBC's optimistic locking and auditing behave
- * exactly as before the domain/infrastructure split (EUDISTACK-650 / H-05).
+ * exactly as before the domain/infrastructure split (EUDISTACK-650 / H-05). The one column
+ * that is not a domain field, {@code subject_search}, is derived from the subject on the way in.
  */
 public final class IssuanceMapper {
 
@@ -35,6 +37,7 @@ public final class IssuanceMapper {
                 .deliveryAttemptedAt(entity.getDeliveryAttemptedAt())
                 .holderCnf(entity.getHolderCnf())
                 .version(entity.getVersion())
+                .lastChangedAt(entity.getLastChangedAt())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .createdBy(entity.getCreatedBy())
@@ -53,6 +56,8 @@ public final class IssuanceMapper {
                 .credentialStatus(issuance.getCredentialStatus())
                 .organizationIdentifier(issuance.getOrganizationIdentifier())
                 .subject(issuance.getSubject())
+                // Derived on every save, so it can never fall behind the subject (EUD-255 AD-9).
+                .subjectSearch(SubjectSearch.normalize(issuance.getSubject()))
                 .credentialType(issuance.getCredentialType())
                 .validFrom(issuance.getValidFrom())
                 .validUntil(issuance.getValidUntil())
@@ -64,6 +69,7 @@ public final class IssuanceMapper {
                 .deliveryAttemptedAt(issuance.getDeliveryAttemptedAt())
                 .holderCnf(issuance.getHolderCnf())
                 .version(issuance.getVersion())
+                .lastChangedAt(issuance.getLastChangedAt())
                 .createdAt(issuance.getCreatedAt())
                 .updatedAt(issuance.getUpdatedAt())
                 .createdBy(issuance.getCreatedBy())

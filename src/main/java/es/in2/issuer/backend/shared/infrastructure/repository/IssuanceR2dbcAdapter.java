@@ -3,16 +3,22 @@ package es.in2.issuer.backend.shared.infrastructure.repository;
 import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.query.IssuanceQuery;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
+import es.in2.issuer.backend.shared.domain.util.SubjectSearch;
+import es.in2.issuer.backend.shared.infrastructure.persistence.IssuanceEntity;
 import es.in2.issuer.backend.shared.infrastructure.persistence.IssuanceMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -59,15 +65,62 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
                 .map(IssuanceMapper::toDomain);
     }
 
+    /**
+     * Keyset pagination (EUD-255 AD-1) with the row comparison {@code (last_changed_at, issuance_id) <
+     * cursor}, which the indexes of V21 serve in the order of the {@code ORDER BY}. Every value is a
+     * bind parameter; only the shape of the statement depends on which filters are present.
+     */
     @Override
-    public Flux<Issuance> findAllByOrganizationIdentifier(String organizationIdentifier) {
-        return issuanceR2dbcRepository.findAllByOrganizationIdentifier(organizationIdentifier)
-                .map(IssuanceMapper::toDomain);
-    }
+    public Flux<Issuance> findPage(IssuanceQuery query, String organizationIdentifier, int fetchSize) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM issuance WHERE TRUE");
+        Map<String, Object> binds = new LinkedHashMap<>();
+        if (organizationIdentifier != null) {
+            sql.append(" AND organization_identifier = :organizationIdentifier");
+            binds.put("organizationIdentifier", organizationIdentifier);
+        }
+        if (!query.lifeCycleStatuses().isEmpty()) {
+            sql.append(" AND credential_status IN (:lifeCycleStatuses)");
+            binds.put("lifeCycleStatuses", query.lifeCycleStatuses().stream().map(Enum::name).sorted().toList());
+        }
+        if (query.credentialConfigurationId() != null) {
+            // The catalogue entry is stored in credential_type (EUD-255 §5 of the prd).
+            sql.append(" AND credential_type = :credentialConfigurationId");
+            binds.put("credentialConfigurationId", query.credentialConfigurationId());
+        }
+        String subject = query.subject();
+        if (subject != null) {
+            // EUD-255 AD-9: a partial match over the normalized subject, resolved by the trigram index. The text
+            // is only ever a bound parameter, with the wildcards of LIKE escaped so they match themselves.
+            sql.append(" AND subject_search LIKE :subjectPattern ESCAPE '\\'");
+            binds.put("subjectPattern", "%" + escapeLike(SubjectSearch.normalize(subject)) + "%");
+        }
+        if (query.identifier() != null) {
+            // EUD-255 AD-4 and AD-5: the processes with a fingerprint of that type equal to the one searched, by the
+            // lookup index of issuance_search_identifier. Only the fingerprint reaches the database, never the value.
+            if (!query.identifier().isFingerprinted()) {
+                return Flux.error(new IllegalStateException(
+                        "A search by identifier reaches the persistence only fingerprinted"));
+            }
+            sql.append(" AND issuance_id IN (SELECT issuance_id FROM issuance_search_identifier"
+                    + " WHERE identifier_type = :identifierType AND fingerprint = :identifierFingerprint)");
+            binds.put("identifierType", query.identifier().type());
+            binds.put("identifierFingerprint", query.identifier().fingerprint());
+        }
+        if (query.cursor() != null) {
+            sql.append(" AND (last_changed_at, issuance_id) < (CAST(:afterLastChangedAt AS timestamptz), CAST(:afterIssuanceId AS uuid))");
+            binds.put("afterLastChangedAt", query.cursor().position().lastChangedAt());
+            binds.put("afterIssuanceId", query.cursor().position().issuanceId());
+        }
+        sql.append(" ORDER BY last_changed_at DESC, issuance_id DESC LIMIT :fetchSize");
+        binds.put("fetchSize", fetchSize);
 
-    @Override
-    public Flux<Issuance> findAllOrderByUpdatedDesc() {
-        return issuanceR2dbcRepository.findAllOrderByUpdatedDesc().map(IssuanceMapper::toDomain);
+        DatabaseClient.GenericExecuteSpec spec = r2dbcEntityTemplate.getDatabaseClient().sql(sql.toString());
+        for (Map.Entry<String, Object> bind : binds.entrySet()) {
+            spec = spec.bind(bind.getKey(), bind.getValue());
+        }
+        return spec.map((row, metadata) -> r2dbcEntityTemplate.getConverter().read(IssuanceEntity.class, row, metadata))
+                .all()
+                .map(IssuanceMapper::toDomain);
     }
 
     @Override
@@ -106,5 +159,10 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
     @Override
     public Flux<Issuance> findFailedDeliveries(Instant cutoff) {
         return issuanceR2dbcRepository.findFailedDeliveries(cutoff).map(IssuanceMapper::toDomain);
+    }
+
+    /** The text with the escape character and the wildcards of LIKE escaped, so it is matched literally. */
+    static String escapeLike(String text) {
+        return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

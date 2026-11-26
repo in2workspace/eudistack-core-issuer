@@ -8,6 +8,10 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalIssuanceNotFoundEx
 import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
+import es.in2.issuer.backend.shared.domain.exception.AuditTrailUnavailableException;
+import es.in2.issuer.backend.shared.domain.exception.InvalidQueryException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceQueryUnavailableException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownIdentifierTypeException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -65,6 +69,51 @@ public class IssuanceExceptionHandler {
                 HttpStatus.CONFLICT,
                 "The entity is not in a valid status for this operation"
         );
+    }
+
+    /** EUD-255: a query that is not valid, with one violation per field and never its value (AD-5). */
+    @ExceptionHandler(InvalidQueryException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidQuery(
+            InvalidQueryException ex,
+            ServerHttpRequest request
+    ) {
+        var violations = ex.violations().stream()
+                .map(v -> new GlobalErrorMessage.FieldViolation(v.field(), v.message()))
+                .toList();
+        return errors.handleWithViolations(
+                ex, request,
+                GlobalErrorTypes.INVALID_REQUEST.getCode(),
+                "Invalid request",
+                HttpStatus.BAD_REQUEST,
+                "The query is not valid",
+                violations
+        );
+    }
+
+    /** EUD-255 FR-05: a search by an identifier that no catalogue entry of the tenant declares. */
+    @ExceptionHandler(UnknownIdentifierTypeException.class)
+    public ResponseEntity<GlobalErrorMessage> handleUnknownIdentifierType(
+            UnknownIdentifierTypeException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.problem(ex, request, GlobalErrorTypes.UNKNOWN_IDENTIFIER_TYPE.getCode(),
+                "Unknown identifier type", HttpStatus.BAD_REQUEST,
+                "No attestation of the tenant declares that search identifier", null);
+    }
+
+    /**
+     * EUD-255 AD-7 and AD-3: a read whose trace could not be staged, or whose processes could not be read (a schema
+     * of a tenant that fails). Nothing of the read is returned, and the detail is fixed: neither the business
+     * outcome (a refusal included) nor the cause reaches the client.
+     */
+    @ExceptionHandler({AuditTrailUnavailableException.class, IssuanceQueryUnavailableException.class})
+    public ResponseEntity<GlobalErrorMessage> handleQueryInternalError(
+            RuntimeException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.problem(ex, request, GlobalErrorTypes.INTERNAL_ERROR.getCode(), "Internal error",
+                HttpStatus.INTERNAL_SERVER_ERROR, "The request could not be completed", null);
     }
 
     @ExceptionHandler(InvalidDeliveryModeException.class)
