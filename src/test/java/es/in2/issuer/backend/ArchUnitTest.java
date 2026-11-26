@@ -140,6 +140,13 @@ class ArchUnitTest {
                     .that().resideInAPackage(BASE_PACKAGE + "..")
                     .should().dependOnClassesThat().resideInAPackage("io.github.novacrypto..");
 
+    /** The EUPL-1.2 Base45 library is replaced by Base45Codec; it must not come back. */
+    @ArchTest
+    static final ArchRule noProductionClassShouldDependOnEuplBase45 =
+            noClasses()
+                    .that().resideInAPackage(BASE_PACKAGE + "..")
+                    .should().dependOnClassesThat().resideInAPackage("nl.minvws..");
+
     @ArchTest
     static final ArchRule signingDomainShouldNotDependOnBouncyCastle =
             noClasses()

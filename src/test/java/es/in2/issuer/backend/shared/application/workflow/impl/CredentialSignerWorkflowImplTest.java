@@ -26,7 +26,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import com.upokecenter.cbor.CBORObject;
+import es.in2.issuer.backend.shared.domain.util.Base45Codec;
+
+import java.io.ByteArrayInputStream;
 import java.net.ConnectException;
+import java.util.zip.InflaterInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
@@ -37,6 +42,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.mockito.Mockito.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CWT_VC;
 import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -154,6 +160,39 @@ class CredentialSignerWorkflowImplTest {
 
         verify(genericCredentialBuilder).buildJwtPayload(eq(profile), eq(enrichedDataSet), any());
         verify(delegatingSigningProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
+    }
+
+    /**
+     * cwt_vc: the attestation goes to CBOR, is signed as COSE, and the signed COSE is deflated and written in Base45
+     * (RFC 9285), the text a QR carries.
+     */
+    @Test
+    void signCredential_cwtVc_signsTheCborAsCose_andAnswersTheDeflatedCoseInBase45() throws Exception {
+        String unsignedPayload = "{\"credentialSubject\":{\"name\":\"Test\"},\"issuer\":\"did:key:issuer1\"}";
+        byte[] signedCose = "signed-cose-bytes".repeat(20).getBytes(StandardCharsets.UTF_8);
+        CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
+        when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq("enrichedData"), any()))
+                .thenReturn(Mono.just(unsignedPayload));
+        when(delegatingSigningProvider.sign(any()))
+                .thenReturn(Mono.just(new SigningResult(SigningType.COSE, Base64.getEncoder().encodeToString(signedCose))));
+
+        String signed = credentialSignerWorkflow.signCredential(
+                token, "enrichedData", "learcredential.employee.w3c.4", CWT_VC, Collections.emptyMap(), issuanceId, email)
+                .block();
+
+        assertThat(inflate(Base45Codec.decode(signed))).isEqualTo(signedCose);
+        ArgumentCaptor<SigningRequest> request = ArgumentCaptor.forClass(SigningRequest.class);
+        verify(delegatingSigningProvider).sign(request.capture());
+        assertEquals(SigningType.COSE, request.getValue().type());
+        assertThat(Base64.getDecoder().decode(request.getValue().data()))
+                .isEqualTo(CBORObject.FromJSONString(unsignedPayload).EncodeToBytes());
+    }
+
+    private static byte[] inflate(byte[] deflated) throws Exception {
+        try (InflaterInputStream in = new InflaterInputStream(new ByteArrayInputStream(deflated))) {
+            return in.readAllBytes();
+        }
     }
 
     @Test
