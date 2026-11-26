@@ -9,6 +9,7 @@ import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflo
 import es.in2.issuer.backend.shared.domain.exception.Base45Exception;
 import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.util.Base45Codec;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.sdjwt.Disclosure;
 import es.in2.issuer.backend.shared.domain.util.sdjwt.SdJwtPayloadBuilder;
@@ -23,7 +24,6 @@ import es.in2.issuer.backend.signing.domain.spi.SignatureAuditPort;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import nl.minvws.encoding.Base45;
 import org.apache.commons.compress.compressors.CompressorOutputStream;
 import org.apache.commons.compress.compressors.CompressorStreamFactory;
 import org.springframework.stereotype.Service;
@@ -127,7 +127,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                 deflateOut.write(cose);
             }
             byte[] zip = stream.toByteArray();
-            return Base45.getEncoder().encodeToString(zip);
+            return Base45Codec.encode(zip);
         }).onErrorResume(e -> {
             log.error("Error compressing and converting to Base45: " + e.getMessage(), e);
             return Mono.error(new Base45Exception("Error compressing and converting to Base45"));
